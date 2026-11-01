@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""X1000 — Collecteur PMU sécurisé 2.3 (Python 3.10+).
+"""X1000 — Collecteur PMU sécurisé 2.4.
 
-Uniquement réunions explicitement confirmées en France.
-Aucun pronostic, résultat officiel ou FIGÉ créé ou modifié.
---dry-run et --self-test : aucune écriture dans le dépôt.
+Python 3.10+ — bibliothèque standard uniquement.
+
+- Date API PMU au format JJMMAAAA.
+- Réunions explicitement confirmées en France uniquement.
+- Collecte des courses, partants et non-partants réels.
+- Contrôle des erreurs, doublons et publications.
+- Aucune donnée hippique inventée.
+- Aucun pronostic, résultat officiel ou FIGÉ modifié.
+- --dry-run : aucune écriture.
+- --self-test : tests hors réseau, sans écriture dans le dépôt.
 """
 from __future__ import annotations
 
@@ -25,11 +32,18 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
-VERSION = "X1000-PMU-SECURISE-2.3"
+
+VERSION = "X1000-PMU-SECURISE-2.4"
 PARIS = ZoneInfo("Europe/Paris")
+
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
-BASE = os.environ.get("PMU_API_BASE", "https://online.turfinfo.api.pmu.fr/rest/client/7").rstrip("/")
+
+BASE = os.environ.get(
+    "PMU_API_BASE",
+    "https://online.turfinfo.api.pmu.fr/rest/client/7"
+).rstrip("/")
+
 TIMEOUT = 15
 RETRIES = 3
 MAX_BYTES = 12_000_000
@@ -37,11 +51,15 @@ RETRYABLE = {408, 429, 500, 502, 503, 504}
 
 
 def now():
-    return dt.datetime.now(PARIS).isoformat(timespec="seconds")
+    return dt.datetime.now(PARIS).isoformat(
+        timespec="seconds"
+    )
 
 
 def text(value):
-    if value is None or isinstance(value, (dict, list, bool)):
+    if value is None or isinstance(
+        value, (dict, list, bool)
+    ):
         return ""
     return str(value).strip()
 
@@ -49,16 +67,22 @@ def text(value):
 def integer(value):
     if isinstance(value, bool):
         return None
+
     s = text(value)
+
     try:
-        return int(s) if re.fullmatch(r"[+-]?\d+", s) else None
+        if re.fullmatch(r"[+-]?\d+", s):
+            return int(s)
     except (ValueError, OverflowError):
-        return None
+        pass
+
+    return None
 
 
 def number(value):
     if isinstance(value, bool):
         return None
+
     try:
         n = float(text(value).replace(",", "."))
         return n if math.isfinite(n) else None
@@ -69,158 +93,408 @@ def number(value):
 def first(obj, *keys):
     if not isinstance(obj, dict):
         return None
+
     for key in keys:
         if obj.get(key) is not None:
             return obj[key]
+
     return None
 
 
 def array(obj, *keys):
     if isinstance(obj, list):
         return obj
+
     if isinstance(obj, dict):
         for key in keys:
             if isinstance(obj.get(key), list):
                 return obj[key]
+
     return []
 
 
 def label(value):
     if isinstance(value, dict):
-        value = first(value, "libelle", "nom", "name", "code")
+        value = first(
+            value,
+            "libelle",
+            "nom",
+            "name",
+            "code"
+        )
+
     return text(value)
+
+
+def api_date(date):
+    """Convertit AAAA-MM-JJ en JJMMAAAA."""
+    parsed = dt.date.fromisoformat(date)
+
+    if parsed.isoformat() != date:
+        raise ValueError("Date ISO invalide")
+
+    return parsed.strftime("%d%m%Y")
+
+
+def programme_path(date):
+    return f"programme/{api_date(date)}"
+
+
+def participants_path(date, reunion, course):
+    nr = integer(reunion)
+    nc = integer(course)
+
+    if nr is None or nr < 1:
+        raise ValueError("Numero reunion invalide")
+
+    if nc is None or nc < 1:
+        raise ValueError("Numero course invalide")
+
+    return (
+        f"programme/{api_date(date)}"
+        f"/R{nr}/C{nc}/participants"
+    )
 
 
 def validate_base():
     try:
         p = urlsplit(BASE)
-        valid = (p.scheme == "https" and bool(p.hostname)
-                 and not p.username and not p.password
-                 and not p.query and not p.fragment
-                 and p.port in (None, 443))
+
+        valid = (
+            p.scheme == "https"
+            and bool(p.hostname)
+            and not p.username
+            and not p.password
+            and not p.query
+            and not p.fragment
+            and p.port in (None, 443)
+        )
+
     except ValueError as exc:
-        raise ValueError("PMU_API_BASE invalide") from exc
+        raise ValueError(
+            "PMU_API_BASE invalide"
+        ) from exc
+
     if not valid:
-        raise ValueError("PMU_API_BASE doit etre une URL HTTPS sans identifiants")
+        raise ValueError(
+            "PMU_API_BASE doit etre une URL HTTPS "
+            "sans identifiants ni parametres"
+        )
 
 
 def request_json(path):
     validate_base()
-    if not re.fullmatch(r"[A-Za-z0-9/_-]+", path):
+
+    if not re.fullmatch(
+        r"[A-Za-z0-9/_-]+", path
+    ):
         raise ValueError("Chemin API invalide")
+
     url = BASE + "/" + path.lstrip("/")
     last = "Erreur inconnue"
+
     for attempt in range(RETRIES):
         retry = True
+
         try:
-            req = Request(url, headers={
-                "User-Agent": "Mozilla/5.0 (compatible; X1000-PMU/2.3)",
-                "Accept": "application/json",
-            })
-            with urlopen(req, timeout=TIMEOUT) as response:
+            req = Request(
+                url,
+                headers={
+                    "User-Agent": (
+                        "Mozilla/5.0 "
+                        "(compatible; X1000-PMU/2.4)"
+                    ),
+                    "Accept": "application/json",
+                }
+            )
+
+            with urlopen(
+                req, timeout=TIMEOUT
+            ) as response:
+
                 raw = response.read(MAX_BYTES + 1)
+
                 if len(raw) > MAX_BYTES:
-                    raise ValueError("Reponse API trop volumineuse")
-                obj = json.loads(raw.decode("utf-8-sig"))
-                if not isinstance(obj, (dict, list)):
-                    raise ValueError("Structure JSON inattendue")
+                    raise ValueError(
+                        "Reponse API trop volumineuse"
+                    )
+
+                obj = json.loads(
+                    raw.decode("utf-8-sig")
+                )
+
+                if not isinstance(
+                    obj, (dict, list)
+                ):
+                    raise ValueError(
+                        "Structure JSON inattendue"
+                    )
+
                 return obj
+
         except HTTPError as exc:
             try:
-                detail = exc.read(2048).decode("utf-8", errors="replace")
+                detail = exc.read(2048).decode(
+                    "utf-8",
+                    errors="replace"
+                )
             except (OSError, UnicodeError):
                 detail = "Detail indisponible"
             finally:
                 exc.close()
-            detail = " ".join(detail.split())[:500]
-            last = f"HTTP {exc.code}: {exc.reason}; reponse={detail or 'vide'}"
+
+            detail = " ".join(
+                detail.split()
+            )[:500]
+
+            last = (
+                f"HTTP {exc.code}: {exc.reason}; "
+                f"reponse={detail or 'vide'}"
+            )
+
             retry = exc.code in RETRYABLE
-        except (URLError, TimeoutError, OSError) as exc:
+
+        except (
+            URLError,
+            TimeoutError,
+            OSError
+        ) as exc:
             last = f"{type(exc).__name__}: {exc}"
-        except (ValueError, UnicodeError) as exc:
+
+        except (
+            ValueError,
+            UnicodeError
+        ) as exc:
             last = f"{type(exc).__name__}: {exc}"
             retry = False
+
         if not retry:
             break
+
         if attempt < RETRIES - 1:
-            time.sleep(0.5 * 2 ** attempt + random.uniform(0, 0.2))
-    raise RuntimeError(f"Echec API {path}: {last}")
+            time.sleep(
+                0.5 * 2 ** attempt
+                + random.uniform(0, 0.2)
+            )
+
+    raise RuntimeError(
+        f"Echec API {path}: {last}"
+    )
 
 
 def normalized_country(value):
     if isinstance(value, dict):
-        value = first(value, "code", "codePays", "nom", "libelle")
-    return unicodedata.normalize("NFKD", text(value)).encode(
-        "ascii", "ignore").decode().upper()
+        value = first(
+            value,
+            "code",
+            "codePays",
+            "nom",
+            "libelle"
+        )
+
+    return unicodedata.normalize(
+        "NFKD", text(value)
+    ).encode(
+        "ascii", "ignore"
+    ).decode().upper()
 
 
 def france_verified(reunion):
-    country = first(reunion, "codePays", "pays", "countryCode", "country")
+    country = first(
+        reunion,
+        "codePays",
+        "pays",
+        "countryCode",
+        "country"
+    )
+
     return normalized_country(country) in {
-        "FR", "FRA", "FRANCE", "FRANCAIS", "FRANCAISE"
+        "FR",
+        "FRA",
+        "FRANCE",
+        "FRANCAIS",
+        "FRANCAISE"
     }
 
 
 def departure(value, date):
     if value is None or isinstance(value, bool):
         return None
+
     try:
         s = text(value)
-        if re.fullmatch(r"\d{10}|\d{13}", s):
-            stamp = int(s) / (1000 if len(s) == 13 else 1)
-            d = dt.datetime.fromtimestamp(stamp, dt.timezone.utc)
-        elif re.fullmatch(r"\d{1,2}:\d{2}(:\d{2})?", s):
-            d = dt.datetime.fromisoformat(date + "T" + s).replace(tzinfo=PARIS)
+
+        if re.fullmatch(
+            r"\d{10}|\d{13}", s
+        ):
+            stamp = int(s) / (
+                1000 if len(s) == 13 else 1
+            )
+
+            d = dt.datetime.fromtimestamp(
+                stamp,
+                dt.timezone.utc
+            )
+
+        elif re.fullmatch(
+            r"\d{1,2}:\d{2}(:\d{2})?", s
+        ):
+            d = dt.datetime.fromisoformat(
+                date + "T" + s
+            ).replace(tzinfo=PARIS)
+
         else:
-            d = dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+            d = dt.datetime.fromisoformat(
+                s.replace("Z", "+00:00")
+            )
+
             if d.tzinfo is None:
                 d = d.replace(tzinfo=PARIS)
-        return d.astimezone(PARIS).isoformat(timespec="seconds")
-    except (ValueError, OverflowError, OSError):
+
+        return d.astimezone(PARIS).isoformat(
+            timespec="seconds"
+        )
+
+    except (
+        ValueError,
+        OverflowError,
+        OSError
+    ):
         return None
 
 
 def non_starter(item):
-    flag = first(item, "nonPartant", "non_partant")
-    if flag is True or (isinstance(flag, int) and not isinstance(flag, bool) and flag == 1):
+    flag = first(
+        item,
+        "nonPartant",
+        "non_partant"
+    )
+
+    if flag is True:
         return True
-    if isinstance(flag, str) and flag.strip().lower() in {"true", "oui", "yes", "1"}:
+
+    if (
+        isinstance(flag, int)
+        and not isinstance(flag, bool)
+        and flag == 1
+    ):
         return True
-    status = re.sub(r"[\s-]+", "_", text(first(
-        item, "statut", "statutParticipant", "status")).upper())
-    return status in {"NP", "NON_PARTANT", "NONPARTANT"}
+
+    if isinstance(flag, str):
+        if flag.strip().lower() in {
+            "true", "oui", "yes", "1"
+        }:
+            return True
+
+    status = re.sub(
+        r"[\s-]+",
+        "_",
+        text(first(
+            item,
+            "statut",
+            "statutParticipant",
+            "status"
+        )).upper()
+    )
+
+    return status in {
+        "NP",
+        "NON_PARTANT",
+        "NONPARTANT"
+    }
 
 
 def participant(item):
     if not isinstance(item, dict):
         return None
-    num = integer(first(item, "numPmu", "numero", "num", "numeroPmu"))
-    name = text(first(item, "nom", "nomCheval", "name"))
+
+    num = integer(first(
+        item,
+        "numPmu",
+        "numero",
+        "num",
+        "numeroPmu"
+    ))
+
+    name = text(first(
+        item,
+        "nom",
+        "nomCheval",
+        "name"
+    ))
+
     if num is None or num < 1 or not name:
         return None
+
     np = non_starter(item)
+
     return {
-        "numero": num, "nom": name, "non_partant": np,
-        "statut": "NON_PARTANT" if np else "PARTANT",
-        "jockey_driver": label(first(item, "driver", "jockey", "nomJockey", "nomDriver")) or None,
-        "entraineur": label(first(item, "entraineur", "nomEntraineur")) or None,
-        "musique": text(first(item, "musique", "musiqueCheval")) or None,
-        "age": integer(item.get("age")), "sexe": text(item.get("sexe")) or None,
-        "gains": number(first(item, "gainsParticipant", "gains", "gain")),
+        "numero": num,
+        "nom": name,
+        "non_partant": np,
+        "statut": (
+            "NON_PARTANT" if np else "PARTANT"
+        ),
+        "jockey_driver": label(first(
+            item,
+            "driver",
+            "jockey",
+            "nomJockey",
+            "nomDriver"
+        )) or None,
+        "entraineur": label(first(
+            item,
+            "entraineur",
+            "nomEntraineur"
+        )) or None,
+        "musique": text(first(
+            item,
+            "musique",
+            "musiqueCheval"
+        )) or None,
+        "age": integer(item.get("age")),
+        "sexe": text(item.get("sexe")) or None,
+        "gains": number(first(
+            item,
+            "gainsParticipant",
+            "gains",
+            "gain"
+        )),
         "source": "PMU",
     }
 
 
 def atomic_json(path, obj):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".x1000-", suffix=".json", dir=str(path.parent))
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    fd, tmp = tempfile.mkstemp(
+        prefix=".x1000-",
+        suffix=".json",
+        dir=str(path.parent)
+    )
+
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(obj, handle, ensure_ascii=False, indent=2, allow_nan=False)
+        with os.fdopen(
+            fd, "w", encoding="utf-8"
+        ) as handle:
+
+            json.dump(
+                obj,
+                handle,
+                ensure_ascii=False,
+                indent=2,
+                allow_nan=False
+            )
+
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
+
         os.replace(tmp, path)
+
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)
@@ -228,211 +502,613 @@ def atomic_json(path, obj):
 
 def report(date, courses, errors, warnings, status):
     return {
-        "version": VERSION, "date": date, "collecte_a": now(),
-        "source": BASE, "statut": status, "courses": courses,
-        "erreurs": errors, "avertissements": warnings,
+        "version": VERSION,
+        "date": date,
+        "collecte_a": now(),
+        "source": BASE,
+        "statut": status,
+        "courses": courses,
+        "erreurs": errors,
+        "avertissements": warnings,
         "statistiques": {
             "courses": len(courses),
-            "partants": sum(c["nombre_partants"] for c in courses),
-            "non_partants": sum(len(c["non_partants"]) for c in courses),
+            "partants": sum(
+                c["nombre_partants"]
+                for c in courses
+            ),
+            "non_partants": sum(
+                len(c["non_partants"])
+                for c in courses
+            ),
         },
     }
 
 
 def collect(date):
-    ymd = date.replace("-", "")
-    errors, warnings, courses, seen = [], [], [], set()
+    errors = []
+    warnings = []
+    courses = []
+    seen = set()
+
     try:
-        programme = request_json(f"programme/{ymd}")
+        programme = request_json(
+            programme_path(date)
+        )
     except (RuntimeError, ValueError) as exc:
-        return report(date, [], [str(exc)], [], "ECHEC")
-    reunions = array(programme, "reunions", "réunions")
+        return report(
+            date, [], [str(exc)], [], "ECHEC"
+        )
+
+    reunions = array(
+        programme,
+        "reunions",
+        "réunions"
+    )
+
     if not reunions:
-        return report(date, [], ["Programme sans liste de reunions exploitable"], [], "ECHEC")
+        return report(
+            date,
+            [],
+            ["Programme sans liste de reunions exploitable"],
+            [],
+            "ECHEC"
+        )
+
     for reunion in reunions:
         if not isinstance(reunion, dict):
-            errors.append("Reunion de format invalide")
+            errors.append(
+                "Reunion de format invalide"
+            )
             continue
-        nr = integer(first(reunion, "numOfficiel", "numReunion", "numero"))
+
+        nr = integer(first(
+            reunion,
+            "numOfficiel",
+            "numReunion",
+            "numero"
+        ))
+
         if nr is None or nr < 1:
-            errors.append("Reunion sans numero valide")
+            errors.append(
+                "Reunion sans numero valide"
+            )
             continue
+
         if not france_verified(reunion):
-            warnings.append(f"R{nr}: pays FR non confirme, reunion exclue")
+            warnings.append(
+                f"R{nr}: pays FR non confirme, "
+                "reunion exclue"
+            )
             continue
-        hippodrome = label(first(reunion, "hippodrome", "nomHippodrome"))
-        race_list = array(reunion, "courses")
+
+        hippodrome = label(first(
+            reunion,
+            "hippodrome",
+            "nomHippodrome"
+        ))
+
+        race_list = array(
+            reunion, "courses"
+        )
+
         if not race_list:
-            warnings.append(f"R{nr}: aucune course dans le programme")
+            warnings.append(
+                f"R{nr}: aucune course "
+                "dans le programme"
+            )
+
         for course in race_list:
             if not isinstance(course, dict):
-                errors.append(f"R{nr}: course de format invalide")
+                errors.append(
+                    f"R{nr}: course de format invalide"
+                )
                 continue
-            nc = integer(first(course, "numOrdre", "numCourse", "numero"))
+
+            nc = integer(first(
+                course,
+                "numOrdre",
+                "numCourse",
+                "numero"
+            ))
+
             if nc is None or nc < 1:
-                errors.append(f"R{nr}: course sans numero valide")
+                errors.append(
+                    f"R{nr}: course sans numero valide"
+                )
                 continue
+
             cid = f"{date}-R{nr}-C{nc}"
+
             if cid in seen:
-                errors.append(f"{cid}: doublon de course")
+                errors.append(
+                    f"{cid}: doublon de course"
+                )
                 continue
+
             seen.add(cid)
+
             try:
-                details = request_json(f"programme/{ymd}/R{nr}/C{nc}/participants")
-            except (RuntimeError, ValueError) as exc:
-                errors.append(f"{cid}: {exc}")
+                details = request_json(
+                    participants_path(
+                        date, nr, nc
+                    )
+                )
+            except (
+                RuntimeError,
+                ValueError
+            ) as exc:
+                errors.append(
+                    f"{cid}: {exc}"
+                )
                 continue
-            raw = array(details, "participants", "partants")
+
+            raw = array(
+                details,
+                "participants",
+                "partants"
+            )
+
             if not raw:
-                errors.append(f"{cid}: participants absents ou format non reconnu")
+                errors.append(
+                    f"{cid}: participants absents "
+                    "ou format non reconnu"
+                )
                 continue
-            by_num, invalid = {}, False
+
+            by_num = {}
+            invalid = False
+
             for item in raw:
                 p = participant(item)
-                if p is None or p["numero"] in by_num:
+
+                if (
+                    p is None
+                    or p["numero"] in by_num
+                ):
                     invalid = True
                     continue
+
                 by_num[p["numero"]] = p
+
             if invalid or not by_num:
-                errors.append(f"{cid}: participant invalide ou numero en doublon")
+                errors.append(
+                    f"{cid}: participant invalide "
+                    "ou numero en doublon"
+                )
                 continue
-            people = [by_num[k] for k in sorted(by_num)]
-            np = [{"numero": p["numero"], "nom": p["nom"]}
-                  for p in people if p["non_partant"]]
-            start = departure(first(course, "heureDepart", "depart", "heureDepartPrevue"), date)
+
+            people = [
+                by_num[k]
+                for k in sorted(by_num)
+            ]
+
+            np = [
+                {
+                    "numero": p["numero"],
+                    "nom": p["nom"]
+                }
+                for p in people
+                if p["non_partant"]
+            ]
+
+            start = departure(
+                first(
+                    course,
+                    "heureDepart",
+                    "depart",
+                    "heureDepartPrevue"
+                ),
+                date
+            )
+
             courses.append({
-                "id": cid, "reunion": nr, "course": nc,
-                "hippodrome": hippodrome, "localisation_france_verifiee": True,
-                "nom": label(first(course, "libelle", "nom", "libelleCourse")),
-                "depart": start, "depart_verifie": start is not None,
+                "id": cid,
+                "reunion": nr,
+                "course": nc,
+                "hippodrome": hippodrome,
+                "localisation_france_verifiee": True,
+                "nom": label(first(
+                    course,
+                    "libelle",
+                    "nom",
+                    "libelleCourse"
+                )),
+                "depart": start,
+                "depart_verifie": start is not None,
                 "nombre_participants": len(people),
-                "nombre_partants": len(people) - len(np),
-                "non_partants": np, "partants": people,
-                "source": "PMU", "collecte_a": now(),
+                "nombre_partants": (
+                    len(people) - len(np)
+                ),
+                "non_partants": np,
+                "partants": people,
+                "source": "PMU",
+                "collecte_a": now(),
                 "statut": "PARTANTS_CHARGES",
             })
-    courses.sort(key=lambda c: (c["depart"] or "9999", c["id"]))
-    status = ("OK" if courses and not errors and not warnings else
-              "PARTIEL" if courses else "ECHEC" if errors else "AUCUNE_COURSE")
-    return report(date, courses, errors, warnings, status)
+
+    courses.sort(
+        key=lambda c: (
+            c["depart"] or "9999",
+            c["id"]
+        )
+    )
+
+    if courses:
+        status = (
+            "OK"
+            if not errors and not warnings
+            else "PARTIEL"
+        )
+    elif errors:
+        status = "ECHEC"
+    else:
+        status = "AUCUNE_COURSE"
+
+    return report(
+        date,
+        courses,
+        errors,
+        warnings,
+        status
+    )
 
 
 def can_publish(new, path):
     if not new["courses"]:
         return False, "Collecte vide"
-    if new["erreurs"] or new["statut"] not in {"OK", "PARTIEL"}:
-        return False, "Collecte avec erreurs ou statut non publiable"
+
+    if (
+        new["erreurs"]
+        or new["statut"] not in {"OK", "PARTIEL"}
+    ):
+        return (
+            False,
+            "Collecte avec erreurs "
+            "ou statut non publiable"
+        )
+
     if not path.exists():
         return True, "Premiere publication"
+
     try:
-        old = json.loads(path.read_text(encoding="utf-8"))
+        old = json.loads(
+            path.read_text(encoding="utf-8")
+        )
     except (OSError, ValueError):
-        return False, "Publication existante illisible"
-    if not isinstance(old, dict) or not isinstance(old.get("courses"), list):
-        return False, "Publication existante de format inconnu"
+        return (
+            False,
+            "Publication existante illisible"
+        )
+
+    if (
+        not isinstance(old, dict)
+        or not isinstance(
+            old.get("courses"), list
+        )
+    ):
+        return (
+            False,
+            "Publication existante de format inconnu"
+        )
+
     old_date = text(old.get("date"))
+
     try:
-        if dt.date.fromisoformat(old_date).isoformat() != old_date:
+        if (
+            dt.date.fromisoformat(
+                old_date
+            ).isoformat() != old_date
+        ):
             raise ValueError
     except ValueError:
-        return False, "Date de publication existante invalide"
+        return (
+            False,
+            "Date de publication existante invalide"
+        )
+
     if old_date > new["date"]:
-        return False, "Refus de remplacer une publication plus recente"
+        return (
+            False,
+            "Refus de remplacer "
+            "une publication plus recente"
+        )
+
     if old_date < new["date"]:
         return True, "Nouvelle journee"
+
     old_by_id = {}
+
     for c in old["courses"]:
-        if (not isinstance(c, dict) or not isinstance(c.get("id"), str)
-                or not isinstance(c.get("partants"), list)):
-            return False, "Ancienne publication non verifiable"
+        if (
+            not isinstance(c, dict)
+            or not isinstance(c.get("id"), str)
+            or not isinstance(
+                c.get("partants"), list
+            )
+        ):
+            return (
+                False,
+                "Ancienne publication non verifiable"
+            )
+
         if c["id"] in old_by_id:
-            return False, "Doublons dans ancienne publication"
+            return (
+                False,
+                "Doublons dans ancienne publication"
+            )
+
         old_by_id[c["id"]] = c
-    new_by_id = {c["id"]: c for c in new["courses"]}
-    if not old_by_id.keys() <= new_by_id.keys():
-        return False, "Courses precedentes absentes"
+
+    new_by_id = {
+        c["id"]: c
+        for c in new["courses"]
+    }
+
+    if not (
+        old_by_id.keys()
+        <= new_by_id.keys()
+    ):
+        return (
+            False,
+            "Courses precedentes absentes"
+        )
+
     for cid, old_course in old_by_id.items():
         old_nums = set()
+
         for p in old_course["partants"]:
             if not isinstance(p, dict):
-                return False, f"{cid}: ancienne liste invalide"
-            num = integer(p.get("numero"))
-            if num is None or num < 1 or num in old_nums:
-                return False, f"{cid}: ancienne liste invalide"
+                return (
+                    False,
+                    f"{cid}: ancienne liste invalide"
+                )
+
+            num = integer(
+                p.get("numero")
+            )
+
+            if (
+                num is None
+                or num < 1
+                or num in old_nums
+            ):
+                return (
+                    False,
+                    f"{cid}: ancienne liste invalide"
+                )
+
             old_nums.add(num)
-        new_nums = {p["numero"] for p in new_by_id[cid]["partants"]}
+
+        new_nums = {
+            p["numero"]
+            for p in new_by_id[cid]["partants"]
+        }
+
         if not old_nums <= new_nums:
-            return False, f"{cid}: participants precedents absents"
+            return (
+                False,
+                f"{cid}: participants precedents absents"
+            )
+
     return True, "Publication autorisee"
 
 
 def self_test():
-    assert integer("12") == 12 and integer("2.5") is None
-    assert number("2,5") == 2.5 and number("nan") is None
-    assert france_verified({"pays": {"code": "FRA"}})
-    assert not france_verified({"hippodrome": "Paris"})
-    assert non_starter({"statut": "NON_PARTANT"})
-    assert not non_starter({"statut": "PARTANT"})
-    assert participant({"numPmu": 3, "nom": "TEST", "nonPartant": True})["non_partant"]
-    assert departure("14:30", "2026-11-01")
-    assert departure("1762000000000", "2026-11-01")
+    assert api_date(
+        "2026-11-01"
+    ) == "01112026"
+
+    assert programme_path(
+        "2026-11-01"
+    ) == "programme/01112026"
+
+    assert participants_path(
+        "2026-11-01", 1, 2
+    ) == "programme/01112026/R1/C2/participants"
+
+    assert integer("12") == 12
+    assert integer("2.5") is None
+
+    assert number("2,5") == 2.5
+    assert number("nan") is None
+
+    assert france_verified({
+        "pays": {"code": "FRA"}
+    })
+
+    assert not france_verified({
+        "hippodrome": "Paris"
+    })
+
+    assert non_starter({
+        "statut": "NON_PARTANT"
+    })
+
+    assert not non_starter({
+        "statut": "PARTANT"
+    })
+
+    assert participant({
+        "numPmu": 3,
+        "nom": "TEST",
+        "nonPartant": True
+    })["non_partant"]
+
+    assert departure(
+        "14:30", "2026-11-01"
+    )
+
+    assert departure(
+        "1762000000000",
+        "2026-11-01"
+    )
+
     with tempfile.TemporaryDirectory() as folder:
         p = Path(folder) / "test.json"
+
         atomic_json(p, {"ok": True})
-        assert json.loads(p.read_text(encoding="utf-8"))["ok"]
-        empty = report("2026-11-01", [], [], [], "AUCUNE_COURSE")
-        assert not can_publish(empty, p)[0]
-        good = report("2026-11-01", [{
-            "id": "2026-11-01-R1-C1", "nombre_partants": 1,
-            "non_partants": [], "partants": [{"numero": 1}],
-        }], [], [], "OK")
-        assert can_publish(good, Path(folder) / "absent.json")[0]
+
+        assert json.loads(
+            p.read_text(encoding="utf-8")
+        )["ok"]
+
+        empty = report(
+            "2026-11-01",
+            [],
+            [],
+            [],
+            "AUCUNE_COURSE"
+        )
+
+        assert not can_publish(
+            empty, p
+        )[0]
+
+        good = report(
+            "2026-11-01",
+            [{
+                "id": "2026-11-01-R1-C1",
+                "nombre_partants": 1,
+                "non_partants": [],
+                "partants": [
+                    {"numero": 1}
+                ],
+            }],
+            [],
+            [],
+            "OK"
+        )
+
+        assert can_publish(
+            good,
+            Path(folder) / "absent.json"
+        )[0]
+
         atomic_json(p, good)
-        assert not can_publish(dict(good, date="2026-10-31"), p)[0]
-    print("SELF-TEST OK : aucun reseau, aucune publication reelle")
+
+        assert not can_publish(
+            dict(
+                good,
+                date="2026-10-31"
+            ),
+            p
+        )[0]
+
+    print(
+        "SELF-TEST OK : "
+        "format API valide, "
+        "aucun reseau, "
+        "aucune publication reelle"
+    )
 
 
 def main():
-    parser = argparse.ArgumentParser(description="X1000 - collecte PMU France verifiee")
-    parser.add_argument("--date", default=dt.datetime.now(PARIS).date().isoformat())
-    parser.add_argument("--self-test", action="store_true")
-    parser.add_argument("--dry-run", action="store_true")
+    parser = argparse.ArgumentParser(
+        description=(
+            "X1000 - collecte PMU "
+            "France verifiee"
+        )
+    )
+
+    parser.add_argument(
+        "--date",
+        default=dt.datetime.now(
+            PARIS
+        ).date().isoformat()
+    )
+
+    parser.add_argument(
+        "--self-test",
+        action="store_true"
+    )
+
+    parser.add_argument(
+        "--dry-run",
+        action="store_true"
+    )
+
     args = parser.parse_args()
+
     if args.self_test:
         self_test()
         return 0
+
     try:
-        if dt.date.fromisoformat(args.date).isoformat() != args.date:
-            raise ValueError
+        api_date(args.date)
     except ValueError:
-        parser.error("--date doit etre AAAA-MM-JJ")
+        parser.error(
+            "--date doit etre AAAA-MM-JJ"
+        )
+
     try:
         result = collect(args.date)
-    except (ValueError, OSError) as exc:
-        print(f"Erreur de collecte : {exc}", file=sys.stderr)
+    except (
+        ValueError,
+        OSError
+    ) as exc:
+        print(
+            f"Erreur de collecte : {exc}",
+            file=sys.stderr
+        )
         return 1
-    destination = DATA / "publication_courses.json"
-    allowed, reason = can_publish(result, destination)
+
+    destination = (
+        DATA / "publication_courses.json"
+    )
+
+    allowed, reason = can_publish(
+        result, destination
+    )
+
     if not args.dry_run:
         try:
             if allowed:
-                atomic_json(destination, result)
-                print(f"Publication : {destination}")
+                atomic_json(
+                    destination,
+                    result
+                )
+
+                print(
+                    f"Publication : {destination}"
+                )
             else:
-                print(f"Publication refusee : {reason}", file=sys.stderr)
-            atomic_json(DATA / "diagnostic_collecte_pmu.json", result)
+                print(
+                    f"Publication refusee : {reason}",
+                    file=sys.stderr
+                )
+
+            atomic_json(
+                DATA / "diagnostic_collecte_pmu.json",
+                result
+            )
+
         except OSError as exc:
-            print(f"Erreur d'ecriture : {exc}", file=sys.stderr)
+            print(
+                f"Erreur d'ecriture : {exc}",
+                file=sys.stderr
+            )
             return 1
+
     else:
-        print("DRY-RUN : aucune ecriture")
-    print(json.dumps({
-        "date": args.date, "statut": result["statut"],
-        "publication_autorisee": allowed, "motif": reason,
-        "dry_run": args.dry_run, "erreurs": result["erreurs"],
-        "avertissements": result["avertissements"],
-        "statistiques": result["statistiques"],
-    }, ensure_ascii=False, indent=2))
+        print(
+            "DRY-RUN : aucune ecriture"
+        )
+
+    print(json.dumps(
+        {
+            "date": args.date,
+            "statut": result["statut"],
+            "publication_autorisee": allowed,
+            "motif": reason,
+            "dry_run": args.dry_run,
+            "erreurs": result["erreurs"],
+            "avertissements": result["avertissements"],
+            "statistiques": result["statistiques"],
+        },
+        ensure_ascii=False,
+        indent=2
+    ))
+
     return 0 if allowed else 1
 
 
