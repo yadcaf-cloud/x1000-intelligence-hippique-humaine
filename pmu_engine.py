@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""X1000 — Collecteur PMU sécurisé 2.2.
+"""X1000 — Collecteur PMU sécurisé 2.3 (Python 3.10+).
 
-Courses dont la localisation française est explicitement confirmée.
+Uniquement réunions explicitement confirmées en France.
 Aucun pronostic, résultat officiel ou FIGÉ créé ou modifié.
-Bibliothèque standard Python 3.10+.
+--dry-run et --self-test : aucune écriture dans le dépôt.
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
-VERSION = "X1000-PMU-SECURISE-2.2"
+VERSION = "X1000-PMU-SECURISE-2.3"
 PARIS = ZoneInfo("Europe/Paris")
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
@@ -109,12 +109,12 @@ def request_json(path):
     if not re.fullmatch(r"[A-Za-z0-9/_-]+", path):
         raise ValueError("Chemin API invalide")
     url = BASE + "/" + path.lstrip("/")
-    last = None
+    last = "Erreur inconnue"
     for attempt in range(RETRIES):
         retry = True
         try:
             req = Request(url, headers={
-                "User-Agent": "Mozilla/5.0 (compatible; X1000-PMU/2.2)",
+                "User-Agent": "Mozilla/5.0 (compatible; X1000-PMU/2.3)",
                 "Accept": "application/json",
             })
             with urlopen(req, timeout=TIMEOUT) as response:
@@ -126,7 +126,14 @@ def request_json(path):
                     raise ValueError("Structure JSON inattendue")
                 return obj
         except HTTPError as exc:
-            last = f"HTTP {exc.code}: {exc.reason}"
+            try:
+                detail = exc.read(2048).decode("utf-8", errors="replace")
+            except (OSError, UnicodeError):
+                detail = "Detail indisponible"
+            finally:
+                exc.close()
+            detail = " ".join(detail.split())[:500]
+            last = f"HTTP {exc.code}: {exc.reason}; reponse={detail or 'vide'}"
             retry = exc.code in RETRYABLE
         except (URLError, TimeoutError, OSError) as exc:
             last = f"{type(exc).__name__}: {exc}"
@@ -148,7 +155,6 @@ def normalized_country(value):
 
 
 def france_verified(reunion):
-    # Ne pas deviner le pays à partir du nom d'un hippodrome.
     country = first(reunion, "codePays", "pays", "countryCode", "country")
     return normalized_country(country) in {
         "FR", "FRA", "FRANCE", "FRANCAIS", "FRANCAISE"
@@ -176,7 +182,7 @@ def departure(value, date):
 
 def non_starter(item):
     flag = first(item, "nonPartant", "non_partant")
-    if flag is True or (isinstance(flag, int) and flag == 1):
+    if flag is True or (isinstance(flag, int) and not isinstance(flag, bool) and flag == 1):
         return True
     if isinstance(flag, str) and flag.strip().lower() in {"true", "oui", "yes", "1"}:
         return True
