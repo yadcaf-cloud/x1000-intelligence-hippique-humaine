@@ -1,0 +1,130 @@
+name: "X1000 - Validation PMU securisee V1.2"
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - "feature/activation-pmu-analyses-archives"
+    paths:
+      - "pmu_engine.py"
+      - ".github/workflows/validation-pmu-securisee.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-validation-pmu-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validation-pmu:
+    name: "Validation PMU - Tests sans publication"
+
+    if: github.ref == 'refs/heads/feature/activation-pmu-analyses-archives'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      TZ: Europe/Paris
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONNOUSERSITE: "1"
+
+    steps:
+      - name: "Recuperer la branche securisee"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: "Installer Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: "Verifier la branche et les fichiers"
+        run: |
+          set -euo pipefail
+
+          test "$GITHUB_REF" = \
+            "refs/heads/feature/activation-pmu-analyses-archives"
+
+          test -f pmu_engine.py
+
+          echo "Branche securisee confirmee."
+          echo "Moteur PMU present."
+
+      - name: "Verifier la syntaxe Python"
+        run: |
+          set -euo pipefail
+
+          python -m py_compile pmu_engine.py
+
+          echo "Syntaxe Python valide."
+
+      - name: "Executer les tests internes"
+        run: |
+          set -euo pipefail
+
+          python pmu_engine.py --self-test
+
+          echo "Tests internes termines."
+
+      - name: "Preparer une copie temporaire"
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$RUNNER_TEMP/x1000-pmu-test"
+
+          cp pmu_engine.py \
+            "$RUNNER_TEMP/x1000-pmu-test/pmu_engine.py"
+
+          echo "Copie isolee preparee."
+
+      - name: "Tester la collecte PMU reelle"
+        run: |
+          set -euo pipefail
+
+          cd "$RUNNER_TEMP/x1000-pmu-test"
+
+          python pmu_engine.py --dry-run
+
+          echo "Collecte testee sans publication."
+
+      - name: "Verifier les fichiers suivis"
+        if: always()
+        run: |
+          set -euo pipefail
+
+          if ! git diff --quiet; then
+            echo "::error::Fichiers suivis modifies."
+            exit 1
+          fi
+
+          if ! git diff --cached --quiet; then
+            echo "::error::Index Git modifie."
+            exit 1
+          fi
+
+          echo "Aucune modification des fichiers suivis."
+
+      - name: "Rapport de securite"
+        if: always()
+        run: |
+          echo "=================================="
+          echo "X1000 - VALIDATION PMU SECURISEE"
+          echo "=================================="
+          echo "Branche : $GITHUB_REF"
+          echo "Aucun git push execute."
+          echo "Aucun deploiement execute."
+          echo "Aucune publication PMU demandee."
+          echo "Aucun pronostic genere par le workflow."
+          echo "Aucun FIGE genere par le workflow."
+          echo "Moteurs M1-M5 non executes."
+          echo "=================================="
