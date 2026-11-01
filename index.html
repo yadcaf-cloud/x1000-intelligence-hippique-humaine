@@ -1,0 +1,1504 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#07131f">
+<meta name="description" content="X1000 — Intelligence Hippique Humaine. Observer, comprendre, anticiper et apprendre des courses hippiques.">
+<meta name="referrer" content="no-referrer">
+<title>🇸🇳🧠🔥 X1000 — Intelligence Hippique Humaine</title>
+
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#07131f;
+  --panel:#102637;
+  --panel2:#173344;
+  --border:#315263;
+  --text:#eff8f7;
+  --muted:#aec3cb;
+  --green:#75dfaf;
+  --gold:#eac977;
+  --blue:#9bd8ff;
+  --red:#ff9b9b;
+}
+*{box-sizing:border-box}
+html{
+  scroll-behavior:smooth;
+  scroll-padding-top:120px;
+}
+body{
+  margin:0;
+  min-height:100vh;
+  background:
+    radial-gradient(ellipse at 85% 0%,#17483e,transparent 38%),
+    linear-gradient(160deg,#07131f,#0b1c2b);
+  color:var(--text);
+  font:15px/1.7 system-ui,-apple-system,Arial,sans-serif;
+  overflow-wrap:break-word;
+}
+a{color:var(--blue);text-decoration:none}
+a:hover{text-decoration:underline}
+button,input{font:inherit}
+button{cursor:pointer}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible{
+  outline:2px solid var(--gold);
+  outline-offset:3px;
+}
+.container{
+  max-width:1200px;
+  margin:auto;
+  padding:18px;
+}
+header{
+  position:sticky;
+  top:0;
+  z-index:20;
+  background:#07131ff5;
+  border-bottom:2px solid var(--gold);
+}
+.header-inner{
+  max-width:1200px;
+  margin:auto;
+  padding:12px 18px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:12px;
+}
+.brand{
+  font-weight:900;
+  font-size:19px;
+  color:var(--gold);
+}
+.brand small{
+  display:block;
+  font-size:11px;
+  color:var(--muted);
+}
+nav{
+  display:flex;
+  flex-wrap:wrap;
+  gap:7px;
+}
+nav a{
+  padding:6px 10px;
+  border:1px solid var(--border);
+  border-radius:9px;
+  color:var(--text);
+  font-size:12px;
+}
+nav a:hover{
+  background:var(--panel2);
+  text-decoration:none;
+}
+section{scroll-margin-top:125px}
+.hero{
+  margin-top:18px;
+  padding:55px 22px;
+  border:1px solid var(--border);
+  border-radius:20px;
+  background:linear-gradient(140deg,#123c38,#102637 55%,#132a43);
+  text-align:center;
+}
+.hero h1{
+  color:var(--gold);
+  font-size:clamp(27px,5vw,46px);
+  line-height:1.2;
+}
+.hero p{
+  max-width:800px;
+  margin:15px auto;
+}
+.eyebrow{
+  color:var(--green);
+  letter-spacing:2px;
+  font-weight:800;
+  font-size:12px;
+}
+.quote{
+  border-left:4px solid var(--gold);
+  background:#eac97712;
+  border-radius:8px;
+  padding:18px;
+  margin:20px 0;
+  color:var(--gold);
+  font-weight:700;
+}
+.hero .quote{
+  max-width:850px;
+  margin:24px auto;
+}
+.actions{
+  display:flex;
+  justify-content:center;
+  flex-wrap:wrap;
+  gap:10px;
+  margin-top:22px;
+}
+.btn{
+  display:inline-block;
+  border:1px solid var(--gold);
+  border-radius:10px;
+  padding:11px 16px;
+  background:var(--gold);
+  color:var(--bg);
+  font-weight:800;
+}
+.btn.secondary{
+  background:transparent;
+  color:var(--gold);
+}
+.btn:hover{
+  text-decoration:none;
+  filter:brightness(1.1);
+}
+h2.section-title{
+  color:var(--gold);
+  margin:38px 0 15px;
+  font-size:24px;
+}
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));
+  gap:15px;
+}
+.card,.principle{
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:15px;
+  padding:20px;
+  min-width:0;
+}
+.card h3,.principle h3{
+  color:var(--green);
+  margin-top:0;
+}
+.card p,.principle p{
+  margin:10px 0;
+}
+.principle{
+  margin-bottom:15px;
+}
+.principle h3{
+  padding-bottom:10px;
+  border-bottom:1px solid var(--border);
+}
+.principle strong{
+  color:var(--gold);
+}
+.principle ul{
+  padding-left:23px;
+}
+.principle li{
+  margin:6px 0;
+}
+.muted{color:var(--muted)}
+.status{
+  background:var(--panel2);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:15px;
+  margin:15px 0;
+}
+.status strong{color:var(--gold)}
+.searchbar{
+  width:100%;
+  display:block;
+  background:#071c2a;
+  color:var(--text);
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:14px;
+  margin:12px 0;
+}
+.searchbar::placeholder{
+  color:var(--muted);
+}
+.toolbar{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  flex-wrap:wrap;
+  margin-bottom:15px;
+}
+.small-btn{
+  background:var(--panel2);
+  border:1px solid var(--border);
+  color:var(--text);
+  border-radius:9px;
+  padding:7px 12px;
+}
+.manifesto{
+  background:linear-gradient(150deg,#163b35,#112d42);
+  border:1px solid var(--gold);
+  border-radius:20px;
+  padding:28px;
+}
+.manifesto h2{
+  color:var(--gold);
+  text-align:center;
+}
+.manifesto p{
+  font-size:16px;
+}
+footer{
+  text-align:center;
+  border-top:1px solid var(--border);
+  color:var(--muted);
+  margin-top:40px;
+  padding:30px 15px;
+}
+footer strong{color:var(--gold)}
+[hidden]{display:none!important}
+#topBtn{
+  position:fixed;
+  right:15px;
+  bottom:15px;
+  z-index:30;
+  background:var(--panel2);
+  color:var(--gold);
+  border:1px solid var(--gold);
+  border-radius:12px;
+  padding:10px 15px;
+}
+@media(max-width:600px){
+  html{scroll-padding-top:170px}
+  section{scroll-margin-top:170px}
+  .header-inner{
+    justify-content:center;
+    padding:10px;
+  }
+  .brand{text-align:center}
+  nav{justify-content:center}
+  nav a{
+    font-size:11px;
+    padding:5px 8px;
+  }
+  .container{padding:12px}
+  .hero{padding:35px 15px}
+  .card,.principle{padding:16px}
+  .manifesto{padding:18px}
+  h2.section-title{font-size:21px}
+}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+
+<body>
+
+<header>
+  <div class="header-inner">
+    <div class="brand">
+      🇸🇳🧠🔥 X1000
+      <small>INTELLIGENCE HIPPIQUE HUMAINE</small>
+    </div>
+    <nav aria-label="Navigation principale">
+      <a href="#accueil">Accueil</a>
+      <a href="#mission">Mission</a>
+      <a href="#hippique">Hippique</a>
+      <a href="#principes">Principes</a>
+      <a href="#manifeste">Manifeste</a>
+    </nav>
+  </div>
+</header>
+
+<main class="container">
+
+<section id="accueil" class="hero">
+  <div class="eyebrow">
+    OBSERVATION • DISCERNEMENT • APPRENTISSAGE
+  </div>
+
+  <h1>
+    🇸🇳🧠🔥 X1000
+    <br>
+    INTELLIGENCE HIPPIQUE HUMAINE
+  </h1>
+
+  <p>
+    Une nouvelle vision de l'analyse hippique,
+    inspirée de l'intelligence humaine,
+    de l'expérience, de l'observation
+    et de la compréhension des courses.
+  </p>
+
+  <div class="quote">
+    « Observer comme un passionné,
+    réfléchir comme un expert,
+    analyser comme un professionnel,
+    décider avec intelligence
+    et apprendre de chaque course. »
+  </div>
+
+  <p>
+    Comprendre avant de prédire.
+    Étudier chaque cheval.
+    Déjouer les apparences.
+    Apprendre des résultats.
+  </p>
+
+  <div class="actions">
+    <a class="btn" href="#principes">
+      Découvrir les 16 principes
+    </a>
+    <a class="btn secondary" href="#hippique">
+      Espace hippique
+    </a>
+  </div>
+</section>
+
+<section id="mission">
+  <h2 class="section-title">🧠 Notre mission</h2>
+
+  <div class="grid">
+    <article class="card">
+      <h3>👁️ Observer</h3>
+      <p>
+        Voir les informations importantes,
+        y compris celles que d'autres pourraient négliger.
+      </p>
+    </article>
+
+    <article class="card">
+      <h3>🔍 Comprendre</h3>
+      <p>
+        Rechercher les causes, les relations
+        et les circonstances qui expliquent
+        les performances.
+      </p>
+    </article>
+
+    <article class="card">
+      <h3>⚖️ Raisonner</h3>
+      <p>
+        Comparer plusieurs possibilités,
+        confronter les arguments et éviter
+        les conclusions précipitées.
+      </p>
+    </article>
+
+    <article class="card">
+      <h3>🎯 Anticiper</h3>
+      <p>
+        Construire des scénarios sportifs plausibles
+        et établir des prévisions avant les départs.
+      </p>
+    </article>
+
+    <article class="card">
+      <h3>📚 Apprendre</h3>
+      <p>
+        Examiner les résultats officiels,
+        comprendre les erreurs et améliorer
+        progressivement les analyses.
+      </p>
+    </article>
+  </div>
+</section>
+
+<section id="hippique">
+  <h2 class="section-title">
+    🏇 Espace intelligence hippique
+  </h2>
+
+  <div class="status">
+    <strong>État du site :</strong>
+    <span class="muted">
+      Version fondatrice active.
+      Les données hippiques en direct et les analyses
+      automatiques ne sont pas encore connectées.
+    </span>
+  </div>
+
+  <div class="grid">
+    <article class="card">
+      <h3>🏟️ Courses françaises</h3>
+      <p>
+        Rechercher largement les courses PMU
+        physiquement disputées en France.
+      </p>
+      <p class="muted">Données réelles à connecter.</p>
+    </article>
+
+    <article class="card">
+      <h3>🐎 Étude des chevaux</h3>
+      <p>
+        Examiner la forme, l'endurance, la vitesse,
+        le parcours, le terrain, l'entourage
+        et la qualité de l'opposition.
+      </p>
+      <p class="muted">Analyses à connecter.</p>
+    </article>
+
+    <article class="card">
+      <h3>🔎 Chevaux cachés</h3>
+      <p>
+        Rechercher les concurrents négligés
+        présentant de véritables arguments sportifs.
+      </p>
+      <p class="muted">Aucune sélection fictive.</p>
+    </article>
+
+    <article class="card">
+      <h3>⚠️ Faux favoris</h3>
+      <p>
+        Comprendre les forces et les faiblesses
+        des favoris et rechercher les concurrents
+        capables de les battre.
+      </p>
+      <p class="muted">Évaluations à connecter.</p>
+    </article>
+
+    <article class="card">
+      <h3>📋 Prévisions argumentées</h3>
+      <p>
+        Présenter des décisions sportives
+        expliquées, datées et établies
+        avant les départs.
+      </p>
+      <p class="muted">Aucune prévision simulée.</p>
+    </article>
+
+    <article class="card">
+      <h3>🔐 Décisions historiques</h3>
+      <p>
+        Conserver les décisions originales
+        et les révisions justifiées,
+        sans modification rétroactive.
+      </p>
+      <p class="muted">Archives à connecter en lecture seule.</p>
+    </article>
+
+    <article class="card">
+      <h3>📊 Résultats officiels</h3>
+      <p>
+        Comparer les prévisions aux résultats
+        réellement publiés après les courses.
+      </p>
+      <p class="muted">Résultats à connecter.</p>
+    </article>
+
+    <article class="card">
+      <h3>📈 Apprentissage</h3>
+      <p>
+        Comprendre les réussites, identifier
+        les erreurs et améliorer la qualité
+        des analyses futures.
+      </p>
+      <p class="muted">Historique à connecter.</p>
+    </article>
+  </div>
+</section>
+
+<section id="principes">
+  <h2 class="section-title">
+    📜 Les 16 principes fondateurs
+  </h2>
+
+  <p class="muted">
+    Recherchez une idée ou un mot
+    dans la philosophie de X1000.
+  </p>
+
+  <input
+    id="search"
+    class="searchbar"
+    type="search"
+    autocomplete="off"
+    placeholder="Favori, cheval, apprentissage..."
+    aria-label="Rechercher dans les principes"
+    aria-controls="principlesList"
+  >
+
+  <div class="toolbar">
+    <span
+      id="searchCount"
+      class="muted"
+      role="status"
+      aria-live="polite"
+    ></span>
+
+    <button
+      id="clearSearch"
+      class="small-btn"
+      type="button"
+    >
+      Effacer la recherche
+    </button>
+  </div>
+
+  <div id="principlesList">
+
+    <article class="principle">
+      <h3>1. Naissance et vision du projet</h3>
+
+      <p>
+        X1000 est né d'une conviction profonde :
+        les courses hippiques ne doivent pas être
+        étudiées uniquement à travers les favoris,
+        les cotes, les classements ou les pronostics populaires.
+      </p>
+
+      <p>
+        Derrière chaque course se trouvent des chevaux,
+        des capacités physiques, des aptitudes,
+        des préparations, des stratégies,
+        des conditions sportives et des circonstances
+        particulières qui méritent une véritable réflexion.
+      </p>
+
+      <p>
+        L'ambition du projet est de construire
+        une intelligence hippique inspirée de la manière
+        dont un être humain expérimenté observe,
+        comprend, compare, doute, anticipe
+        et prend ses décisions.
+      </p>
+
+      <p>
+        X1000 doit transformer les informations
+        hippiques en connaissances,
+        puis les connaissances en raisonnements
+        et en prévisions sportives argumentées.
+      </p>
+
+      <p>
+        Il ne s'agit pas de reproduire aveuglément
+        les pronostics existants.
+      </p>
+
+      <p>
+        <strong>
+          L'objectif fondamental est de comprendre
+          les courses avant de chercher à prédire
+          leurs résultats.
+        </strong>
+      </p>
+    </article>
+
+    <article class="principle">
+      <h3>2. L'intelligence humaine comme inspiration</h3>
+
+      <p>
+        L'intelligence hippique recherchée doit s'inspirer
+        des qualités essentielles du raisonnement humain.
+      </p>
+
+      <p>
+        Un observateur expérimenté ne regarde pas seulement
+        quel cheval est favori.
+      </p>
+
+      <p>
+        Il cherche à comprendre pourquoi ce cheval
+        est apprécié, quelles sont ses véritables qualités,
+        quelles difficultés il pourrait rencontrer
+        et quels concurrents seraient capables de le battre.
+      </p>
+
+      <p>
+        Il examine le passé sans oublier le présent.
+        Il tient compte des statistiques
+        sans leur accorder une confiance aveugle.
+      </p>
+
+      <p>
+        Il compare les performances en respectant
+        les différences de contexte.
+      </p>
+
+      <p>
+        Il sait qu'un cheval battu précédemment
+        peut se retrouver dans des conditions favorables.
+        Il sait également qu'un cheval victorieux
+        peut rencontrer une opposition plus difficile.
+      </p>
+
+      <p>
+        Il accepte l'incertitude.
+      </p>
+
+      <p>
+        <strong>
+          Comprendre avant de choisir,
+          comparer avant de conclure
+          et vérifier avant d'affirmer.
+        </strong>
+      </p>
+    </article>
+
+    <article class="principle">
+      <h3>3. Étudier chaque cheval comme un cas unique</h3>
+
+      <p>
+        Chaque cheval possède une histoire sportive,
+        des qualités, des limites
+        et des caractéristiques particulières.
+      </p>
+
+      <p>
+        Aucun participant ne doit être écarté
+        simplement parce qu'il est peu connu,
+        peu joué ou mal classé dans les pronostics publics.
+      </p>
+
+      <p>L'étude doit examiner :</p>
+
+      <ul>
+        <li>La forme physique et les performances récentes.</li>
+        <li>La régularité et la progression sportive.</li>
+        <li>L'endurance, la vitesse et l'accélération.</li>
+        <li>L'aptitude à la distance et au parcours.</li>
+        <li>Les résultats sur l'hippodrome.</li>
+        <li>L'adaptation au terrain et à la météo.</li>
+        <li>Le comportement au départ.</li>
+        <li>Le jockey ou le driver.</li>
+        <li>L'entraîneur et l'entourage.</li>
+        <li>Les gains et les engagements.</li>
+        <li>Le niveau des adversaires rencontrés.</li>
+        <li>Les avantages et handicaps du jour.</li>
+        <li>Les changements sportifs significatifs.</li>
+      </ul>
+
+      <p>
+        L'analyse doit rechercher les relations
+        entre ces éléments.
+      </p>
+
+      <p>
+        Un bon cheval dans de mauvaises conditions
+        n'est pas nécessairement le meilleur choix.
+      </p>
+
+      <p>
+        Un cheval discret bénéficiant de conditions
+        favorables peut représenter une possibilité
+        sportive intéressante.
+      </p>
+
+      <p>
+        <strong>
+          Chaque cheval mérite d'être compris
+          avant d'être retenu ou écarté.
+        </strong>
+      </p>
+    </article>
+
+    <article class="principle">
+      <h3>4. Ne jamais suivre aveuglément les favoris</h3>
+
+      <p>
+        La popularité d'un cheval ne constitue
+        pas une preuve de supériorité.
+      </p>
+
+      <p>
+        Les favoris doivent être étudiés
+        avec la même rigueur que les autres participants.
+      </p>
+
+      <p>
+        X1000 doit distinguer les favoris solides
+        des favoris fragiles ou trompeurs.
+      </p>
+
+      <p>
+        Un favori peut rencontrer une distance défavorable,
+        un terrain inhabituel, une mauvaise position
+        de départ, une opposition renforcée
+        ou une forme incertaine.
+      </p>
+
+      <p>
+        À l'inverse, un concurrent négligé
+        peut posséder les qualités nécessaires pour surprendre.
+      </p>
+
+      <div class="quote">
+        « Ne jamais choisir un cheval uniquement
+        parce qu'il est favori. Comprendre pourquoi
+        il peut gagner, pourquoi il peut perdre,
+        et quel adversaire possède les qualités
+        nécessaires pour le battre. »
+      </div>
+    </article>
+
+    <article class="principle">
+      <h3>5. Découvrir les chevaux cachés</h3>
+
+      <p>
+        L'une des ambitions majeures de X1000
+        est de découvrir ce que les analyses
+        superficielles risquent de manquer.
+      </p>
+
+      <p>
+        Un cheval peut présenter une musique peu séduisante
+        tout en ayant affronté des adversaires très difficiles.
+      </p>
+
+      <p>
+        Un autre peut avoir été désavantagé
+        par le déroulement de ses dernières courses.
+      </p>
+
+      <p>
+        Un participant peut retrouver une distance favorable,
+        bénéficier d'un meilleur engagement
+        ou montrer des signes de progression.
+      </p>
+
+      <p>
+        L'intelligence hippique doit rechercher
+        les chevaux sous-estimés à partir
+        d'arguments sportifs vérifiables.
+      </p>
+
+      <p>
+        Il ne s'agit pas de choisir systématiquement
+        des outsiders.
+      </p>
+
+      <p>
+        <strong>
+          La véritable intelligence ne suit pas
+          uniquement l'évidence. Elle cherche
+          à comprendre ce qui n'est pas immédiatement visible.
+        </strong>
+      </p>
+    </article>
+
+    <article class="principle">
+      <h3>6. Rechercher largement les courses analysables</h3>
+
+      <p>
+        X1000 doit adopter une démarche ouverte,
+        ambitieuse et méthodique.
+      </p>
+
+      <p>
+        Son domaine d'étude concerne les courses PMU
+        physiquement disputées en France.
+      </p>
+
+      <p>
+        Il ne doit pas limiter son attention
+        aux grandes réunions ou aux courses populaires.
+      </p>
+
+      <p>
+        Chaque course peut offrir une possibilité
+        d'analyse intéressante.
+      </p>
+
+      <p>
+        La recherche doit être large,
+        sans sélection excessivement sévère.
+      </p>
+
+      <p>
+        Une course complexe ou ouverte ne doit pas
+        être automatiquement rejetée.
+      </p>
+
+      <p>
+        Les informations insuffisantes ou contradictoires
+        doivent cependant être signalées.
+      </p>
+
+      <div class="quote">
+        « Ne pas chercher des courses parfaites.
+        Chercher des courses compréhensibles,
+        analysables et présentant de véritables
+        possibilités sportives. »
+      </div>
+    </article>
+
+    <article class="principle">
+      <h3>7. Comprendre la course dans son ensemble</h3>
+
+      <p>
+        Une course hippique n'est pas
+        une simple addition de chevaux.
+      </p>
+
+      <p>
+        C'est une confrontation sportive
+        dans laquelle chaque participant évolue
+        face à des adversaires et dans des conditions
+        déterminées.
+      </p>
+
+      <p>
+        L'analyse doit chercher à comprendre
+        la dynamique probable de la compétition.
+      </p>
+
+      <ul>
+        <li>Quels chevaux peuvent prendre la tête ?</li>
+        <li>Lesquels ont besoin d'un parcours préservé ?</li>
+        <li>Qui peut accélérer au moment décisif ?</li>
+        <li>Quels chevaux risquent de subir le rythme ?</li>
+        <li>Qui peut résister jusqu'à l'arrivée ?</li>
+      </ul>
+
+      <p>
+        Plusieurs scénarios doivent être confrontés,
+        sans considérer un seul déroulement comme certain.
+      </p>
+
+      <p>
+        <strong>
+          Comprendre une course, c'est comprendre
+          les interactions entre les chevaux,
+          le parcours, les conditions
+          et les circonstances sportives.
+        </strong>
+      </p>
+    </article>
+
+    <article class="principle">
+      <h3>8. Construire une prévision indépendante</h3>
+
+      <p>
+        La finalité de l'étude est de transformer
+        l'observation en une décision sportive compréhensible.
+      </p>
+
+      <p>
+        Une prévision ne doit pas être une succession
+        de numéros choisis au hasard.
+      </p>
+
+      <p>
+        Elle doit résulter d'un raisonnement
+        fondé sur les données disponibles.
+      </p>
+
+      <ul>
+        <li>Pourquoi ce cheval peut-il gagner ?</li>
+        <li>Pourquoi cet autre peut-il se placer ?</li>
+        <li>Quels concurrents représentent les menaces ?</li>
+        <li>Quelles incertitudes peuvent changer l'arrivée ?</li>
+      </ul>
+
+      <p>
+        Une prévision doit distinguer les faits vérifiés,
+        les interprétations, les hypothèses
+        et les niveaux de confiance.
+      </p>
+
+      <p>
+        <strong>
+          Une bonne analyse se mesure aussi
+          à la qualité des raisons qui conduisent
+          à sa conclusion.
+        </strong>
+      </p>
+    </article>
+
+    <article class="principle">
+      <h3>9. Décider avant le départ</h3>
+
+      <p>
+        Les informations hippiques peuvent évoluer
+        jusqu'au départ d'une course.
+      </p>
+
+      <p>
+        Un non-partant, une modification du terrain
+        ou une information officielle nouvelle
+        peuvent modifier l'évaluation initiale.
+      </p>
+
+      <p>
+        X1000 doit pouvoir réexaminer ses conclusions
+        lorsqu'un élément nouveau le justifie.
+      </p>
+
+      <p>
+        Il ne doit pas changer d'avis sans raison,
+        ni conserver une décision dépassée
+        par simple rigidité.
+      </p>
+
+      <p>
+        À l'approche du départ, une décision finale
+        doit pouvoir être établie, datée et conservée.
+      </p>
+
+      <p>
+        Toute révision avant le départ
+        doit être justifiée et traçable.
+      </p>
+
+      <p>
+        Une fois le départ officiel donné,
+        les décisions historiques ne doivent
+        jamais être réécrites.
+      </p>
+
+      <p>
+        <strong>
+          La crédibilité repose sur la capacité
+          à décider avant de connaître le résultat.
+        </strong>
+      </p>
+    </article>
+
+    <article class="principle">
+      <h3>10. Apprendre des résultats et de ses erreurs</h3>
+
+      <p>
+        Une intelligence véritable ne doit pas
+        seulement produire des prévisions.
+      </p>
+
+      <p>
+        Elle doit être capable d'examiner
+        ses décisions après les courses.
+      </p>
+
+      <p>
+        Lorsqu'une prévision réussit,
+        il faut comprendre pourquoi.
+      </p>
+
+      <p>
+        Lorsqu'elle échoue, il faut rechercher
+        les raisons de l'erreur.
+      </p>
+
+      <ul>
+        <li>Un cheval avait-il été surestimé ?</li>
+        <li>Un concurrent avait-il été négligé ?</li>
+        <li>Le scénario prévu était-il incorrect ?</li>
+        <li>Une information avait-elle été mal interprétée ?</li>
+        <li>Un incident était-il imprévisible ?</li>
+      </ul>
+
+      <p>
+        L'apprentissage doit s'appuyer
+        sur les résultats officiels
+        et les décisions réellement prises avant les départs.
+      </p>
+
+      <div class="quote">
+        « Une erreur comprise peut devenir une connaissance.
+        Une victoire non comprise ne suffit pas
+        à prouver la qualité d'une méthode. »
+      </div>
+    </article>
+
+    <article class="principle">
+      <h3>11. La vérité et la transparence</h3>
+
+      <p>
+        X1000 doit être construit
+        sur une exigence absolue de sincérité.
+      </p>
+
+      <ul>
+        <li>Aucune donnée hippique inventée.</li>
+        <li>Aucun cheval fictif.</li>
+        <li>Aucun résultat officiel fabriqué.</li>
+        <li>Aucune prévision antidatée.</li>
+        <li>Aucune décision historique réécrite.</li>
+        <li>Aucune validation fictive.</li>
+      </ul>
+
+      <p>
+        Les informations manquantes doivent être reconnues.
+      </p>
+
+      <p>
+        Les erreurs techniques doivent être signalées.
+      </p>
+
+      <p>
+        Les analyses incertaines doivent être identifiées.
+      </p>
+
+      <p>
+        Les réussites comme les échecs
+        doivent pouvoir être consultés.
+      </p>
+
+      <p>
+        <strong>
+          Mieux vaut reconnaître une incertitude
+          que présenter une fausse certitude.
+        </strong>
+      </p>
+    </article>
+
+    <article class="principle">
+      <h3>12. Une intelligence autonome et responsable</h3>
+
+      <p>
+        L'ambition est de créer un site internet
+        capable d'effectuer un travail d'analyse
+        hippique régulier et structuré.
+      </p>
+
+      <p>
+        Le site doit pouvoir rechercher les informations
+        disponibles, les organiser, les comparer,
+        produire des analyses et suivre leur évolution.
+      </p>
+
+      <p>
+        Il doit favoriser la continuité du travail
+        sans intervention humaine permanente
+        pour chaque opération.
+      </p>
+
+      <p>
+        Cette autonomie doit respecter
+        des règles de qualité, de traçabilité
+        et de sécurité.
+      </p>
+
+      <p>
+        L'automatisation ne doit jamais masquer
+        les erreurs ou inventer des données.
+      </p>
+
+      <p>
+        Elle doit reconnaître ses limites
+        et suspendre une conclusion insuffisamment fondée.
+      </p>
+
+      <p>
+        <strong>
+          Être autonome ne signifie pas décider
+          sans contrôle. Cela signifie accomplir
+          un travail cohérent, vérifiable et responsable.
+        </strong>
+      </p>
+    </article>
+
+    <article class="principle">
+      <h3>13. Un site vivant, clair et intelligent</h3>
+
+      <p>
+        X1000 ne doit pas être seulement
+        un tableau de résultats ou une page
+        présentant des pronostics.
+      </p>
+
+      <p>
+        Il doit devenir un véritable espace
+        de connaissance hippique.
+      </p>
+
+      <p>
+        Le visiteur doit pouvoir comprendre
+        les courses étudiées, découvrir les participants,
+        examiner les arguments sportifs
+        et suivre les décisions prises avant les départs.
+      </p>
+
+      <p>
+        Le site doit présenter clairement
+        les informations disponibles,
+        leur date de mise à jour
+        et leur niveau de vérification.
+      </p>
+
+      <p>
+        Il doit permettre de consulter
+        les analyses du jour, les décisions historiques,
+        les résultats officiels et les enseignements
+        tirés des courses précédentes.
+      </p>
+
+      <p>
+        Son interface doit être rapide,
+        accessible et adaptée aux téléphones
+        comme aux ordinateurs.
+      </p>
+
+      <p>
+        <strong>
+          Un site réellement intelligent ne se contente
+          pas d'afficher une réponse : il aide
+          à comprendre pourquoi elle a été proposée.
+        </strong>
+      </p>
+    </article>
+
+    <article class="principle">
+      <h3>14. Respecter l'incertitude sportive</h3>
+
+      <p>
+        Les courses hippiques restent
+        des compétitions soumises
+        à de nombreuses variables.
+      </p>
+
+      <p>
+        Même une étude approfondie
+        ne peut garantir le résultat d'une course.
+      </p>
+
+      <p>
+        Un incident, un mauvais départ,
+        un parcours défavorable
+        ou une performance inattendue
+        peuvent modifier l'arrivée.
+      </p>
+
+      <p>
+        X1000 ne doit jamais promettre
+        une victoire certaine ou un gain garanti.
+      </p>
+
+      <p>
+        Son objectif est d'améliorer
+        la qualité de l'analyse,
+        non de supprimer artificiellement le risque.
+      </p>
+
+      <p>
+        Les décisions de pari doivent rester libres,
+        responsables et proportionnées aux moyens de chacun.
+      </p>
+
+      <p>
+        <strong>
+          L'intelligence hippique ne consiste pas
+          à prétendre connaître l'avenir.
+          Elle consiste à mieux comprendre les possibilités
+          avant qu'elles se réalisent.
+        </strong>
+      </p>
+    </article>
+
+    <article class="principle">
+      <h3>15. Une progression permanente</h3>
+
+      <p>
+        X1000 doit rester un projet vivant.
+      </p>
+
+      <p>
+        Chaque journée de courses
+        peut enrichir les connaissances.
+      </p>
+
+      <p>
+        Chaque nouvelle information
+        peut affiner la compréhension d'un cheval.
+      </p>
+
+      <p>
+        Chaque résultat peut révéler
+        une qualité sous-estimée
+        ou une faiblesse insuffisamment prise en compte.
+      </p>
+
+      <p>
+        La progression doit être continue,
+        sans effacer les enseignements du passé.
+      </p>
+
+      <p>
+        La méthode doit évoluer lorsque les observations
+        et les résultats vérifiés
+        justifient une amélioration.
+      </p>
+
+      <p>
+        Les principes fondateurs restent stables :
+        indépendance, rigueur, ouverture,
+        honnêteté, responsabilité
+        et recherche de compréhension.
+      </p>
+
+      <p>
+        <strong>
+          L'ambition n'est pas de paraître intelligent.
+          L'ambition est de développer
+          une intelligence utile, capable de progresser
+          et de reconnaître ses limites.
+        </strong>
+      </p>
+    </article>
+
+    <article class="principle">
+      <h3>16. La mission fondamentale de X1000</h3>
+
+      <p>
+        X1000 doit réunir cinq grandes qualités
+        de l'intelligence humaine.
+      </p>
+
+      <p>
+        <strong>L'observation :</strong>
+        voir les informations importantes,
+        y compris celles que d'autres pourraient négliger.
+      </p>
+
+      <p>
+        <strong>La compréhension :</strong>
+        rechercher les causes, les relations
+        et les circonstances expliquant les performances.
+      </p>
+
+      <p>
+        <strong>Le raisonnement :</strong>
+        comparer plusieurs possibilités,
+        confronter les arguments
+        et éviter les conclusions précipitées.
+      </p>
+
+      <p>
+        <strong>L'anticipation :</strong>
+        construire des scénarios sportifs plausibles
+        et établir des prévisions avant les départs.
+      </p>
+
+      <p>
+        <strong>L'apprentissage :</strong>
+        examiner les résultats, comprendre les erreurs
+        et améliorer progressivement les analyses.
+      </p>
+
+      <p>
+        Ces qualités constituent le cœur intellectuel
+        du projet et doivent guider l'évolution du site.
+      </p>
+    </article>
+
+  </div>
+
+  <p id="noResults" class="status" role="status" hidden>
+    Aucun principe ne correspond à votre recherche.
+    Essayez un autre mot.
+  </p>
+</section>
+
+<section id="manifeste">
+  <div class="manifesto">
+
+    <h2>🇸🇳🧠🔥 NOTRE MANIFESTE</h2>
+
+    <p>
+      Nous croyons que chaque course mérite
+      d'être comprise avant d'être jugée.
+    </p>
+
+    <p>
+      Nous croyons que chaque cheval mérite
+      une étude attentive,
+      indépendamment de sa popularité.
+    </p>
+
+    <p>
+      Nous croyons qu'un favori doit démontrer
+      sa valeur sportive et qu'un outsider
+      ne doit jamais être écarté sans raison.
+    </p>
+
+    <p>
+      Nous croyons que l'observation,
+      la réflexion, la comparaison
+      et l'expérience permettent de construire
+      des analyses plus pertinentes.
+    </p>
+
+    <p>
+      Nous croyons qu'une prévision doit être expliquée,
+      datée et confrontée honnêtement à la réalité.
+    </p>
+
+    <p>
+      Nous croyons que les erreurs doivent servir
+      à apprendre et non à dissimuler les faiblesses.
+    </p>
+
+    <p>
+      Nous croyons que l'autonomie doit toujours
+      s'accompagner de responsabilité.
+    </p>
+
+    <p>
+      Nous croyons qu'un site internet intelligent
+      doit aider à comprendre,
+      et non simplement demander à être cru.
+    </p>
+
+    <p>
+      Nous voulons construire une intelligence hippique
+      indépendante, curieuse, rigoureuse, évolutive
+      et profondément inspirée du discernement humain.
+    </p>
+
+    <div class="quote">
+      Notre ambition n'est pas de suivre les pronostics.
+      Notre ambition est de comprendre les courses,
+      d'anticiper leurs possibilités
+      et de progresser grâce à l'expérience.
+    </div>
+
+    <h2>DEVISE FINALE</h2>
+
+    <div class="quote">
+      « Étudier largement.
+      Observer profondément.
+      Comprendre chaque cheval.
+      Déjouer les apparences.
+      Décider avec discernement.
+      Vérifier les résultats.
+      Apprendre continuellement. »
+    </div>
+
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <strong>
+    🇸🇳🧠🔥 X1000 — INTELLIGENCE HIPPIQUE HUMAINE
+  </strong>
+
+  <p>
+    L'intelligence au service de la compréhension
+    des courses hippiques.
+  </p>
+
+  <p>Document fondateur — 1er novembre 2026</p>
+
+  <p>
+    Aucune prévision ne garantit un gain.
+    Aucune donnée hippique fictive.
+  </p>
+
+  <p>© <span id="year"></span> X1000</p>
+</footer>
+
+<button
+  id="topBtn"
+  type="button"
+  aria-label="Retour en haut"
+  hidden
+>
+  ↑ Haut
+</button>
+
+<script>
+"use strict";
+
+(function(){
+
+  const search=document.getElementById("search");
+
+  const principles=Array.from(
+    document.querySelectorAll(
+      "#principlesList .principle"
+    )
+  );
+
+  const count=document.getElementById("searchCount");
+
+  const noResults=document.getElementById("noResults");
+
+  const clearSearch=document.getElementById("clearSearch");
+
+  const topBtn=document.getElementById("topBtn");
+
+  const year=document.getElementById("year");
+
+  year.textContent=String(new Date().getFullYear());
+
+  function normalize(value){
+    return String(value||"")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g,"")
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g," ");
+  }
+
+  function filterPrinciples(){
+
+    const query=normalize(search.value);
+
+    const terms=query.split(" ").filter(Boolean);
+
+    let visible=0;
+
+    principles.forEach(function(article){
+
+      const content=normalize(article.textContent);
+
+      const match=terms.every(function(term){
+        return content.includes(term);
+      });
+
+      article.hidden=!match;
+
+      if(match){
+        visible++;
+      }
+
+    });
+
+    count.textContent=
+      visible+" principe(s) affiché(s) sur "+
+      principles.length;
+
+    noResults.hidden=visible!==0;
+
+  }
+
+  function updateTopButton(){
+    topBtn.hidden=window.scrollY<350;
+  }
+
+  search.addEventListener(
+    "input",
+    filterPrinciples
+  );
+
+  clearSearch.addEventListener("click",function(){
+    search.value="";
+    filterPrinciples();
+    search.focus();
+  });
+
+  topBtn.addEventListener("click",function(){
+
+    const reducedMotion=window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches;
+
+    window.scrollTo({
+      top:0,
+      behavior:reducedMotion?"auto":"smooth"
+    });
+
+  });
+
+  window.addEventListener(
+    "scroll",
+    updateTopButton,
+    {passive:true}
+  );
+
+  filterPrinciples();
+  updateTopButton();
+
+})();
+</script>
+
+</body>
+</html>
