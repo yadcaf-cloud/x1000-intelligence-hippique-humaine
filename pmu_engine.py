@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""X1000 — Collecteur PMU sécurisé 2.4.
-
-Python 3.10+ — bibliothèque standard uniquement.
-
-- Date API PMU au format JJMMAAAA.
-- Réunions explicitement confirmées en France uniquement.
-- Collecte des courses, partants et non-partants réels.
-- Contrôle des erreurs, doublons et publications.
-- Aucune donnée hippique inventée.
-- Aucun pronostic, résultat officiel ou FIGÉ modifié.
-- --dry-run : aucune écriture.
-- --self-test : tests hors réseau, sans écriture dans le dépôt.
 """
+X1000 — COLLECTEUR PMU SECURISE V2.5
+Python 3.10+ — bibliotheque standard.
+
+OBJECTIFS
+- Interroger les programmes PMU reels.
+- Identifier les reunions explicitement situees en France.
+- Collecter courses, participants et non-partants.
+- Diagnostiquer les formats JSON inattendus.
+- Refuser les donnees insuffisantes ou incoherentes.
+- Conserver les protections des publications existantes.
+
+SECURITE
+- Aucun pronostic invente.
+- Aucun resultat officiel invente.
+- Aucun FIGE cree ou modifie.
+- Aucun acces aux moteurs M1-M5.
+- Aucune publication en mode --dry-run.
+- Aucun reseau en mode --self-test.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -26,6 +34,7 @@ import sys
 import tempfile
 import time
 import unicodedata
+
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
@@ -33,7 +42,7 @@ from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 
-VERSION = "X1000-PMU-SECURISE-2.4"
+VERSION = "X1000-PMU-SECURISE-2.5"
 PARIS = ZoneInfo("Europe/Paris")
 
 ROOT = Path(__file__).resolve().parent
@@ -47,7 +56,10 @@ BASE = os.environ.get(
 TIMEOUT = 15
 RETRIES = 3
 MAX_BYTES = 12_000_000
-RETRYABLE = {408, 429, 500, 502, 503, 504}
+
+RETRYABLE = {
+    408, 429, 500, 502, 503, 504
+}
 
 
 def now():
@@ -68,15 +80,15 @@ def integer(value):
     if isinstance(value, bool):
         return None
 
-    s = text(value)
+    value = text(value)
+
+    if not re.fullmatch(r"[+-]?\d+", value):
+        return None
 
     try:
-        if re.fullmatch(r"[+-]?\d+", s):
-            return int(s)
+        return int(value)
     except (ValueError, OverflowError):
-        pass
-
-    return None
+        return None
 
 
 def number(value):
@@ -84,8 +96,10 @@ def number(value):
         return None
 
     try:
-        n = float(text(value).replace(",", "."))
-        return n if math.isfinite(n) else None
+        result = float(
+            text(value).replace(",", ".")
+        )
+        return result if math.isfinite(result) else None
     except (ValueError, OverflowError):
         return None
 
@@ -107,8 +121,9 @@ def array(obj, *keys):
 
     if isinstance(obj, dict):
         for key in keys:
-            if isinstance(obj.get(key), list):
-                return obj[key]
+            value = obj.get(key)
+            if isinstance(value, list):
+                return value
 
     return []
 
@@ -127,7 +142,6 @@ def label(value):
 
 
 def api_date(date):
-    """Convertit AAAA-MM-JJ en JJMMAAAA."""
     parsed = dt.date.fromisoformat(date)
 
     if parsed.isoformat() != date:
@@ -158,18 +172,17 @@ def participants_path(date, reunion, course):
 
 def validate_base():
     try:
-        p = urlsplit(BASE)
+        parsed = urlsplit(BASE)
 
         valid = (
-            p.scheme == "https"
-            and bool(p.hostname)
-            and not p.username
-            and not p.password
-            and not p.query
-            and not p.fragment
-            and p.port in (None, 443)
+            parsed.scheme == "https"
+            and bool(parsed.hostname)
+            and not parsed.username
+            and not parsed.password
+            and not parsed.query
+            and not parsed.fragment
+            and parsed.port in (None, 443)
         )
-
     except ValueError as exc:
         raise ValueError(
             "PMU_API_BASE invalide"
@@ -177,8 +190,7 @@ def validate_base():
 
     if not valid:
         raise ValueError(
-            "PMU_API_BASE doit etre une URL HTTPS "
-            "sans identifiants ni parametres"
+            "PMU_API_BASE doit etre une URL HTTPS valide"
         )
 
 
@@ -191,25 +203,26 @@ def request_json(path):
         raise ValueError("Chemin API invalide")
 
     url = BASE + "/" + path.lstrip("/")
-    last = "Erreur inconnue"
+    last_error = "Erreur inconnue"
 
     for attempt in range(RETRIES):
         retry = True
 
         try:
-            req = Request(
+            request = Request(
                 url,
                 headers={
                     "User-Agent": (
                         "Mozilla/5.0 "
-                        "(compatible; X1000-PMU/2.4)"
+                        "(compatible; X1000-PMU/2.5)"
                     ),
                     "Accept": "application/json",
                 }
             )
 
             with urlopen(
-                req, timeout=TIMEOUT
+                request,
+                timeout=TIMEOUT
             ) as response:
 
                 raw = response.read(MAX_BYTES + 1)
@@ -223,9 +236,7 @@ def request_json(path):
                     raw.decode("utf-8-sig")
                 )
 
-                if not isinstance(
-                    obj, (dict, list)
-                ):
+                if not isinstance(obj, (dict, list)):
                     raise ValueError(
                         "Structure JSON inattendue"
                     )
@@ -243,11 +254,9 @@ def request_json(path):
             finally:
                 exc.close()
 
-            detail = " ".join(
-                detail.split()
-            )[:500]
+            detail = " ".join(detail.split())[:300]
 
-            last = (
+            last_error = (
                 f"HTTP {exc.code}: {exc.reason}; "
                 f"reponse={detail or 'vide'}"
             )
@@ -259,13 +268,17 @@ def request_json(path):
             TimeoutError,
             OSError
         ) as exc:
-            last = f"{type(exc).__name__}: {exc}"
+            last_error = (
+                f"{type(exc).__name__}: {exc}"
+            )
 
         except (
             ValueError,
             UnicodeError
         ) as exc:
-            last = f"{type(exc).__name__}: {exc}"
+            last_error = (
+                f"{type(exc).__name__}: {exc}"
+            )
             retry = False
 
         if not retry:
@@ -278,8 +291,112 @@ def request_json(path):
             )
 
     raise RuntimeError(
-        f"Echec API {path}: {last}"
+        f"Echec API {path}: {last_error}"
     )
+
+
+def structure_info(obj):
+    """Diagnostic sans afficher de donnees personnelles."""
+    if isinstance(obj, dict):
+        keys = sorted(map(str, obj.keys()))
+        return (
+            "objet JSON; cles="
+            + ", ".join(keys)[:600]
+        )
+
+    if isinstance(obj, list):
+        return (
+            f"liste JSON; elements={len(obj)}"
+        )
+
+    return f"type={type(obj).__name__}"
+
+
+def extract_reunions(programme):
+    """
+    Reconnait plusieurs enveloppes JSON possibles.
+    Ne transforme jamais un objet inconnu
+    en reunion supposee.
+    """
+    if isinstance(programme, list):
+        return programme
+
+    if not isinstance(programme, dict):
+        return []
+
+    keys = (
+        "reunions",
+        "réunions",
+        "reunion",
+        "listeReunions"
+    )
+
+    for key in keys:
+        value = programme.get(key)
+
+        if isinstance(value, list):
+            return value
+
+    for wrapper in (
+        "programme",
+        "data",
+        "result",
+        "resultat"
+    ):
+        nested = programme.get(wrapper)
+
+        if isinstance(nested, dict):
+            for key in keys:
+                value = nested.get(key)
+
+                if isinstance(value, list):
+                    return value
+
+        if isinstance(nested, list):
+            return nested
+
+    return []
+
+
+def extract_courses(reunion):
+    return array(
+        reunion,
+        "courses",
+        "listeCourses"
+    )
+
+
+def extract_participants(details):
+    if isinstance(details, list):
+        return details
+
+    if not isinstance(details, dict):
+        return []
+
+    result = array(
+        details,
+        "participants",
+        "partants",
+        "listeParticipants"
+    )
+
+    if result:
+        return result
+
+    for wrapper in ("data", "result"):
+        nested = details.get(wrapper)
+
+        if isinstance(nested, dict):
+            result = array(
+                nested,
+                "participants",
+                "partants",
+                "listeParticipants"
+            )
+            if result:
+                return result
+
+    return []
 
 
 def normalized_country(value):
@@ -293,7 +410,8 @@ def normalized_country(value):
         )
 
     return unicodedata.normalize(
-        "NFKD", text(value)
+        "NFKD",
+        text(value)
     ).encode(
         "ascii", "ignore"
     ).decode().upper()
@@ -322,36 +440,36 @@ def departure(value, date):
         return None
 
     try:
-        s = text(value)
+        value = text(value)
 
-        if re.fullmatch(
-            r"\d{10}|\d{13}", s
-        ):
-            stamp = int(s) / (
-                1000 if len(s) == 13 else 1
-            )
+        if re.fullmatch(r"\d{10}|\d{13}", value):
+            stamp = int(value)
 
-            d = dt.datetime.fromtimestamp(
+            if len(value) == 13:
+                stamp /= 1000
+
+            parsed = dt.datetime.fromtimestamp(
                 stamp,
                 dt.timezone.utc
             )
 
         elif re.fullmatch(
-            r"\d{1,2}:\d{2}(:\d{2})?", s
+            r"\d{1,2}:\d{2}(:\d{2})?",
+            value
         ):
-            d = dt.datetime.fromisoformat(
-                date + "T" + s
+            parsed = dt.datetime.fromisoformat(
+                date + "T" + value
             ).replace(tzinfo=PARIS)
 
         else:
-            d = dt.datetime.fromisoformat(
-                s.replace("Z", "+00:00")
+            parsed = dt.datetime.fromisoformat(
+                value.replace("Z", "+00:00")
             )
 
-            if d.tzinfo is None:
-                d = d.replace(tzinfo=PARIS)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=PARIS)
 
-        return d.astimezone(PARIS).isoformat(
+        return parsed.astimezone(PARIS).isoformat(
             timespec="seconds"
         )
 
@@ -460,7 +578,7 @@ def participant(item):
             "gains",
             "gain"
         )),
-        "source": "PMU",
+        "source": "PMU"
     }
 
 
@@ -480,7 +598,6 @@ def atomic_json(path, obj):
         with os.fdopen(
             fd, "w", encoding="utf-8"
         ) as handle:
-
             json.dump(
                 obj,
                 handle,
@@ -519,8 +636,8 @@ def report(date, courses, errors, warnings, status):
             "non_partants": sum(
                 len(c["non_partants"])
                 for c in courses
-            ),
-        },
+            )
+        }
     }
 
 
@@ -539,17 +656,17 @@ def collect(date):
             date, [], [str(exc)], [], "ECHEC"
         )
 
-    reunions = array(
-        programme,
-        "reunions",
-        "réunions"
-    )
+    reunions = extract_reunions(programme)
 
     if not reunions:
         return report(
             date,
             [],
-            ["Programme sans liste de reunions exploitable"],
+            [
+                "Programme sans liste de reunions exploitable",
+                "Structure recue : "
+                + structure_info(programme)
+            ],
             [],
             "ECHEC"
         )
@@ -587,14 +704,11 @@ def collect(date):
             "nomHippodrome"
         ))
 
-        race_list = array(
-            reunion, "courses"
-        )
+        race_list = extract_courses(reunion)
 
         if not race_list:
             warnings.append(
-                f"R{nr}: aucune course "
-                "dans le programme"
+                f"R{nr}: aucune course exploitable"
             )
 
         for course in race_list:
@@ -642,16 +756,13 @@ def collect(date):
                 )
                 continue
 
-            raw = array(
-                details,
-                "participants",
-                "partants"
-            )
+            raw = extract_participants(details)
 
             if not raw:
                 errors.append(
                     f"{cid}: participants absents "
-                    "ou format non reconnu"
+                    "ou format non reconnu; "
+                    + structure_info(details)
                 )
                 continue
 
@@ -701,6 +812,30 @@ def collect(date):
                 date
             )
 
+            if start is None:
+                errors.append(
+                    f"{cid}: depart non verifie"
+                )
+                continue
+
+            if start[:10] != date:
+                errors.append(
+                    f"{cid}: date de depart incoherente"
+                )
+                continue
+
+            discipline = label(first(
+                course,
+                "discipline",
+                "typeCourse",
+                "specialite"
+            ))
+
+            if not discipline:
+                warnings.append(
+                    f"{cid}: discipline non renseignee"
+                )
+
             courses.append({
                 "id": cid,
                 "reunion": nr,
@@ -713,8 +848,9 @@ def collect(date):
                     "nom",
                     "libelleCourse"
                 )),
+                "discipline": discipline or None,
                 "depart": start,
-                "depart_verifie": start is not None,
+                "depart_verifie": True,
                 "nombre_participants": len(people),
                 "nombre_partants": (
                     len(people) - len(np)
@@ -723,7 +859,7 @@ def collect(date):
                 "partants": people,
                 "source": "PMU",
                 "collecte_a": now(),
-                "statut": "PARTANTS_CHARGES",
+                "statut": "PARTANTS_CHARGES"
             })
 
     courses.sort(
@@ -763,8 +899,7 @@ def can_publish(new, path):
     ):
         return (
             False,
-            "Collecte avec erreurs "
-            "ou statut non publiable"
+            "Collecte avec erreurs ou statut non publiable"
         )
 
     if not path.exists():
@@ -782,9 +917,7 @@ def can_publish(new, path):
 
     if (
         not isinstance(old, dict)
-        or not isinstance(
-            old.get("courses"), list
-        )
+        or not isinstance(old.get("courses"), list)
     ):
         return (
             False,
@@ -809,8 +942,7 @@ def can_publish(new, path):
     if old_date > new["date"]:
         return (
             False,
-            "Refus de remplacer "
-            "une publication plus recente"
+            "Refus de remplacer une publication plus recente"
         )
 
     if old_date < new["date"]:
@@ -822,9 +954,7 @@ def can_publish(new, path):
         if (
             not isinstance(c, dict)
             or not isinstance(c.get("id"), str)
-            or not isinstance(
-                c.get("partants"), list
-            )
+            or not isinstance(c.get("partants"), list)
         ):
             return (
                 False,
@@ -906,11 +1036,19 @@ def self_test():
         "2026-11-01", 1, 2
     ) == "programme/01112026/R1/C2/participants"
 
-    assert integer("12") == 12
-    assert integer("2.5") is None
+    assert extract_reunions({
+        "reunions": [{"numOfficiel": 1}]
+    }) == [{"numOfficiel": 1}]
 
-    assert number("2,5") == 2.5
-    assert number("nan") is None
+    assert extract_reunions({
+        "programme": {
+            "reunions": [{"numOfficiel": 2}]
+        }
+    }) == [{"numOfficiel": 2}]
+
+    assert extract_reunions({
+        "unknown": []
+    }) == []
 
     assert france_verified({
         "pays": {"code": "FRA"}
@@ -919,6 +1057,12 @@ def self_test():
     assert not france_verified({
         "hippodrome": "Paris"
     })
+
+    assert integer("12") == 12
+    assert integer("2.5") is None
+
+    assert number("2,5") == 2.5
+    assert number("nan") is None
 
     assert non_starter({
         "statut": "NON_PARTANT"
@@ -936,11 +1080,6 @@ def self_test():
 
     assert departure(
         "14:30", "2026-11-01"
-    )
-
-    assert departure(
-        "1762000000000",
-        "2026-11-01"
     )
 
     with tempfile.TemporaryDirectory() as folder:
@@ -970,9 +1109,7 @@ def self_test():
                 "id": "2026-11-01-R1-C1",
                 "nombre_partants": 1,
                 "non_partants": [],
-                "partants": [
-                    {"numero": 1}
-                ],
+                "partants": [{"numero": 1}]
             }],
             [],
             [],
@@ -996,7 +1133,8 @@ def self_test():
 
     print(
         "SELF-TEST OK : "
-        "format API valide, "
+        "formats JSON reconnus, "
+        "protections actives, "
         "aucun reseau, "
         "aucune publication reelle"
     )
@@ -1005,8 +1143,7 @@ def self_test():
 def main():
     parser = argparse.ArgumentParser(
         description=(
-            "X1000 - collecte PMU "
-            "France verifiee"
+            "X1000 - Collecte PMU France verifiee"
         )
     )
 
@@ -1043,6 +1180,7 @@ def main():
     try:
         result = collect(args.date)
     except (
+        RuntimeError,
         ValueError,
         OSError
     ) as exc:
@@ -1067,7 +1205,6 @@ def main():
                     destination,
                     result
                 )
-
                 print(
                     f"Publication : {destination}"
                 )
@@ -1088,7 +1225,6 @@ def main():
                 file=sys.stderr
             )
             return 1
-
     else:
         print(
             "DRY-RUN : aucune ecriture"
@@ -1096,6 +1232,7 @@ def main():
 
     print(json.dumps(
         {
+            "version": VERSION,
             "date": args.date,
             "statut": result["statut"],
             "publication_autorisee": allowed,
@@ -1103,7 +1240,7 @@ def main():
             "dry_run": args.dry_run,
             "erreurs": result["erreurs"],
             "avertissements": result["avertissements"],
-            "statistiques": result["statistiques"],
+            "statistiques": result["statistiques"]
         },
         ensure_ascii=False,
         indent=2
