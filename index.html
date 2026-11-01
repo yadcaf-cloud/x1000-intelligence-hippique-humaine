@@ -1,8 +1,9 @@
+
 <!DOCTYPE html>
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#07131f">
 <meta name="description" content="X1000 — Intelligence Hippique Humaine. Observer, comprendre, anticiper et apprendre des courses hippiques.">
 <meta name="referrer" content="no-referrer">
@@ -21,11 +22,12 @@
   --gold:#eac977;
   --blue:#9bd8ff;
   --red:#ff9b9b;
+  --header-height:120px;
 }
 *{box-sizing:border-box}
 html{
   scroll-behavior:smooth;
-  scroll-padding-top:120px;
+  scroll-padding-top:var(--header-height);
 }
 body{
   margin:0;
@@ -41,6 +43,7 @@ a{color:var(--blue);text-decoration:none}
 a:hover{text-decoration:underline}
 button,input{font:inherit}
 button{cursor:pointer}
+button:disabled{cursor:not-allowed;opacity:.6}
 button:focus-visible,
 a:focus-visible,
 input:focus-visible{
@@ -95,7 +98,7 @@ nav a:hover{
   background:var(--panel2);
   text-decoration:none;
 }
-section{scroll-margin-top:125px}
+section{scroll-margin-top:var(--header-height)}
 .hero{
   margin-top:18px;
   padding:55px 22px;
@@ -177,25 +180,15 @@ h2.section-title{
   color:var(--green);
   margin-top:0;
 }
-.card p,.principle p{
-  margin:10px 0;
-}
-.principle{
-  margin-bottom:15px;
-}
+.card p,.principle p{margin:10px 0}
+.principle{margin-bottom:15px}
 .principle h3{
   padding-bottom:10px;
   border-bottom:1px solid var(--border);
 }
-.principle strong{
-  color:var(--gold);
-}
-.principle ul{
-  padding-left:23px;
-}
-.principle li{
-  margin:6px 0;
-}
+.principle strong{color:var(--gold)}
+.principle ul{padding-left:23px}
+.principle li{margin:6px 0}
 .muted{color:var(--muted)}
 .status{
   background:var(--panel2);
@@ -215,9 +208,7 @@ h2.section-title{
   padding:14px;
   margin:12px 0;
 }
-.searchbar::placeholder{
-  color:var(--muted);
-}
+.searchbar::placeholder{color:var(--muted)}
 .toolbar{
   display:flex;
   gap:10px;
@@ -242,9 +233,7 @@ h2.section-title{
   color:var(--gold);
   text-align:center;
 }
-.manifesto p{
-  font-size:16px;
-}
+.manifesto p{font-size:16px}
 footer{
   text-align:center;
   border-top:1px solid var(--border);
@@ -266,8 +255,6 @@ footer strong{color:var(--gold)}
   padding:10px 15px;
 }
 @media(max-width:600px){
-  html{scroll-padding-top:170px}
-  section{scroll-margin-top:170px}
   .header-inner{
     justify-content:center;
     padding:10px;
@@ -1400,27 +1387,39 @@ footer strong{color:var(--gold)}
 (function(){
 
   const search=document.getElementById("search");
-
   const principles=Array.from(
-    document.querySelectorAll(
-      "#principlesList .principle"
-    )
+    document.querySelectorAll("#principlesList .principle")
   );
-
   const count=document.getElementById("searchCount");
-
   const noResults=document.getElementById("noResults");
-
   const clearSearch=document.getElementById("clearSearch");
-
   const topBtn=document.getElementById("topBtn");
-
   const year=document.getElementById("year");
+  const header=document.querySelector("header");
+
+  if(!search || !count || !noResults ||
+     !clearSearch || !topBtn || !year){
+    console.error("X1000 : éléments HTML manquants.");
+    return;
+  }
 
   year.textContent=String(new Date().getFullYear());
 
+  function updateHeaderHeight(){
+    if(!header) return;
+
+    const height=Math.ceil(
+      header.getBoundingClientRect().height
+    )+12;
+
+    document.documentElement.style.setProperty(
+      "--header-height",
+      height+"px"
+    );
+  }
+
   function normalize(value){
-    return String(value||"")
+    return String(value ?? "")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g,"")
       .toLowerCase()
@@ -1428,28 +1427,28 @@ footer strong{color:var(--gold)}
       .replace(/\s+/g," ");
   }
 
+  const indexedPrinciples=principles.map(function(article){
+    return {
+      element:article,
+      content:normalize(article.textContent)
+    };
+  });
+
   function filterPrinciples(){
-
-    const query=normalize(search.value);
-
-    const terms=query.split(" ").filter(Boolean);
+    const terms=normalize(search.value)
+      .split(" ")
+      .filter(Boolean);
 
     let visible=0;
 
-    principles.forEach(function(article){
-
-      const content=normalize(article.textContent);
-
+    indexedPrinciples.forEach(function(item){
       const match=terms.every(function(term){
-        return content.includes(term);
+        return item.content.includes(term);
       });
 
-      article.hidden=!match;
+      item.element.hidden=!match;
 
-      if(match){
-        visible++;
-      }
-
+      if(match) visible++;
     });
 
     count.textContent=
@@ -1457,17 +1456,14 @@ footer strong{color:var(--gold)}
       principles.length;
 
     noResults.hidden=visible!==0;
-
+    clearSearch.disabled=search.value.length===0;
   }
 
   function updateTopButton(){
     topBtn.hidden=window.scrollY<350;
   }
 
-  search.addEventListener(
-    "input",
-    filterPrinciples
-  );
+  search.addEventListener("input",filterPrinciples);
 
   clearSearch.addEventListener("click",function(){
     search.value="";
@@ -1476,7 +1472,6 @@ footer strong{color:var(--gold)}
   });
 
   topBtn.addEventListener("click",function(){
-
     const reducedMotion=window.matchMedia(
       "(prefers-reduced-motion: reduce)"
     ).matches;
@@ -1485,7 +1480,6 @@ footer strong{color:var(--gold)}
       top:0,
       behavior:reducedMotion?"auto":"smooth"
     });
-
   });
 
   window.addEventListener(
@@ -1494,6 +1488,18 @@ footer strong{color:var(--gold)}
     {passive:true}
   );
 
+  window.addEventListener(
+    "resize",
+    updateHeaderHeight,
+    {passive:true}
+  );
+
+  if(header && "ResizeObserver" in window){
+    const observer=new ResizeObserver(updateHeaderHeight);
+    observer.observe(header);
+  }
+
+  updateHeaderHeight();
   filterPrinciples();
   updateTopButton();
 
