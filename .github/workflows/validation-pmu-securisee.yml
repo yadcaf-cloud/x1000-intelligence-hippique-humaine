@@ -1,4 +1,5 @@
-name: "X1000 - Validation PMU securisee V1.2"
+
+name: "X1000 - Validation PMU securisee V1.3"
 
 on:
   workflow_dispatch:
@@ -59,14 +60,20 @@ jobs:
 
           echo "Branche securisee confirmee."
           echo "Moteur PMU present."
+          python --version
 
       - name: "Verifier la syntaxe Python"
         run: |
           set -euo pipefail
 
-          python -m py_compile pmu_engine.py
+          python - <<'PY'
+          from pathlib import Path
 
-          echo "Syntaxe Python valide."
+          source = Path("pmu_engine.py").read_bytes()
+          compile(source, "pmu_engine.py", "exec")
+
+          print("Syntaxe Python valide.")
+          PY
 
       - name: "Executer les tests internes"
         run: |
@@ -80,10 +87,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          mkdir -p "$RUNNER_TEMP/x1000-pmu-test"
+          TEST_DIR="$RUNNER_TEMP/x1000-pmu-test"
 
-          cp pmu_engine.py \
-            "$RUNNER_TEMP/x1000-pmu-test/pmu_engine.py"
+          mkdir -p "$TEST_DIR"
+
+          cp pmu_engine.py "$TEST_DIR/pmu_engine.py"
+
+          test -f "$TEST_DIR/pmu_engine.py"
 
           echo "Copie isolee preparee."
 
@@ -91,11 +101,50 @@ jobs:
         run: |
           set -euo pipefail
 
-          cd "$RUNNER_TEMP/x1000-pmu-test"
+          TEST_DIR="$RUNNER_TEMP/x1000-pmu-test"
 
-          python pmu_engine.py --dry-run
+          cd "$TEST_DIR"
 
-          echo "Collecte testee sans publication."
+          echo "=================================="
+          echo "X1000 - TEST COLLECTE PMU REELLE"
+          echo "=================================="
+
+          echo "Mode DRY-RUN : aucune ecriture."
+          echo "Debut de la collecte PMU."
+
+          if python pmu_engine.py --dry-run; then
+            echo "Collecte PMU validee."
+          else
+            echo "::error::La collecte PMU a echoue."
+            echo "::error::Verifier les erreurs API et les donnees PMU."
+            exit 1
+          fi
+
+          echo "Test termine sans publication."
+
+      - name: "Verifier la copie temporaire"
+        if: always()
+        run: |
+          set -euo pipefail
+
+          TEST_DIR="$RUNNER_TEMP/x1000-pmu-test"
+
+          if [ ! -d "$TEST_DIR" ]; then
+            echo "::warning::Copie temporaire absente."
+            exit 0
+          fi
+
+          if [ -d "$TEST_DIR/data" ]; then
+            echo "::error::Repertoire data cree pendant le test."
+            exit 1
+          fi
+
+          if [ -d "$TEST_DIR/__pycache__" ]; then
+            echo "::error::Cache Python cree pendant le test."
+            exit 1
+          fi
+
+          echo "Aucune publication detectee dans la copie."
 
       - name: "Verifier les fichiers suivis"
         if: always()
@@ -112,7 +161,20 @@ jobs:
             exit 1
           fi
 
-          echo "Aucune modification des fichiers suivis."
+          echo "Aucun fichier suivi modifie."
+
+      - name: "Verifier les nouveaux fichiers"
+        if: always()
+        run: |
+          set -euo pipefail
+
+          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "::error::Nouveaux fichiers non suivis detectes."
+            git ls-files --others --exclude-standard
+            exit 1
+          fi
+
+          echo "Aucun nouveau fichier non suivi."
 
       - name: "Rapport de securite"
         if: always()
@@ -121,6 +183,7 @@ jobs:
           echo "X1000 - VALIDATION PMU SECURISEE"
           echo "=================================="
           echo "Branche : $GITHUB_REF"
+          echo "Date UTC : $(date -u '+%Y-%m-%d %H:%M:%S')"
           echo "Aucun git push execute."
           echo "Aucun deploiement execute."
           echo "Aucune publication PMU demandee."
