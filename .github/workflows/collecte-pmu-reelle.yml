@@ -1,0 +1,99 @@
+name: "X1000 - Connexion PMU reelle"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: x1000-pmu-reel-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  collecte-pmu:
+    name: "Collecte et publication PMU"
+    if: github.ref == 'refs/heads/feature/activation-pmu-analyses-archives'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      TZ: Europe/Paris
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: "Recuperer la branche securisee"
+        uses: actions/checkout@v4
+        with:
+          ref: feature/activation-pmu-analyses-archives
+          persist-credentials: true
+
+      - name: "Installer Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: "Collecter les donnees reelles PMU"
+        id: collecte
+        run: |
+          set -euo pipefail
+          python pmu_engine.py
+
+      - name: "Publier les donnees reelles"
+        if: steps.collecte.outcome == 'success'
+        run: |
+          set -euo pipefail
+
+          test -s data/publication_courses.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("data/publication_courses.json")
+          data = json.loads(path.read_text(encoding="utf-8"))
+
+          assert data["statut"] == "OK"
+          assert len(data["courses"]) > 0
+
+          for course in data["courses"]:
+              assert course["localisation_france_verifiee"] is True
+              assert course["depart_verifie"] is True
+              assert course["discipline"]
+              assert course["nombre_partants"] > 0
+              assert course["partants"]
+
+          print(
+              "Courses PMU reelles admissibles :",
+              len(data["courses"])
+          )
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add -- \
+            data/publication_courses.json \
+            data/diagnostic_collecte_pmu.json
+
+          if git diff --cached --quiet; then
+            echo "Aucune modification de donnees."
+            exit 0
+          fi
+
+          git commit -m "data: publication PMU reelle"
+
+          git push origin \
+            HEAD:feature/activation-pmu-analyses-archives
+
+      - name: "Rapport"
+        if: always()
+        run: |
+          echo "Collecte PMU terminee."
+          echo "Branche securisee uniquement."
+          echo "Aucun FIGE cree."
+          echo "Aucun pronostic invente."
+          echo "Aucun moteur M1-M5 execute."
