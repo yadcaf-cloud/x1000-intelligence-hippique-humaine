@@ -1,24 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-X1000 — COLLECTEUR PMU SECURISE V2.5
+X1000 — COLLECTEUR PMU SECURISE V2.6
 Python 3.10+ — bibliotheque standard.
 
-OBJECTIFS
-- Interroger les programmes PMU reels.
-- Identifier les reunions explicitement situees en France.
-- Collecter courses, participants et non-partants.
-- Diagnostiquer les formats JSON inattendus.
-- Refuser les donnees insuffisantes ou incoherentes.
-- Conserver les protections des publications existantes.
-
-SECURITE
-- Aucun pronostic invente.
-- Aucun resultat officiel invente.
-- Aucun FIGE cree ou modifie.
-- Aucun acces aux moteurs M1-M5.
-- Aucune publication en mode --dry-run.
-- Aucun reseau en mode --self-test.
+- Collecte des programmes PMU reels
+- Reunions explicitement confirmees en France
+- Verification des courses, partants et non-partants
+- Discipline obligatoire
+- Diagnostics des erreurs API et JSON
+- Publication atomique et protegee
+- Aucun pronostic, FIGE ou resultat invente
+- Aucun acces aux moteurs M1-M5
+- Aucun reseau en --self-test
+- Aucune ecriture en --dry-run
 """
 
 from __future__ import annotations
@@ -42,9 +37,8 @@ from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 
-VERSION = "X1000-PMU-SECURISE-2.5"
+VERSION = "X1000-PMU-SECURISE-2.6"
 PARIS = ZoneInfo("Europe/Paris")
-
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 
@@ -56,10 +50,7 @@ BASE = os.environ.get(
 TIMEOUT = 15
 RETRIES = 3
 MAX_BYTES = 12_000_000
-
-RETRYABLE = {
-    408, 429, 500, 502, 503, 504
-}
+RETRYABLE = {408, 429, 500, 502, 503, 504}
 
 
 def now():
@@ -79,12 +70,9 @@ def text(value):
 def integer(value):
     if isinstance(value, bool):
         return None
-
     value = text(value)
-
     if not re.fullmatch(r"[+-]?\d+", value):
         return None
-
     try:
         return int(value)
     except (ValueError, OverflowError):
@@ -94,7 +82,6 @@ def integer(value):
 def number(value):
     if isinstance(value, bool):
         return None
-
     try:
         result = float(
             text(value).replace(",", ".")
@@ -107,46 +94,36 @@ def number(value):
 def first(obj, *keys):
     if not isinstance(obj, dict):
         return None
-
     for key in keys:
         if obj.get(key) is not None:
             return obj[key]
-
     return None
 
 
 def array(obj, *keys):
     if isinstance(obj, list):
         return obj
-
     if isinstance(obj, dict):
         for key in keys:
             value = obj.get(key)
             if isinstance(value, list):
                 return value
-
     return []
 
 
 def label(value):
     if isinstance(value, dict):
         value = first(
-            value,
-            "libelle",
-            "nom",
-            "name",
-            "code"
+            value, "libelle", "nom", "name",
+            "code", "libelleCourt"
         )
-
     return text(value)
 
 
 def api_date(date):
-    parsed = dt.date.fromisoformat(date)
-
-    if parsed.isoformat() != date:
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
         raise ValueError("Date ISO invalide")
-
+    parsed = dt.date.fromisoformat(date)
     return parsed.strftime("%d%m%Y")
 
 
@@ -157,13 +134,10 @@ def programme_path(date):
 def participants_path(date, reunion, course):
     nr = integer(reunion)
     nc = integer(course)
-
     if nr is None or nr < 1:
         raise ValueError("Numero reunion invalide")
-
     if nc is None or nc < 1:
         raise ValueError("Numero course invalide")
-
     return (
         f"programme/{api_date(date)}"
         f"/R{nr}/C{nc}/participants"
@@ -173,7 +147,6 @@ def participants_path(date, reunion, course):
 def validate_base():
     try:
         parsed = urlsplit(BASE)
-
         valid = (
             parsed.scheme == "https"
             and bool(parsed.hostname)
@@ -212,19 +185,15 @@ def request_json(path):
             request = Request(
                 url,
                 headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 "
-                        "(compatible; X1000-PMU/2.5)"
-                    ),
+                    "User-Agent": "X1000-PMU/2.6",
                     "Accept": "application/json",
+                    "Accept-Encoding": "identity",
                 }
             )
 
             with urlopen(
-                request,
-                timeout=TIMEOUT
+                request, timeout=TIMEOUT
             ) as response:
-
                 raw = response.read(MAX_BYTES + 1)
 
                 if len(raw) > MAX_BYTES:
@@ -246,8 +215,7 @@ def request_json(path):
         except HTTPError as exc:
             try:
                 detail = exc.read(2048).decode(
-                    "utf-8",
-                    errors="replace"
+                    "utf-8", errors="replace"
                 )
             except (OSError, UnicodeError):
                 detail = "Detail indisponible"
@@ -255,30 +223,17 @@ def request_json(path):
                 exc.close()
 
             detail = " ".join(detail.split())[:300]
-
             last_error = (
                 f"HTTP {exc.code}: {exc.reason}; "
                 f"reponse={detail or 'vide'}"
             )
-
             retry = exc.code in RETRYABLE
 
-        except (
-            URLError,
-            TimeoutError,
-            OSError
-        ) as exc:
-            last_error = (
-                f"{type(exc).__name__}: {exc}"
-            )
+        except (URLError, TimeoutError, OSError) as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
 
-        except (
-            ValueError,
-            UnicodeError
-        ) as exc:
-            last_error = (
-                f"{type(exc).__name__}: {exc}"
-            )
+        except (ValueError, UnicodeError) as exc:
+            last_error = f"{type(exc).__name__}: {exc}"
             retry = False
 
         if not retry:
@@ -286,7 +241,7 @@ def request_json(path):
 
         if attempt < RETRIES - 1:
             time.sleep(
-                0.5 * 2 ** attempt
+                0.5 * (2 ** attempt)
                 + random.uniform(0, 0.2)
             )
 
@@ -296,28 +251,15 @@ def request_json(path):
 
 
 def structure_info(obj):
-    """Diagnostic sans afficher de donnees personnelles."""
     if isinstance(obj, dict):
         keys = sorted(map(str, obj.keys()))
-        return (
-            "objet JSON; cles="
-            + ", ".join(keys)[:600]
-        )
-
+        return "objet JSON; cles=" + ", ".join(keys)[:600]
     if isinstance(obj, list):
-        return (
-            f"liste JSON; elements={len(obj)}"
-        )
-
+        return f"liste JSON; elements={len(obj)}"
     return f"type={type(obj).__name__}"
 
 
 def extract_reunions(programme):
-    """
-    Reconnait plusieurs enveloppes JSON possibles.
-    Ne transforme jamais un objet inconnu
-    en reunion supposee.
-    """
     if isinstance(programme, list):
         return programme
 
@@ -325,30 +267,23 @@ def extract_reunions(programme):
         return []
 
     keys = (
-        "reunions",
-        "réunions",
-        "reunion",
-        "listeReunions"
+        "reunions", "réunions",
+        "reunion", "listeReunions"
     )
 
     for key in keys:
         value = programme.get(key)
-
         if isinstance(value, list):
             return value
 
     for wrapper in (
-        "programme",
-        "data",
-        "result",
-        "resultat"
+        "programme", "data", "result", "resultat"
     ):
         nested = programme.get(wrapper)
 
         if isinstance(nested, dict):
             for key in keys:
                 value = nested.get(key)
-
                 if isinstance(value, list):
                     return value
 
@@ -360,9 +295,7 @@ def extract_reunions(programme):
 
 def extract_courses(reunion):
     return array(
-        reunion,
-        "courses",
-        "listeCourses"
+        reunion, "courses", "listeCourses"
     )
 
 
@@ -375,22 +308,18 @@ def extract_participants(details):
 
     result = array(
         details,
-        "participants",
-        "partants",
+        "participants", "partants",
         "listeParticipants"
     )
-
     if result:
         return result
 
-    for wrapper in ("data", "result"):
+    for wrapper in ("data", "result", "resultat"):
         nested = details.get(wrapper)
-
         if isinstance(nested, dict):
             result = array(
                 nested,
-                "participants",
-                "partants",
+                "participants", "partants",
                 "listeParticipants"
             )
             if result:
@@ -402,36 +331,26 @@ def extract_participants(details):
 def normalized_country(value):
     if isinstance(value, dict):
         value = first(
-            value,
-            "code",
-            "codePays",
-            "nom",
-            "libelle"
+            value, "code", "codePays",
+            "nom", "libelle"
         )
 
     return unicodedata.normalize(
-        "NFKD",
-        text(value)
+        "NFKD", text(value)
     ).encode(
         "ascii", "ignore"
-    ).decode().upper()
+    ).decode().strip().upper()
 
 
 def france_verified(reunion):
     country = first(
         reunion,
-        "codePays",
-        "pays",
-        "countryCode",
-        "country"
+        "codePays", "pays",
+        "countryCode", "country"
     )
 
     return normalized_country(country) in {
-        "FR",
-        "FRA",
-        "FRANCE",
-        "FRANCAIS",
-        "FRANCAISE"
+        "FR", "FRA", "FRANCE"
     }
 
 
@@ -444,18 +363,15 @@ def departure(value, date):
 
         if re.fullmatch(r"\d{10}|\d{13}", value):
             stamp = int(value)
-
             if len(value) == 13:
                 stamp /= 1000
 
             parsed = dt.datetime.fromtimestamp(
-                stamp,
-                dt.timezone.utc
+                stamp, dt.timezone.utc
             )
 
         elif re.fullmatch(
-            r"\d{1,2}:\d{2}(:\d{2})?",
-            value
+            r"\d{1,2}:\d{2}(:\d{2})?", value
         ):
             parsed = dt.datetime.fromisoformat(
                 date + "T" + value
@@ -473,25 +389,16 @@ def departure(value, date):
             timespec="seconds"
         )
 
-    except (
-        ValueError,
-        OverflowError,
-        OSError
-    ):
+    except (ValueError, OverflowError, OSError):
         return None
 
 
 def non_starter(item):
     flag = first(
-        item,
-        "nonPartant",
-        "non_partant"
+        item, "nonPartant", "non_partant"
     )
 
-    if flag is True:
-        return True
-
-    if (
+    if flag is True or (
         isinstance(flag, int)
         and not isinstance(flag, bool)
         and flag == 1
@@ -505,20 +412,16 @@ def non_starter(item):
             return True
 
     status = re.sub(
-        r"[\s-]+",
-        "_",
+        r"[\s-]+", "_",
         text(first(
             item,
-            "statut",
-            "statutParticipant",
+            "statut", "statutParticipant",
             "status"
         )).upper()
     )
 
     return status in {
-        "NP",
-        "NON_PARTANT",
-        "NONPARTANT"
+        "NP", "NON_PARTANT", "NONPARTANT"
     }
 
 
@@ -527,18 +430,12 @@ def participant(item):
         return None
 
     num = integer(first(
-        item,
-        "numPmu",
-        "numero",
-        "num",
-        "numeroPmu"
+        item, "numPmu", "numero",
+        "num", "numeroPmu"
     ))
 
     name = text(first(
-        item,
-        "nom",
-        "nomCheval",
-        "name"
+        item, "nom", "nomCheval", "name"
     ))
 
     if num is None or num < 1 or not name:
@@ -550,33 +447,22 @@ def participant(item):
         "numero": num,
         "nom": name,
         "non_partant": np,
-        "statut": (
-            "NON_PARTANT" if np else "PARTANT"
-        ),
+        "statut": "NON_PARTANT" if np else "PARTANT",
         "jockey_driver": label(first(
-            item,
-            "driver",
-            "jockey",
-            "nomJockey",
-            "nomDriver"
+            item, "driver", "jockey",
+            "nomJockey", "nomDriver"
         )) or None,
         "entraineur": label(first(
-            item,
-            "entraineur",
-            "nomEntraineur"
+            item, "entraineur", "nomEntraineur"
         )) or None,
         "musique": text(first(
-            item,
-            "musique",
-            "musiqueCheval"
+            item, "musique", "musiqueCheval"
         )) or None,
         "age": integer(item.get("age")),
         "sexe": text(item.get("sexe")) or None,
         "gains": number(first(
-            item,
-            "gainsParticipant",
-            "gains",
-            "gain"
+            item, "gainsParticipant",
+            "gains", "gain"
         )),
         "source": "PMU"
     }
@@ -584,8 +470,7 @@ def participant(item):
 
 def atomic_json(path, obj):
     path.parent.mkdir(
-        parents=True,
-        exist_ok=True
+        parents=True, exist_ok=True
     )
 
     fd, tmp = tempfile.mkstemp(
@@ -599,13 +484,11 @@ def atomic_json(path, obj):
             fd, "w", encoding="utf-8"
         ) as handle:
             json.dump(
-                obj,
-                handle,
+                obj, handle,
                 ensure_ascii=False,
                 indent=2,
                 allow_nan=False
             )
-
             handle.write("\n")
             handle.flush()
             os.fsync(handle.fileno())
@@ -630,12 +513,10 @@ def report(date, courses, errors, warnings, status):
         "statistiques": {
             "courses": len(courses),
             "partants": sum(
-                c["nombre_partants"]
-                for c in courses
+                c["nombre_partants"] for c in courses
             ),
             "non_partants": sum(
-                len(c["non_partants"])
-                for c in courses
+                len(c["non_partants"]) for c in courses
             )
         }
     }
@@ -660,48 +541,37 @@ def collect(date):
 
     if not reunions:
         return report(
-            date,
-            [],
+            date, [],
             [
-                "Programme sans liste de reunions exploitable",
+                "Programme sans reunions exploitables",
                 "Structure recue : "
                 + structure_info(programme)
             ],
-            [],
-            "ECHEC"
+            [], "ECHEC"
         )
 
     for reunion in reunions:
         if not isinstance(reunion, dict):
-            errors.append(
-                "Reunion de format invalide"
-            )
+            errors.append("Reunion invalide")
             continue
 
         nr = integer(first(
             reunion,
-            "numOfficiel",
-            "numReunion",
-            "numero"
+            "numOfficiel", "numReunion", "numero"
         ))
 
         if nr is None or nr < 1:
-            errors.append(
-                "Reunion sans numero valide"
-            )
+            errors.append("Numero reunion invalide")
             continue
 
         if not france_verified(reunion):
             warnings.append(
-                f"R{nr}: pays FR non confirme, "
-                "reunion exclue"
+                f"R{nr}: pays FR non confirme, reunion exclue"
             )
             continue
 
         hippodrome = label(first(
-            reunion,
-            "hippodrome",
-            "nomHippodrome"
+            reunion, "hippodrome", "nomHippodrome"
         ))
 
         race_list = extract_courses(reunion)
@@ -714,20 +584,18 @@ def collect(date):
         for course in race_list:
             if not isinstance(course, dict):
                 errors.append(
-                    f"R{nr}: course de format invalide"
+                    f"R{nr}: format course invalide"
                 )
                 continue
 
             nc = integer(first(
                 course,
-                "numOrdre",
-                "numCourse",
-                "numero"
+                "numOrdre", "numCourse", "numero"
             ))
 
             if nc is None or nc < 1:
                 errors.append(
-                    f"R{nr}: course sans numero valide"
+                    f"R{nr}: numero course invalide"
                 )
                 continue
 
@@ -741,66 +609,18 @@ def collect(date):
 
             seen.add(cid)
 
-            try:
-                details = request_json(
-                    participants_path(
-                        date, nr, nc
-                    )
-                )
-            except (
-                RuntimeError,
-                ValueError
-            ) as exc:
+            discipline = label(first(
+                course,
+                "discipline", "typeCourse",
+                "specialite"
+            ))
+
+            if not discipline:
                 errors.append(
-                    f"{cid}: {exc}"
+                    f"{cid}: discipline non renseignee, "
+                    "course exclue"
                 )
                 continue
-
-            raw = extract_participants(details)
-
-            if not raw:
-                errors.append(
-                    f"{cid}: participants absents "
-                    "ou format non reconnu; "
-                    + structure_info(details)
-                )
-                continue
-
-            by_num = {}
-            invalid = False
-
-            for item in raw:
-                p = participant(item)
-
-                if (
-                    p is None
-                    or p["numero"] in by_num
-                ):
-                    invalid = True
-                    continue
-
-                by_num[p["numero"]] = p
-
-            if invalid or not by_num:
-                errors.append(
-                    f"{cid}: participant invalide "
-                    "ou numero en doublon"
-                )
-                continue
-
-            people = [
-                by_num[k]
-                for k in sorted(by_num)
-            ]
-
-            np = [
-                {
-                    "numero": p["numero"],
-                    "nom": p["nom"]
-                }
-                for p in people
-                if p["non_partant"]
-            ]
 
             start = departure(
                 first(
@@ -812,29 +632,74 @@ def collect(date):
                 date
             )
 
-            if start is None:
+            if start is None or start[:10] != date:
                 errors.append(
-                    f"{cid}: depart non verifie"
+                    f"{cid}: depart invalide ou incoherent"
                 )
                 continue
 
-            if start[:10] != date:
+            try:
+                details = request_json(
+                    participants_path(date, nr, nc)
+                )
+            except (RuntimeError, ValueError) as exc:
                 errors.append(
-                    f"{cid}: date de depart incoherente"
+                    f"{cid}: {exc}"
                 )
                 continue
 
-            discipline = label(first(
-                course,
-                "discipline",
-                "typeCourse",
-                "specialite"
-            ))
+            raw = extract_participants(details)
 
-            if not discipline:
-                warnings.append(
-                    f"{cid}: discipline non renseignee"
+            if not raw:
+                errors.append(
+                    f"{cid}: participants absents; "
+                    + structure_info(details)
                 )
+                continue
+
+            by_num = {}
+            invalid = False
+
+            for item in raw:
+                p = participant(item)
+
+                if p is None:
+                    invalid = True
+                    continue
+
+                if p["numero"] in by_num:
+                    invalid = True
+                    continue
+
+                by_num[p["numero"]] = p
+
+            if invalid or not by_num:
+                errors.append(
+                    f"{cid}: participants invalides "
+                    "ou numeros en doublon"
+                )
+                continue
+
+            people = [
+                by_num[k] for k in sorted(by_num)
+            ]
+
+            np = [
+                {
+                    "numero": p["numero"],
+                    "nom": p["nom"]
+                }
+                for p in people
+                if p["non_partant"]
+            ]
+
+            active = len(people) - len(np)
+
+            if active < 1:
+                errors.append(
+                    f"{cid}: aucun partant actif"
+                )
+                continue
 
             courses.append({
                 "id": cid,
@@ -844,17 +709,13 @@ def collect(date):
                 "localisation_france_verifiee": True,
                 "nom": label(first(
                     course,
-                    "libelle",
-                    "nom",
-                    "libelleCourse"
+                    "libelle", "nom", "libelleCourse"
                 )),
-                "discipline": discipline or None,
+                "discipline": discipline,
                 "depart": start,
                 "depart_verifie": True,
                 "nombre_participants": len(people),
-                "nombre_partants": (
-                    len(people) - len(np)
-                ),
+                "nombre_partants": active,
                 "non_partants": np,
                 "partants": people,
                 "source": "PMU",
@@ -863,17 +724,12 @@ def collect(date):
             })
 
     courses.sort(
-        key=lambda c: (
-            c["depart"] or "9999",
-            c["id"]
-        )
+        key=lambda c: (c["depart"], c["id"])
     )
 
     if courses:
         status = (
-            "OK"
-            if not errors and not warnings
-            else "PARTIEL"
+            "PARTIEL" if errors else "OK"
         )
     elif errors:
         status = "ECHEC"
@@ -881,11 +737,7 @@ def collect(date):
         status = "AUCUNE_COURSE"
 
     return report(
-        date,
-        courses,
-        errors,
-        warnings,
-        status
+        date, courses, errors, warnings, status
     )
 
 
@@ -893,13 +745,10 @@ def can_publish(new, path):
     if not new["courses"]:
         return False, "Collecte vide"
 
-    if (
-        new["erreurs"]
-        or new["statut"] not in {"OK", "PARTIEL"}
-    ):
+    if new["erreurs"] or new["statut"] != "OK":
         return (
             False,
-            "Collecte avec erreurs ou statut non publiable"
+            "Collecte incomplete ou avec erreurs"
         )
 
     if not path.exists():
@@ -910,39 +759,25 @@ def can_publish(new, path):
             path.read_text(encoding="utf-8")
         )
     except (OSError, ValueError):
-        return (
-            False,
-            "Publication existante illisible"
-        )
+        return False, "Publication existante illisible"
 
     if (
         not isinstance(old, dict)
         or not isinstance(old.get("courses"), list)
     ):
-        return (
-            False,
-            "Publication existante de format inconnu"
-        )
+        return False, "Ancien format inconnu"
 
     old_date = text(old.get("date"))
 
     try:
-        if (
-            dt.date.fromisoformat(
-                old_date
-            ).isoformat() != old_date
-        ):
-            raise ValueError
+        api_date(old_date)
     except ValueError:
-        return (
-            False,
-            "Date de publication existante invalide"
-        )
+        return False, "Ancienne date invalide"
 
     if old_date > new["date"]:
         return (
             False,
-            "Refus de remplacer une publication plus recente"
+            "Refus de remplacer une date plus recente"
         )
 
     if old_date < new["date"]:
@@ -956,28 +791,18 @@ def can_publish(new, path):
             or not isinstance(c.get("id"), str)
             or not isinstance(c.get("partants"), list)
         ):
-            return (
-                False,
-                "Ancienne publication non verifiable"
-            )
+            return False, "Ancienne publication invalide"
 
         if c["id"] in old_by_id:
-            return (
-                False,
-                "Doublons dans ancienne publication"
-            )
+            return False, "Doublons anciens"
 
         old_by_id[c["id"]] = c
 
     new_by_id = {
-        c["id"]: c
-        for c in new["courses"]
+        c["id"]: c for c in new["courses"]
     }
 
-    if not (
-        old_by_id.keys()
-        <= new_by_id.keys()
-    ):
+    if not old_by_id.keys() <= new_by_id.keys():
         return (
             False,
             "Courses precedentes absentes"
@@ -988,24 +813,16 @@ def can_publish(new, path):
 
         for p in old_course["partants"]:
             if not isinstance(p, dict):
-                return (
-                    False,
-                    f"{cid}: ancienne liste invalide"
-                )
+                return False, f"{cid}: ancien partant invalide"
 
-            num = integer(
-                p.get("numero")
-            )
+            num = integer(p.get("numero"))
 
             if (
                 num is None
                 or num < 1
                 or num in old_nums
             ):
-                return (
-                    False,
-                    f"{cid}: ancienne liste invalide"
-                )
+                return False, f"{cid}: ancienne liste invalide"
 
             old_nums.add(num)
 
@@ -1024,9 +841,7 @@ def can_publish(new, path):
 
 
 def self_test():
-    assert api_date(
-        "2026-11-01"
-    ) == "01112026"
+    assert api_date("2026-11-01") == "01112026"
 
     assert programme_path(
         "2026-11-01"
@@ -1046,9 +861,7 @@ def self_test():
         }
     }) == [{"numOfficiel": 2}]
 
-    assert extract_reunions({
-        "unknown": []
-    }) == []
+    assert extract_reunions({"unknown": []}) == []
 
     assert france_verified({
         "pays": {"code": "FRA"}
@@ -1058,9 +871,12 @@ def self_test():
         "hippodrome": "Paris"
     })
 
+    assert not france_verified({
+        "pays": "BELGIQUE"
+    })
+
     assert integer("12") == 12
     assert integer("2.5") is None
-
     assert number("2,5") == 2.5
     assert number("nan") is None
 
@@ -1092,16 +908,11 @@ def self_test():
         )["ok"]
 
         empty = report(
-            "2026-11-01",
-            [],
-            [],
-            [],
+            "2026-11-01", [], [], [],
             "AUCUNE_COURSE"
         )
 
-        assert not can_publish(
-            empty, p
-        )[0]
+        assert not can_publish(empty, p)[0]
 
         good = report(
             "2026-11-01",
@@ -1111,9 +922,7 @@ def self_test():
                 "non_partants": [],
                 "partants": [{"numero": 1}]
             }],
-            [],
-            [],
-            "OK"
+            [], [], "OK"
         )
 
         assert can_publish(
@@ -1124,27 +933,19 @@ def self_test():
         atomic_json(p, good)
 
         assert not can_publish(
-            dict(
-                good,
-                date="2026-10-31"
-            ),
+            dict(good, date="2026-10-31"),
             p
         )[0]
 
     print(
-        "SELF-TEST OK : "
-        "formats JSON reconnus, "
-        "protections actives, "
-        "aucun reseau, "
-        "aucune publication reelle"
+        "SELF-TEST OK : protections actives, "
+        "aucun reseau, aucune publication"
     )
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description=(
-            "X1000 - Collecte PMU France verifiee"
-        )
+        description="X1000 - Collecte PMU France"
     )
 
     parser.add_argument(
@@ -1179,20 +980,14 @@ def main():
 
     try:
         result = collect(args.date)
-    except (
-        RuntimeError,
-        ValueError,
-        OSError
-    ) as exc:
+    except (RuntimeError, ValueError, OSError) as exc:
         print(
             f"Erreur de collecte : {exc}",
             file=sys.stderr
         )
         return 1
 
-    destination = (
-        DATA / "publication_courses.json"
-    )
+    destination = DATA / "publication_courses.json"
 
     allowed, reason = can_publish(
         result, destination
@@ -1201,10 +996,7 @@ def main():
     if not args.dry_run:
         try:
             if allowed:
-                atomic_json(
-                    destination,
-                    result
-                )
+                atomic_json(destination, result)
                 print(
                     f"Publication : {destination}"
                 )
@@ -1226,9 +1018,7 @@ def main():
             )
             return 1
     else:
-        print(
-            "DRY-RUN : aucune ecriture"
-        )
+        print("DRY-RUN : aucune ecriture")
 
     print(json.dumps(
         {
