@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""X1000 — Collecteur PMU sécurisé 2.1.
+"""X1000 — Collecteur PMU sécurisé 2.2.
 
-Ne collecte que les courses dont le pays est explicitement confirmé FR.
-Ne crée ni pronostic, ni résultat, ni FIGÉ. Bibliothèque standard Python 3.10+.
+Courses dont la localisation française est explicitement confirmée.
+Aucun pronostic, résultat officiel ou FIGÉ créé ou modifié.
+Bibliothèque standard Python 3.10+.
 """
 from __future__ import annotations
 
@@ -24,7 +25,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
-VERSION = "X1000-PMU-SECURISE-2.1"
+VERSION = "X1000-PMU-SECURISE-2.2"
 PARIS = ZoneInfo("Europe/Paris")
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
@@ -40,14 +41,16 @@ def now():
 
 
 def text(value):
-    return str(value).strip() if value is not None and not isinstance(value, (dict, list, bool)) else ""
+    if value is None or isinstance(value, (dict, list, bool)):
+        return ""
+    return str(value).strip()
 
 
 def integer(value):
     if isinstance(value, bool):
         return None
+    s = text(value)
     try:
-        s = text(value)
         return int(s) if re.fullmatch(r"[+-]?\d+", s) else None
     except (ValueError, OverflowError):
         return None
@@ -89,10 +92,16 @@ def label(value):
 
 
 def validate_base():
-    p = urlsplit(BASE)
-    if (p.scheme != "https" or not p.hostname or p.username or p.password
-            or p.query or p.fragment or p.port not in (None, 443)):
-        raise ValueError("PMU_API_BASE doit etre une URL HTTPS valide sans identifiants")
+    try:
+        p = urlsplit(BASE)
+        valid = (p.scheme == "https" and bool(p.hostname)
+                 and not p.username and not p.password
+                 and not p.query and not p.fragment
+                 and p.port in (None, 443))
+    except ValueError as exc:
+        raise ValueError("PMU_API_BASE invalide") from exc
+    if not valid:
+        raise ValueError("PMU_API_BASE doit etre une URL HTTPS sans identifiants")
 
 
 def request_json(path):
@@ -102,8 +111,12 @@ def request_json(path):
     url = BASE + "/" + path.lstrip("/")
     last = None
     for attempt in range(RETRIES):
+        retry = True
         try:
-            req = Request(url, headers={"User-Agent": "X1000-PMU/2.1", "Accept": "application/json"})
+            req = Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (compatible; X1000-PMU/2.2)",
+                "Accept": "application/json",
+            })
             with urlopen(req, timeout=TIMEOUT) as response:
                 raw = response.read(MAX_BYTES + 1)
                 if len(raw) > MAX_BYTES:
@@ -113,22 +126,33 @@ def request_json(path):
                     raise ValueError("Structure JSON inattendue")
                 return obj
         except HTTPError as exc:
-            last = exc
-            if exc.code not in RETRYABLE:
-                break
-        except (URLError, TimeoutError, OSError, ValueError) as exc:
-            last = exc
+            last = f"HTTP {exc.code}: {exc.reason}"
+            retry = exc.code in RETRYABLE
+        except (URLError, TimeoutError, OSError) as exc:
+            last = f"{type(exc).__name__}: {exc}"
+        except (ValueError, UnicodeError) as exc:
+            last = f"{type(exc).__name__}: {exc}"
+            retry = False
+        if not retry:
+            break
         if attempt < RETRIES - 1:
-            time.sleep(0.5 * (2 ** attempt) + random.uniform(0, 0.2))
-    raise RuntimeError(f"Echec API {path}: {type(last).__name__}: {last}")
+            time.sleep(0.5 * 2 ** attempt + random.uniform(0, 0.2))
+    raise RuntimeError(f"Echec API {path}: {last}")
+
+
+def normalized_country(value):
+    if isinstance(value, dict):
+        value = first(value, "code", "codePays", "nom", "libelle")
+    return unicodedata.normalize("NFKD", text(value)).encode(
+        "ascii", "ignore").decode().upper()
 
 
 def france_verified(reunion):
+    # Ne pas deviner le pays à partir du nom d'un hippodrome.
     country = first(reunion, "codePays", "pays", "countryCode", "country")
-    if isinstance(country, dict):
-        country = first(country, "code", "codePays", "nom", "libelle")
-    normalized = unicodedata.normalize("NFKD", text(country)).encode("ascii", "ignore").decode().upper()
-    return normalized in {"FR", "FRA", "FRANCE", "FRANCAIS", "FRANCAISE"}
+    return normalized_country(country) in {
+        "FR", "FRA", "FRANCE", "FRANCAIS", "FRANCAISE"
+    }
 
 
 def departure(value, date):
@@ -152,9 +176,12 @@ def departure(value, date):
 
 def non_starter(item):
     flag = first(item, "nonPartant", "non_partant")
-    if flag is True or flag == 1 or (isinstance(flag, str) and flag.lower().strip() in {"true", "oui", "yes", "1"}):
+    if flag is True or (isinstance(flag, int) and flag == 1):
         return True
-    status = re.sub(r"[\s-]+", "_", text(first(item, "statut", "statutParticipant", "status")).upper())
+    if isinstance(flag, str) and flag.strip().lower() in {"true", "oui", "yes", "1"}:
+        return True
+    status = re.sub(r"[\s-]+", "_", text(first(
+        item, "statut", "statutParticipant", "status")).upper())
     return status in {"NP", "NON_PARTANT", "NONPARTANT"}
 
 
@@ -173,7 +200,8 @@ def participant(item):
         "entraineur": label(first(item, "entraineur", "nomEntraineur")) or None,
         "musique": text(first(item, "musique", "musiqueCheval")) or None,
         "age": integer(item.get("age")), "sexe": text(item.get("sexe")) or None,
-        "gains": number(first(item, "gainsParticipant", "gains", "gain")), "source": "PMU"
+        "gains": number(first(item, "gainsParticipant", "gains", "gain")),
+        "source": "PMU",
     }
 
 
@@ -194,14 +222,14 @@ def atomic_json(path, obj):
 
 def report(date, courses, errors, warnings, status):
     return {
-        "version": VERSION, "date": date, "collecte_a": now(), "source": BASE,
-        "statut": status, "courses": courses, "erreurs": errors,
-        "avertissements": warnings,
+        "version": VERSION, "date": date, "collecte_a": now(),
+        "source": BASE, "statut": status, "courses": courses,
+        "erreurs": errors, "avertissements": warnings,
         "statistiques": {
             "courses": len(courses),
             "partants": sum(c["nombre_partants"] for c in courses),
-            "non_partants": sum(len(c["non_partants"]) for c in courses)
-        }
+            "non_partants": sum(len(c["non_partants"]) for c in courses),
+        },
     }
 
 
@@ -255,38 +283,37 @@ def collect(date):
             by_num, invalid = {}, False
             for item in raw:
                 p = participant(item)
-                if p is None:
+                if p is None or p["numero"] in by_num:
                     invalid = True
                     continue
-                num = p["numero"]
-                if num in by_num and by_num[num] != p:
-                    invalid = True
-                    continue
-                by_num[num] = p
+                by_num[p["numero"]] = p
             if invalid or not by_num:
-                errors.append(f"{cid}: participant invalide ou conflit de numero")
+                errors.append(f"{cid}: participant invalide ou numero en doublon")
                 continue
             people = [by_num[k] for k in sorted(by_num)]
-            np = [{"numero": p["numero"], "nom": p["nom"]} for p in people if p["non_partant"]]
+            np = [{"numero": p["numero"], "nom": p["nom"]}
+                  for p in people if p["non_partant"]]
             start = departure(first(course, "heureDepart", "depart", "heureDepartPrevue"), date)
             courses.append({
-                "id": cid, "reunion": nr, "course": nc, "hippodrome": hippodrome,
-                "localisation_france_verifiee": True,
+                "id": cid, "reunion": nr, "course": nc,
+                "hippodrome": hippodrome, "localisation_france_verifiee": True,
                 "nom": label(first(course, "libelle", "nom", "libelleCourse")),
                 "depart": start, "depart_verifie": start is not None,
-                "nombre_participants": len(people), "nombre_partants": len(people) - len(np),
+                "nombre_participants": len(people),
+                "nombre_partants": len(people) - len(np),
                 "non_partants": np, "partants": people,
-                "source": "PMU", "collecte_a": now(), "statut": "PARTANTS_CHARGES"
+                "source": "PMU", "collecte_a": now(),
+                "statut": "PARTANTS_CHARGES",
             })
     courses.sort(key=lambda c: (c["depart"] or "9999", c["id"]))
-    status = "OK" if courses and not errors and not warnings else ("PARTIEL" if courses else ("ECHEC" if errors else "AUCUNE_COURSE"))
+    status = ("OK" if courses and not errors and not warnings else
+              "PARTIEL" if courses else "ECHEC" if errors else "AUCUNE_COURSE")
     return report(date, courses, errors, warnings, status)
 
 
 def can_publish(new, path):
     if not new["courses"]:
         return False, "Collecte vide"
-    # Toute erreur de collecte rend le jeu potentiellement incomplet.
     if new["erreurs"] or new["statut"] not in {"OK", "PARTIEL"}:
         return False, "Collecte avec erreurs ou statut non publiable"
     if not path.exists():
@@ -298,7 +325,10 @@ def can_publish(new, path):
     if not isinstance(old, dict) or not isinstance(old.get("courses"), list):
         return False, "Publication existante de format inconnu"
     old_date = text(old.get("date"))
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", old_date):
+    try:
+        if dt.date.fromisoformat(old_date).isoformat() != old_date:
+            raise ValueError
+    except ValueError:
         return False, "Date de publication existante invalide"
     if old_date > new["date"]:
         return False, "Refus de remplacer une publication plus recente"
@@ -306,7 +336,8 @@ def can_publish(new, path):
         return True, "Nouvelle journee"
     old_by_id = {}
     for c in old["courses"]:
-        if not isinstance(c, dict) or not isinstance(c.get("id"), str) or not isinstance(c.get("partants"), list):
+        if (not isinstance(c, dict) or not isinstance(c.get("id"), str)
+                or not isinstance(c.get("partants"), list)):
             return False, "Ancienne publication non verifiable"
         if c["id"] in old_by_id:
             return False, "Doublons dans ancienne publication"
@@ -317,9 +348,12 @@ def can_publish(new, path):
     for cid, old_course in old_by_id.items():
         old_nums = set()
         for p in old_course["partants"]:
-            if not isinstance(p, dict) or integer(p.get("numero")) is None:
+            if not isinstance(p, dict):
                 return False, f"{cid}: ancienne liste invalide"
-            old_nums.add(integer(p["numero"]))
+            num = integer(p.get("numero"))
+            if num is None or num < 1 or num in old_nums:
+                return False, f"{cid}: ancienne liste invalide"
+            old_nums.add(num)
         new_nums = {p["numero"] for p in new_by_id[cid]["partants"]}
         if not old_nums <= new_nums:
             return False, f"{cid}: participants precedents absents"
@@ -340,13 +374,15 @@ def self_test():
         p = Path(folder) / "test.json"
         atomic_json(p, {"ok": True})
         assert json.loads(p.read_text(encoding="utf-8"))["ok"]
-        sample = report("2026-11-01", [], [], [], "AUCUNE_COURSE")
-        assert not can_publish(sample, p)[0]
-        good = report("2026-11-01", [{"id": "2026-11-01-R1-C1", "nombre_partants": 1, "non_partants": [], "partants": [{"numero": 1}]}], [], [], "OK")
+        empty = report("2026-11-01", [], [], [], "AUCUNE_COURSE")
+        assert not can_publish(empty, p)[0]
+        good = report("2026-11-01", [{
+            "id": "2026-11-01-R1-C1", "nombre_partants": 1,
+            "non_partants": [], "partants": [{"numero": 1}],
+        }], [], [], "OK")
         assert can_publish(good, Path(folder) / "absent.json")[0]
         atomic_json(p, good)
-        older = dict(good, date="2026-10-31")
-        assert not can_publish(older, p)[0]
+        assert not can_publish(dict(good, date="2026-10-31"), p)[0]
     print("SELF-TEST OK : aucun reseau, aucune publication reelle")
 
 
@@ -360,8 +396,7 @@ def main():
         self_test()
         return 0
     try:
-        selected = dt.date.fromisoformat(args.date)
-        if selected.isoformat() != args.date:
+        if dt.date.fromisoformat(args.date).isoformat() != args.date:
             raise ValueError
     except ValueError:
         parser.error("--date doit etre AAAA-MM-JJ")
@@ -379,15 +414,19 @@ def main():
                 print(f"Publication : {destination}")
             else:
                 print(f"Publication refusee : {reason}", file=sys.stderr)
-            # Le diagnostic ne touche jamais aux pronostics, resultats ou FIGEs.
             atomic_json(DATA / "diagnostic_collecte_pmu.json", result)
         except OSError as exc:
             print(f"Erreur d'ecriture : {exc}", file=sys.stderr)
             return 1
     else:
         print("DRY-RUN : aucune ecriture")
-    print(json.dumps({"date": args.date, "statut": result["statut"], "publication_autorisee": allowed,
-                      "motif": reason, "dry_run": args.dry_run, **result["statistiques"]}, ensure_ascii=False))
+    print(json.dumps({
+        "date": args.date, "statut": result["statut"],
+        "publication_autorisee": allowed, "motif": reason,
+        "dry_run": args.dry_run, "erreurs": result["erreurs"],
+        "avertissements": result["avertissements"],
+        "statistiques": result["statistiques"],
+    }, ensure_ascii=False, indent=2))
     return 0 if allowed else 1
 
 
