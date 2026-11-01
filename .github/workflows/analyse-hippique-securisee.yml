@@ -1,0 +1,171 @@
+name: "X1000 - Analyse hippique securisee"
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - "feature/activation-pmu-analyses-archives"
+    paths:
+      - "analyse_hippique.py"
+      - "data/publication_courses.json"
+      - ".github/workflows/analyse-hippique-securisee.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: x1000-analyse-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  analyse-hippique:
+    name: "Analyse factuelle PMU et publication"
+    if: github.ref == 'refs/heads/feature/activation-pmu-analyses-archives'
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      TZ: Europe/Paris
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: "Recuperer la branche securisee"
+        uses: actions/checkout@v4
+        with:
+          ref: feature/activation-pmu-analyses-archives
+          persist-credentials: true
+
+      - name: "Installer Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: "Verifier les fichiers necessaires"
+        run: |
+          set -euo pipefail
+
+          test -s analyse_hippique.py
+          test -s data/publication_courses.json
+
+          echo "Fichiers requis presents."
+
+      - name: "Verifier la syntaxe Python"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          source = Path("analyse_hippique.py")
+          ast.parse(source.read_text(encoding="utf-8"))
+
+          print("Syntaxe Python valide.")
+          PY
+
+      - name: "Executer les autotests"
+        run: |
+          set -euo pipefail
+
+          python analyse_hippique.py --self-test
+
+      - name: "Tester sans ecriture"
+        run: |
+          set -euo pipefail
+
+          python analyse_hippique.py --dry-run
+
+      - name: "Generer les analyses factuelles"
+        run: |
+          set -euo pipefail
+
+          python analyse_hippique.py
+
+      - name: "Verifier le fichier genere"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          source = Path("data/publication_courses.json")
+          output = Path("data/publication_analyses.json")
+
+          assert source.is_file(), "Collecte PMU absente"
+          assert output.is_file(), "Analyses absentes"
+
+          data = json.loads(output.read_text(encoding="utf-8"))
+          collecte = json.loads(source.read_text(encoding="utf-8"))
+
+          assert data["source_sha256"] == hashlib.sha256(
+              source.read_bytes()
+          ).hexdigest(), "Empreinte source incorrecte"
+
+          assert data["date"] == collecte["date"]
+          assert isinstance(data["courses"], list)
+          assert len(data["courses"]) > 0
+
+          for course in data["courses"]:
+              assert course["selection"] is None
+
+              for cheval in course["chevaux"]:
+                  assert cheval["evaluation_sportive"] == "NON_EVALUE"
+
+          print("Publication verifiee.")
+          print("Courses :", len(data["courses"]))
+          PY
+
+      - name: "Verifier les modifications autorisees"
+        run: |
+          set -euo pipefail
+
+          git add -- data/publication_analyses.json
+
+          changed="$(
+            git diff --cached --name-only
+          )"
+
+          if [ -n "$changed" ] && \
+             [ "$changed" != "data/publication_analyses.json" ]; then
+            echo "Modification non autorisee : $changed"
+            exit 1
+          fi
+
+          echo "Perimetre de publication conforme."
+
+      - name: "Publier les analyses sur la branche"
+        run: |
+          set -euo pipefail
+
+          if git diff --cached --quiet; then
+            echo "Aucune modification a publier."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git commit -m "data: analyses factuelles X1000"
+
+          git push origin \
+            HEAD:feature/activation-pmu-analyses-archives
+
+      - name: "Rapport final"
+        if: always()
+        run: |
+          echo "X1000 - Analyse hippique securisee"
+          echo "Branche de travail uniquement"
+          echo "Aucun FIGE cree"
+          echo "Aucun pronostic invente"
+          echo "Aucun resultat officiel fabrique"
+          echo "Aucune modification M1-M5 ou Phoenix"
