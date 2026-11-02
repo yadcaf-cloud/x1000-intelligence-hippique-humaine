@@ -1,30 +1,33 @@
-name: "X1000 - Pipeline PMU et analyses securise"
+name: "X1000 - Analyse hippique securisee"
 
 on:
   workflow_dispatch:
+
   push:
     branches:
       - "feature/activation-pmu-analyses-archives"
     paths:
       - "pmu_engine.py"
       - "analyse_hippique.py"
+      - "resultats_archives.py"
+      - "data/publication_courses.json"
       - ".github/workflows/analyse-hippique-securisee.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: x1000-publication-${{ github.ref }}
+  group: x1000-analyse-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  pipeline:
-    name: "Collecte analyse validation publication"
+  validation:
+    name: "Validation des analyses sans publication"
 
     if: github.ref == 'refs/heads/feature/activation-pmu-analyses-archives'
 
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     defaults:
       run:
@@ -35,4 +38,163 @@ jobs:
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONUNBUFFERED: "1"
       PYTHONNOUSERSITE: "1"
-      BRANCHE_SECUR ISEE: ""
+
+    steps:
+      - name: "Recuperer la branche securisee"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: "Installer Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: "Verifier la branche et les fichiers"
+        run: |
+          set -euo pipefail
+
+          test "$GITHUB_REF" = \
+            "refs/heads/feature/activation-pmu-analyses-archives"
+
+          test -s pmu_engine.py
+          test -s analyse_hippique.py
+          test -s resultats_archives.py
+          test -s data/publication_courses.json
+
+          python --version
+
+          echo "Branche securisee : OK"
+          echo "Trois moteurs presents : OK"
+
+      - name: "Verifier la syntaxe Python"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          for name in (
+              "pmu_engine.py",
+              "analyse_hippique.py",
+              "resultats_archives.py",
+          ):
+              path = Path(name)
+              ast.parse(
+                  path.read_text(encoding="utf-8"),
+                  filename=name,
+              )
+              print("Syntaxe OK :", name)
+          PY
+
+      - name: "Executer les trois autotests"
+        run: |
+          set -euo pipefail
+
+          python pmu_engine.py --self-test
+          python analyse_hippique.py --self-test
+          python resultats_archives.py --self-test
+
+          echo "Trois autotests : OK"
+
+      - name: "Verifier les donnees PMU"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from analyse_hippique import (
+              validate,
+              validate_course,
+          )
+
+          source = Path(
+              "data/publication_courses.json"
+          )
+
+          payload = json.loads(
+              source.read_text(encoding="utf-8")
+          )
+
+          date = validate(payload)
+
+          ids = set()
+          chevaux = 0
+
+          for course in payload["courses"]:
+              cid = validate_course(course, date)
+
+              if cid in ids:
+                  raise ValueError(
+                      f"Course dupliquee : {cid}"
+                  )
+
+              ids.add(cid)
+              chevaux += course["nombre_partants"]
+
+          print("Date PMU :", date)
+          print("Courses :", len(ids))
+          print("Partants actifs :", chevaux)
+          print("Validation structurelle : OK")
+          PY
+
+      - name: "Valider les analyses sans publication"
+        run: |
+          set -euo pipefail
+
+          python analyse_hippique.py --dry-run
+
+          echo "Analyse descriptive : OK"
+          echo "Aucune publication autorisee"
+
+      - name: "Verifier les archives"
+        run: |
+          set -euo pipefail
+
+          python resultats_archives.py --verify-archives
+
+          echo "Controle des archives : OK"
+
+      - name: "Verifier l'integrite du depot"
+        if: always()
+        run: |
+          set -euo pipefail
+
+          git diff --exit-code
+          git diff --cached --exit-code
+
+          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "::error::Fichiers non suivis detectes"
+            git ls-files --others --exclude-standard
+            exit 1
+          fi
+
+          echo "Integrite Git : OK"
+
+      - name: "Bilan de validation"
+        if: success()
+        run: |
+          echo "======================================"
+          echo "X1000 - ANALYSE HIPPIQUE SECURISEE"
+          echo "======================================"
+          echo "Branche securisee : OK"
+          echo "Syntaxe Python : OK"
+          echo "Trois autotests : OK"
+          echo "Structure PMU : OK"
+          echo "Analyse descriptive : OK"
+          echo "Controle archives : OK"
+          echo "Integrite Git : OK"
+          echo "Publication : DESACTIVEE"
+          echo "Fusion main : AUCUNE"
+          echo "FIGE cree : AUCUN"
+          echo "======================================"
+
+      - name: "Signaler un echec"
+        if: failure()
+        run: |
+          echo "::error::Validation X1000 echouee."
+          echo "Consulter les etapes precedentes."
+          echo "Ne pas fusionner vers main."
