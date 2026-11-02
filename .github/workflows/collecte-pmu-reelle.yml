@@ -1,4 +1,4 @@
-name: "X1000 - Collecte PMU reelle securisee"
+name: "X1000 - Collecte PMU securisee V1.2"
 
 on:
   workflow_dispatch:
@@ -19,9 +19,11 @@ concurrency:
 
 jobs:
   collecte-pmu:
-    name: "Controle PMU reel sans publication"
+    name: "Validation collecte PMU sans publication"
 
-    if: github.ref == 'refs/heads/feature/activation-pmu-analyses-archives'
+    if: >-
+      github.ref ==
+      'refs/heads/feature/activation-pmu-analyses-archives'
 
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -38,31 +40,23 @@ jobs:
 
     steps:
       - name: "Recuperer la branche securisee"
+        id: checkout
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 1
 
       - name: "Installer Python 3.12"
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: "Verifier la branche et le collecteur"
+      - name: "Verifier branche et syntaxe"
         run: |
           set -euo pipefail
 
           test "$GITHUB_REF" = \
             "refs/heads/feature/activation-pmu-analyses-archives"
-
-          test -s pmu_engine.py
-
-          echo "Branche securisee confirmee."
-          echo "Collecteur PMU present."
-          python --version
-
-      - name: "Verifier la syntaxe Python"
-        run: |
-          set -euo pipefail
 
           python - <<'PY'
           import ast
@@ -70,12 +64,18 @@ jobs:
 
           path = Path("pmu_engine.py")
 
+          if not path.is_file():
+              raise SystemExit("Collecteur PMU absent")
+
+          if path.stat().st_size == 0:
+              raise SystemExit("Collecteur PMU vide")
+
           ast.parse(
-              path.read_text(encoding="utf-8"),
-              filename=str(path)
+              path.read_text(encoding="utf-8-sig"),
+              filename=str(path),
           )
 
-          print("Syntaxe PMU valide.")
+          print("Syntaxe PMU : OK")
           PY
 
       - name: "Executer les autotests"
@@ -84,9 +84,9 @@ jobs:
 
           python pmu_engine.py --self-test
 
-          echo "Autotests PMU termines."
+          echo "Autotests PMU : OK"
 
-      - name: "Preparer une copie isolee"
+      - name: "Preparer environnement isole"
         run: |
           set -euo pipefail
 
@@ -98,88 +98,173 @@ jobs:
 
           test -s "$TEST_DIR/pmu_engine.py"
 
-          echo "Copie temporaire preparee."
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
 
-      - name: "Tester la collecte PMU reelle"
-        id: collecte
+          root = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-collecte-pmu"
+          )
+
+          files = {}
+
+          for path in root.rglob("*"):
+              if path.is_symlink():
+                  raise SystemExit(
+                      "Lien symbolique interdit"
+                  )
+
+              if path.is_file():
+                  relative = path.relative_to(root).as_posix()
+
+                  files[relative] = hashlib.sha256(
+                      path.read_bytes()
+                  ).hexdigest()
+
+          if set(files) != {"pmu_engine.py"}:
+              raise SystemExit(
+                  "Copie temporaire inattendue"
+              )
+
+          snapshot = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-collecte-avant.json"
+          )
+
+          snapshot.write_text(
+              json.dumps(files, sort_keys=True),
+              encoding="utf-8",
+          )
+
+          print("Empreinte initiale enregistree")
+          PY
+
+      - name: "Tester collecte PMU reelle en dry-run"
         run: |
           set -euo pipefail
 
-          TEST_DIR="$RUNNER_TEMP/x1000-collecte-pmu"
-
-          cd "$TEST_DIR"
-
-          echo "=================================="
-          echo "X1000 - COLLECTE PMU REELLE"
-          echo "=================================="
-
-          echo "Mode DRY-RUN."
-          echo "Aucune publication autorisee."
+          cd "$RUNNER_TEMP/x1000-collecte-pmu"
 
           python pmu_engine.py --dry-run
 
-          echo "Collecte PMU validee sans ecriture."
+          echo "Collecte PMU dry-run : OK"
 
-      - name: "Verifier la copie temporaire"
+      - name: "Verifier absence de toute ecriture"
         if: always()
         run: |
           set -euo pipefail
 
-          TEST_DIR="$RUNNER_TEMP/x1000-collecte-pmu"
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
 
-          if [ ! -d "$TEST_DIR" ]; then
-            echo "::error::Copie temporaire absente."
-            exit 1
-          fi
+          temp = Path(os.environ["RUNNER_TEMP"])
+          root = temp / "x1000-collecte-pmu"
+          snapshot = temp / "x1000-collecte-avant.json"
 
-          if [ -d "$TEST_DIR/data" ]; then
-            echo "::error::Repertoire data cree pendant le test."
-            exit 1
-          fi
+          if not snapshot.is_file():
+              print(
+                  "::notice::Test non initialise : "
+                  "snapshot initial absent"
+              )
+              raise SystemExit(0)
 
-          if [ -d "$TEST_DIR/__pycache__" ]; then
-            echo "::error::Cache Python detecte."
-            exit 1
-          fi
+          if not root.is_dir() or root.is_symlink():
+              raise SystemExit(
+                  "Environnement temporaire invalide"
+              )
 
-          echo "Aucune ecriture de donnees detectee."
+          initial = json.loads(
+              snapshot.read_text(encoding="utf-8")
+          )
 
-      - name: "Verifier l'integrite du depot"
-        if: always()
+          current = {}
+
+          for path in root.rglob("*"):
+              if path.is_symlink():
+                  raise SystemExit(
+                      f"Lien symbolique detecte : {path}"
+                  )
+
+              if path.is_file():
+                  relative = path.relative_to(root).as_posix()
+
+                  current[relative] = hashlib.sha256(
+                      path.read_bytes()
+                  ).hexdigest()
+
+          if current != initial:
+              added = sorted(
+                  set(current) - set(initial)
+              )
+
+              removed = sorted(
+                  set(initial) - set(current)
+              )
+
+              changed = sorted(
+                  name
+                  for name in set(current) & set(initial)
+                  if current[name] != initial[name]
+              )
+
+              print("Fichiers ajoutes :", added)
+              print("Fichiers supprimes :", removed)
+              print("Fichiers modifies :", changed)
+
+              raise SystemExit(
+                  "Ecriture inattendue pendant le dry-run"
+              )
+
+          print("Aucune creation ou modification")
+          print("Integrite temporaire : OK")
+          PY
+
+      - name: "Verifier integrite du depot"
+        if: always() && steps.checkout.outcome == 'success'
         run: |
           set -euo pipefail
 
-          git diff --exit-code
+          test -d .git
+
+          git diff --exit-code HEAD --
           git diff --cached --exit-code
 
-          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
-            echo "::error::Fichiers non suivis detectes."
+          if [ -n "$(
             git ls-files --others --exclude-standard
+          )" ]; then
+            echo "::error::Fichiers non suivis detectes"
             exit 1
           fi
 
-          echo "Integrite du depot confirmee."
+          echo "Depot Git intact"
 
-      - name: "Bilan de validation"
+      - name: "Rapport de validation"
         if: success()
         run: |
-          echo "=================================="
-          echo "X1000 - VALIDATION PMU SECURISEE"
-          echo "=================================="
-          echo "Branche securisee : OK"
-          echo "Syntaxe Python : OK"
-          echo "Autotests : OK"
-          echo "Collecte PMU dry-run : OK"
-          echo "Integrite du depot : OK"
-          echo "Publication : DESACTIVEE"
-          echo "Pronostics fictifs : AUCUN"
-          echo "FIGE : AUCUN"
-          echo "Modification main : AUCUNE"
-          echo "=================================="
+          {
+            echo "## X1000 - Collecte PMU V1.2"
+            echo ""
+            echo "- Branche securisee : OK"
+            echo "- Syntaxe Python : OK"
+            echo "- Autotests PMU : OK"
+            echo "- Collecte reelle dry-run : OK"
+            echo "- Integrite temporaire : OK"
+            echo "- Integrite Git : OK"
+            echo "- Publication Git : aucune"
+            echo "- Modification main : aucune"
+            echo "- FIGE automatique : aucun"
+            echo "- Resultat invente : aucun"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: "Signaler un echec"
         if: failure()
         run: |
-          echo "::error::Validation PMU non reussie."
-          echo "Consulter les etapes precedentes."
-          echo "Aucune publication effectuee."
+          echo "::error::Collecte PMU V1.2 echouee"
+          echo "Consulter les journaux GitHub Actions."
+          echo "Aucune publication autorisee."
