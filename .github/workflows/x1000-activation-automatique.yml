@@ -1,4 +1,4 @@
-name: "X1000 - Activation automatique securisee V1.1"
+name: "X1000 - Activation securisee V1.2"
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   activation:
-    name: "Collecte PMU, analyses et archives"
+    name: "Collecte PMU, analyses et protection archives"
 
     if: >-
       github.event_name == 'workflow_dispatch' &&
@@ -30,36 +30,48 @@ jobs:
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONUNBUFFERED: "1"
       PYTHONNOUSERSITE: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
     steps:
       - name: "Recuperer la branche securisee"
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 1
 
       - name: "Installer Python 3.12"
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: "Verifier les moteurs Python"
+      - name: "Verifier les moteurs et la syntaxe"
         run: |
           set -euo pipefail
+
+          test "$GITHUB_REF" = \
+            "refs/heads/feature/activation-pmu-analyses-archives"
 
           python - <<'PY'
           import ast
           from pathlib import Path
 
-          for name in (
+          scripts = (
               "pmu_engine.py",
               "analyse_hippique.py",
               "resultats_archives.py",
-          ):
+          )
+
+          for name in scripts:
               path = Path(name)
 
               if not path.is_file():
                   raise SystemExit(
-                      f"Moteur absent : {name}"
+                      f"Script absent : {name}"
+                  )
+
+              if not path.stat().st_size:
+                  raise SystemExit(
+                      f"Script vide : {name}"
                   )
 
               ast.parse(
@@ -70,19 +82,9 @@ jobs:
               print("Syntaxe OK :", name)
           PY
 
-      - name: "Executer les autotests existants"
+      - name: "Memoriser les archives historiques"
         run: |
           set -euo pipefail
-
-          python pmu_engine.py --self-test
-          python analyse_hippique.py --self-test
-          python resultats_archives.py --self-test
-
-      - name: "Verifier les archives historiques"
-        run: |
-          set -euo pipefail
-
-          python resultats_archives.py --verify-archives
 
           python - <<'PY'
           import hashlib
@@ -93,22 +95,35 @@ jobs:
           root = Path("data/archives_resultats")
           snapshot = {}
 
+          if root.is_symlink():
+              raise SystemExit(
+                  "Lien symbolique racine interdit"
+              )
+
           if root.exists():
+              if not root.is_dir():
+                  raise SystemExit(
+                      "Repertoire archives invalide"
+                  )
+
               for path in sorted(root.rglob("*")):
                   if path.is_symlink():
                       raise SystemExit(
-                          "Lien symbolique interdit dans les archives"
+                          f"Lien symbolique interdit : {path}"
                       )
 
                   if path.is_file():
-                      relative = path.relative_to(root).as_posix()
+                      relative = path.relative_to(
+                          root
+                      ).as_posix()
+
                       snapshot[relative] = hashlib.sha256(
                           path.read_bytes()
                       ).hexdigest()
 
           destination = (
               Path(os.environ["RUNNER_TEMP"])
-              / "x1000-archives-avant.json"
+              / "x1000-archives-snapshot.json"
           )
 
           destination.write_text(
@@ -119,7 +134,25 @@ jobs:
           print("Archives protegees :", len(snapshot))
           PY
 
-      - name: "Preparer l'environnement isole"
+      - name: "Executer les autotests"
+        run: |
+          set -euo pipefail
+
+          python pmu_engine.py --self-test
+          python analyse_hippique.py --self-test
+          python resultats_archives.py --self-test
+
+          echo "Trois autotests : OK"
+
+      - name: "Verifier les archives existantes"
+        run: |
+          set -euo pipefail
+
+          python resultats_archives.py --verify-archives
+
+          echo "Archives existantes : OK"
+
+      - name: "Preparer environnement isole"
         run: |
           set -euo pipefail
 
@@ -131,12 +164,11 @@ jobs:
           cp analyse_hippique.py "$TEST_DIR/"
           cp resultats_archives.py "$TEST_DIR/"
 
-          # Ne pas copier une publication ancienne.
-          # Le collecteur doit produire des donnees nouvelles.
-
           test -s "$TEST_DIR/pmu_engine.py"
           test -s "$TEST_DIR/analyse_hippique.py"
           test -s "$TEST_DIR/resultats_archives.py"
+
+          echo "Environnement temporaire : OK"
 
       - name: "Collecter les donnees PMU reelles"
         run: |
@@ -149,9 +181,9 @@ jobs:
           test -s data/publication_courses.json
           test -s data/diagnostic_collecte_pmu.json
 
-          echo "Collecte PMU executee."
+          echo "Collecte PMU terminee"
 
-      - name: "Valider la collecte et sa fraicheur"
+      - name: "Verifier donnees et fraicheur"
         run: |
           set -euo pipefail
 
@@ -169,27 +201,56 @@ jobs:
               parse_instant,
           )
 
-          path = Path(
+          def unique_keys(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(
+                          f"Cle JSON dupliquee : {key}"
+                      )
+                  result[key] = value
+              return result
+
+          def reject_constant(value):
+              raise ValueError(
+                  f"Constante JSON interdite : {value}"
+              )
+
+          def load_json(name):
+              return json.loads(
+                  Path(name).read_text(encoding="utf-8-sig"),
+                  object_pairs_hook=unique_keys,
+                  parse_constant=reject_constant,
+              )
+
+          payload = load_json(
               "data/publication_courses.json"
           )
 
-          payload = json.loads(
-              path.read_text(encoding="utf-8")
+          diagnostic = load_json(
+              "data/diagnostic_collecte_pmu.json"
           )
+
+          if not isinstance(payload, dict):
+              raise SystemExit(
+                  "Publication PMU invalide"
+              )
+
+          if not isinstance(diagnostic, dict):
+              raise SystemExit(
+                  "Diagnostic PMU invalide"
+              )
 
           date = validate(payload)
 
           now = dt.datetime.now(dt.timezone.utc)
-
-          paris = ZoneInfo("Europe/Paris")
-
           today = now.astimezone(
-              paris
+              ZoneInfo("Europe/Paris")
           ).date().isoformat()
 
           if date != today:
               raise SystemExit(
-                  "Date du programme PMU incorrecte"
+                  "Date PMU incorrecte"
               )
 
           collected = parse_instant(
@@ -198,29 +259,31 @@ jobs:
 
           age = (now - collected).total_seconds()
 
-          if age < -300 or age > 1800:
+          if not -300 <= age <= 1800:
               raise SystemExit(
-                  "Collecte trop ancienne ou future"
+                  "Collecte ancienne ou future"
+              )
+
+          courses = payload.get("courses")
+
+          if not isinstance(courses, list) or not courses:
+              raise SystemExit(
+                  "Aucune course PMU verifiee"
               )
 
           ids = set()
           participants = 0
 
-          for course in payload["courses"]:
+          for course in courses:
               cid = validate_course(course, date)
 
               if cid in ids:
                   raise SystemExit(
-                      f"Course en doublon : {cid}"
+                      f"Course dupliquee : {cid}"
                   )
 
               ids.add(cid)
               participants += course["nombre_partants"]
-
-          if not ids:
-              raise SystemExit(
-                  "Aucune course PMU verifiee"
-              )
 
           print("Date Paris :", today)
           print("Courses :", len(ids))
@@ -228,7 +291,7 @@ jobs:
           print("Fraicheur : OK")
           PY
 
-      - name: "Produire les analyses"
+      - name: "Produire les analyses automatiques"
         run: |
           set -euo pipefail
 
@@ -238,7 +301,9 @@ jobs:
 
           test -s data/publication_analyses.json
 
-      - name: "Controler les analyses et les empreintes"
+          echo "Analyses produites"
+
+      - name: "Verifier analyses et SHA256"
         run: |
           set -euo pipefail
 
@@ -249,17 +314,43 @@ jobs:
           import json
           from pathlib import Path
 
+          def unique_keys(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(
+                          f"Cle JSON dupliquee : {key}"
+                      )
+                  result[key] = value
+              return result
+
+          def reject_constant(value):
+              raise ValueError(
+                  f"Constante interdite : {value}"
+              )
+
+          def load_json(raw):
+              return json.loads(
+                  raw.decode("utf-8-sig"),
+                  object_pairs_hook=unique_keys,
+                  parse_constant=reject_constant,
+              )
+
           source = Path(
               "data/publication_courses.json"
           ).read_bytes()
 
-          courses = json.loads(source)
+          analysis_raw = Path(
+              "data/publication_analyses.json"
+          ).read_bytes()
 
-          analyses = json.loads(
-              Path(
-                  "data/publication_analyses.json"
-              ).read_text(encoding="utf-8")
-          )
+          courses = load_json(source)
+          analyses = load_json(analysis_raw)
+
+          if not isinstance(analyses, dict):
+              raise SystemExit(
+                  "Analyses JSON invalides"
+              )
 
           digest = hashlib.sha256(
               source
@@ -267,59 +358,55 @@ jobs:
 
           if analyses.get("source_sha256") != digest:
               raise SystemExit(
-                  "Empreinte SHA256 incoherente"
+                  "SHA256 source incoherent"
               )
 
-          source_ids = {
-              c["id"]
-              for c in courses["courses"]
-          }
+          source_ids = [
+              c["id"] for c in courses["courses"]
+          ]
 
           result_courses = analyses.get("courses")
 
           if not isinstance(result_courses, list):
               raise SystemExit(
-                  "Liste des analyses invalide"
+                  "Liste analyses invalide"
               )
 
           result_ids = [
               c["id"] for c in result_courses
           ]
 
-          if (
-              len(result_ids) != len(set(result_ids))
-              or set(result_ids) != source_ids
-          ):
+          if len(result_ids) != len(set(result_ids)):
+              raise SystemExit(
+                  "Analyses dupliquees"
+              )
+
+          if set(result_ids) != set(source_ids):
               raise SystemExit(
                   "Courses analysees incoherentes"
               )
 
           for course in result_courses:
-              if course.get("fige") is not None:
-                  raise SystemExit(
-                      "FIGE non autorise"
-                  )
+              for field in (
+                  "fige",
+                  "resultat",
+                  "selection",
+              ):
+                  if course.get(field) is not None:
+                      raise SystemExit(
+                          f"Champ non autorise : {field}"
+                      )
 
-              if course.get("resultat") is not None:
-                  raise SystemExit(
-                      "Resultat non verifie"
-                  )
-
-              if course.get("selection") is not None:
-                  raise SystemExit(
-                      "Selection non validee"
-                  )
-
-          print("Analyses :", len(result_courses))
-          print("SHA256 : OK")
-          print("Aucune donnee fictive ajoutee")
+          print("Analyses :", len(result_ids))
+          print("SHA256 :", digest)
+          print("FIGE automatique : aucun")
+          print("Resultat invente : aucun")
           PY
 
-      - name: "Reverifier les archives historiques"
+      - name: "Verifier archives apres execution"
+        if: always()
         run: |
           set -euo pipefail
-
-          python resultats_archives.py --verify-archives
 
           python - <<'PY'
           import hashlib
@@ -327,18 +414,34 @@ jobs:
           import os
           from pathlib import Path
 
-          root = Path("data/archives_resultats")
-
-          initial = json.loads(
-              (
-                  Path(os.environ["RUNNER_TEMP"])
-                  / "x1000-archives-avant.json"
-              ).read_text(encoding="utf-8")
+          snapshot_path = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-archives-snapshot.json"
           )
 
+          if not snapshot_path.is_file():
+              raise SystemExit(
+                  "Snapshot initial absent"
+              )
+
+          initial = json.loads(
+              snapshot_path.read_text(encoding="utf-8")
+          )
+
+          root = Path("data/archives_resultats")
           current = {}
 
+          if root.is_symlink():
+              raise SystemExit(
+                  "Lien symbolique racine interdit"
+              )
+
           if root.exists():
+              if not root.is_dir():
+                  raise SystemExit(
+                      "Repertoire archives invalide"
+                  )
+
               for path in sorted(root.rglob("*")):
                   if path.is_symlink():
                       raise SystemExit(
@@ -346,7 +449,10 @@ jobs:
                       )
 
                   if path.is_file():
-                      relative = path.relative_to(root).as_posix()
+                      relative = path.relative_to(
+                          root
+                      ).as_posix()
+
                       current[relative] = hashlib.sha256(
                           path.read_bytes()
                       ).hexdigest()
@@ -359,7 +465,18 @@ jobs:
           print("Archives historiques intactes")
           PY
 
-      - name: "Conserver les publications de test"
+          git diff --exit-code HEAD --
+          git diff --cached --exit-code
+
+          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "::error::Fichiers non suivis detectes"
+            exit 1
+          fi
+
+          echo "Depot Git intact"
+
+      - name: "Conserver les donnees de test"
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: x1000-validation-${{ github.run_id }}
@@ -370,37 +487,20 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      - name: "Verifier l'integrite du depot"
-        run: |
-          set -euo pipefail
-
-          git diff --exit-code HEAD --
-          git diff --cached --exit-code
-
-          if [ -n "$(
-            git ls-files --others --exclude-standard
-          )" ]; then
-            echo "::error::Fichiers non suivis detectes"
-            exit 1
-          fi
-
-          echo "Depot intact : OK"
-
       - name: "Rapport de validation"
         if: success()
         run: |
           {
-            echo "## X1000 - Activation securisee V1.1"
+            echo "## X1000 - Activation securisee V1.2"
             echo ""
             echo "- Branche securisee : OK"
-            echo "- Collecte PMU reelle : OK"
-            echo "- Controle de fraicheur : OK"
+            echo "- Collecte PMU : OK"
+            echo "- Fraicheur : OK"
             echo "- Analyses descriptives : OK"
             echo "- SHA256 : OK"
-            echo "- Archives historiques : intactes"
-            echo "- Artefacts de test : disponibles"
-            echo "- Modification main : aucune"
+            echo "- Archives : intactes"
             echo "- Publication Git : aucune"
+            echo "- Modification main : aucune"
             echo "- FIGE automatique : aucun"
             echo "- Resultat invente : aucun"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -408,6 +508,6 @@ jobs:
       - name: "Signaler un echec"
         if: failure()
         run: |
-          echo "::error::Activation X1000 V1.1 echouee"
+          echo "::error::Activation X1000 V1.2 echouee"
+          echo "Consulter les etapes precedentes."
           echo "Ne pas fusionner vers main."
-          echo "Consulter les journaux de validation."
