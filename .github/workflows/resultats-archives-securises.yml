@@ -1,4 +1,4 @@
-name: "X1000 - Validation PMU securisee"
+name: "X1000 - Resultats et archives securises"
 
 on:
   workflow_dispatch:
@@ -7,23 +7,22 @@ on:
     branches:
       - "feature/activation-pmu-analyses-archives"
     paths:
-      - "pmu_engine.py"
-      - ".github/workflows/validation-pmu-securisee.yml"
+      - "resultats_archives.py"
+      - "data/archives_resultats/**"
+      - ".github/workflows/resultats-archives-securises.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: x1000-validation-pmu-${{ github.ref }}
+  group: x1000-archives-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  validation-pmu:
-    name: "Tests PMU sans publication"
+  archives:
+    name: "Validation des resultats et archives"
 
-    if: >-
-      github.ref ==
-      'refs/heads/feature/activation-pmu-analyses-archives'
+    if: github.ref == 'refs/heads/feature/activation-pmu-analyses-archives'
 
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -49,13 +48,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: "Verifier les fichiers requis"
+      - name: "Verifier la branche et les fichiers"
         run: |
           set -euo pipefail
 
-          test -f pmu_engine.py
+          test "$GITHUB_REF" = \
+            "refs/heads/feature/activation-pmu-analyses-archives"
 
-          echo "Collecteur PMU present."
+          test -s resultats_archives.py
+          test -s pmu_engine.py
+          test -s analyse_hippique.py
+
+          echo "Branche securisee confirmee."
+          echo "Trois moteurs Python presents."
 
       - name: "Verifier la syntaxe Python"
         run: |
@@ -65,65 +70,90 @@ jobs:
           import ast
           from pathlib import Path
 
-          source = Path("pmu_engine.py")
-          ast.parse(
-              source.read_text(encoding="utf-8"),
-              filename=str(source)
+          scripts = (
+              "pmu_engine.py",
+              "analyse_hippique.py",
+              "resultats_archives.py",
           )
-          print("Syntaxe Python valide.")
+
+          for name in scripts:
+              path = Path(name)
+
+              ast.parse(
+                  path.read_text(encoding="utf-8"),
+                  filename=name
+              )
+
+              print("Syntaxe OK :", name)
           PY
 
-      - name: "Executer les autotests"
+      - name: "Verifier l'etat initial du depot"
         run: |
           set -euo pipefail
-
-          python pmu_engine.py --self-test
-
-      - name: "Tester la collecte en isolation"
-        run: |
-          set -euo pipefail
-
-          TEMP_DIR="$(mktemp -d)"
-          trap 'rm -rf "$TEMP_DIR"' EXIT
-
-          cp pmu_engine.py "$TEMP_DIR/"
-
-          (
-            cd "$TEMP_DIR"
-            python pmu_engine.py --dry-run
-          )
-
-          echo "Test de collecte termine."
-
-      - name: "Verifier integrite du depot"
-        if: always()
-        run: |
-          set -euo pipefail
-
-          echo "Verification des modifications."
 
           git diff --exit-code
           git diff --cached --exit-code
 
           if [ -n "$(git ls-files --others --exclude-standard)" ]; then
-            echo "ERREUR : fichiers non suivis detectes."
+            echo "::error::Fichiers non suivis avant validation."
             git ls-files --others --exclude-standard
             exit 1
           fi
 
-          echo "Aucune modification detectee."
+          echo "Etat initial du depot propre."
 
-      - name: "Bilan de validation"
+      - name: "Executer les autotests des archives"
+        run: |
+          set -euo pipefail
+
+          python resultats_archives.py --self-test
+
+          echo "Autotests archives termines."
+
+      - name: "Verifier les archives existantes"
+        run: |
+          set -euo pipefail
+
+          python resultats_archives.py --verify-archives
+
+          echo "Verification des archives terminee."
+
+      - name: "Verifier l'integrite apres validation"
+        if: always()
+        run: |
+          set -euo pipefail
+
+          git diff --exit-code
+          git diff --cached --exit-code
+
+          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "::error::Fichiers non suivis detectes."
+            git ls-files --others --exclude-standard
+            exit 1
+          fi
+
+          echo "Aucune modification du depot detectee."
+
+      - name: "Bilan de reussite"
         if: success()
         run: |
-          echo "================================"
-          echo "X1000 - VALIDATION PMU SECURISEE"
-          echo "================================"
+          echo "======================================"
+          echo "X1000 - ARCHIVES SECURISEES"
+          echo "======================================"
+          echo "Branche securisee : OK"
           echo "Syntaxe Python : OK"
-          echo "Autotests : OK"
-          echo "Collecte dry-run : OK"
-          echo "Integrite du depot : OK"
+          echo "Autotests archives : OK"
+          echo "Verification archives : OK"
+          echo "Integrite Git : OK"
+          echo "Resultat officiel invente : AUCUN"
+          echo "FIGE cree : AUCUN"
           echo "Publication : DESACTIVEE"
-          echo "Creation de FIGE : AUCUNE"
-          echo "Resultats inventes : AUCUN"
-          echo "================================"
+          echo "Modification main : AUCUNE"
+          echo "======================================"
+
+      - name: "Bilan d'echec"
+        if: failure()
+        run: |
+          echo "::error::Validation des archives non reussie."
+          echo "Examiner les etapes precedentes."
+          echo "Ne pas fusionner vers main."
