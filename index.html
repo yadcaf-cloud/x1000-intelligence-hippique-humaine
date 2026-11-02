@@ -2,288 +2,202 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#07131f">
-<meta name="description" content="X1000 — Intelligence Hippique Humaine. Courses PMU françaises, observation, analyse et apprentissage.">
-<meta name="referrer" content="no-referrer">
-<title>🇸🇳🧠🔥 X1000 — Intelligence Hippique Humaine</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#071521">
+<meta name="description" content="X1000 Intelligence Hippique Humaine — courses PMU françaises, analyses, paris, résultats et apprentissage.">
+<title>🇸🇳🧠🔥 X1000 — Portail PMU</title>
 
 <style>
-:root{
-  color-scheme:dark;
-  --bg:#07131f;
-  --panel:#102637;
-  --panel2:#173344;
-  --border:#315263;
-  --text:#eff8f7;
-  --muted:#aec3cb;
-  --green:#75dfaf;
-  --gold:#eac977;
-  --blue:#9bd8ff;
-  --red:#ff9b9b;
-  --header-height:120px;
+:root {
+  color-scheme: dark;
+  --bg: #071521;
+  --panel: #102838;
+  --panel2: #173849;
+  --border: #315263;
+  --text: #f0f7f5;
+  --muted: #b7cbd0;
+  --gold: #efce7e;
+  --green: #82e1b6;
+  --blue: #a7dfff;
+  --red: #ffaaaa;
 }
-*{box-sizing:border-box}
-html{
-  scroll-behavior:smooth;
-  scroll-padding-top:var(--header-height);
-}
-body{
-  margin:0;
-  min-height:100vh;
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 130px; }
+body {
+  margin: 0;
   background:
-    radial-gradient(ellipse at 85% 0%,#17483e,transparent 38%),
-    linear-gradient(160deg,#07131f,#0b1c2b);
-  color:var(--text);
-  font:15px/1.7 system-ui,-apple-system,Arial,sans-serif;
-  overflow-wrap:break-word;
+    radial-gradient(ellipse at 90% 0%, #164a43, transparent 45%),
+    var(--bg);
+  color: var(--text);
+  font: 15px/1.65 system-ui, Arial, sans-serif;
 }
-a{color:var(--blue);text-decoration:none}
-a:hover{text-decoration:underline}
-button,input,select{font:inherit}
-button{cursor:pointer}
-button:disabled{cursor:not-allowed;opacity:.6}
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-select:focus-visible,
-summary:focus-visible{
-  outline:2px solid var(--gold);
-  outline-offset:3px;
+a { color: var(--blue); }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+button:focus-visible, a:focus-visible,
+input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
 }
-[hidden]{display:none!important}
-.container{max-width:1200px;margin:auto;padding:18px}
-header{
-  position:sticky;
-  top:0;
-  z-index:20;
-  background:#07131ff5;
-  border-bottom:2px solid var(--gold);
+header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #081622f5;
+  border-bottom: 2px solid var(--gold);
 }
-.header-inner{
-  max-width:1200px;
-  margin:auto;
-  padding:12px 18px;
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  flex-wrap:wrap;
-  gap:12px;
+.header-inner {
+  max-width: 1200px;
+  margin: auto;
+  padding: 12px 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
-.brand{
-  font-weight:900;
-  font-size:19px;
-  color:var(--gold);
+.logo {
+  color: var(--gold);
+  font-size: 20px;
+  font-weight: 900;
 }
-.brand small{
-  display:block;
-  font-size:11px;
-  color:var(--muted);
+.logo small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
 }
-nav{display:flex;flex-wrap:wrap;gap:7px}
-nav a{
-  padding:6px 10px;
-  border:1px solid var(--border);
-  border-radius:9px;
-  color:var(--text);
-  font-size:12px;
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
-nav a:hover{
-  background:var(--panel2);
-  text-decoration:none;
+nav a {
+  color: var(--text);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 9px;
+  font-size: 12px;
 }
-section{scroll-margin-top:var(--header-height)}
-.hero{
-  margin-top:18px;
-  padding:55px 22px;
-  border:1px solid var(--border);
-  border-radius:20px;
-  background:linear-gradient(140deg,#123c38,#102637 55%,#132a43);
-  text-align:center;
+nav a:hover { background: var(--panel2); }
+main {
+  max-width: 1200px;
+  margin: auto;
+  padding: 18px;
 }
-.hero h1{
-  color:var(--gold);
-  font-size:clamp(27px,5vw,46px);
-  line-height:1.2;
+.hero {
+  margin-top: 12px;
+  padding: 50px 24px;
+  text-align: center;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: linear-gradient(130deg, #17443b, #122a42);
 }
-.hero p{max-width:800px;margin:15px auto}
-.eyebrow{
-  color:var(--green);
-  letter-spacing:2px;
-  font-weight:800;
-  font-size:12px;
+h1 {
+  color: var(--gold);
+  font-size: clamp(29px, 5vw, 52px);
+  line-height: 1.2;
 }
-.quote{
-  border-left:4px solid var(--gold);
-  background:#eac97712;
-  border-radius:8px;
-  padding:18px;
-  margin:20px 0;
-  color:var(--gold);
-  font-weight:700;
+h2 {
+  color: var(--gold);
+  margin: 40px 0 15px;
+  font-size: 25px;
 }
-.hero .quote{max-width:850px;margin:24px auto}
-.actions{
-  display:flex;
-  justify-content:center;
-  flex-wrap:wrap;
-  gap:10px;
-  margin-top:22px;
+h3 { color: var(--green); }
+.hero p { max-width: 800px; margin: 15px auto; }
+.eyebrow {
+  color: var(--green);
+  font-weight: 800;
+  letter-spacing: 2px;
+  font-size: 12px;
 }
-.btn{
-  display:inline-block;
-  border:1px solid var(--gold);
-  border-radius:10px;
-  padding:11px 16px;
-  background:var(--gold);
-  color:var(--bg);
-  font-weight:800;
+.quote {
+  border-left: 4px solid var(--gold);
+  background: #eac97712;
+  padding: 16px;
+  margin: 20px 0;
+  color: var(--gold);
+  font-weight: 700;
 }
-.btn.secondary{background:transparent;color:var(--gold)}
-.btn:hover{text-decoration:none;filter:brightness(1.1)}
-.section-title{
-  color:var(--gold);
-  margin:38px 0 15px;
-  font-size:24px;
+.hero .quote { max-width: 850px; margin: 24px auto; }
+.grid {
+  display: grid;
+  grid-template-columns:
+    repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 15px;
 }
-.grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));
-  gap:15px;
+.card, .notice {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  padding: 20px;
+  min-width: 0;
 }
-.card,.principle{
-  background:var(--panel);
-  border:1px solid var(--border);
-  border-radius:15px;
-  padding:20px;
-  min-width:0;
+.card h3 { margin-top: 0; }
+.muted { color: var(--muted); }
+.button {
+  display: inline-block;
+  background: var(--gold);
+  color: var(--bg);
+  padding: 11px 17px;
+  border-radius: 10px;
+  font-weight: 800;
+  text-decoration: none;
+  margin: 6px;
 }
-.card h3,.principle h3{color:var(--green);margin-top:0}
-.card p,.principle p{margin:10px 0}
-.principle{margin-bottom:15px}
-.principle h3{
-  padding-bottom:10px;
-  border-bottom:1px solid var(--border);
+.button.secondary {
+  background: transparent;
+  color: var(--gold);
+  border: 1px solid var(--gold);
 }
-.principle strong{color:var(--gold)}
-.principle ul{padding-left:23px}
-.principle li{margin:6px 0}
-.muted{color:var(--muted)}
-.status{
-  background:var(--panel2);
-  border:1px solid var(--border);
-  border-radius:12px;
-  padding:15px;
-  margin:15px 0;
+.notice { margin: 15px 0; }
+.notice.error { border-color: var(--red); }
+.notice.success { border-color: var(--green); }
+.filters {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 15px 0;
 }
-.status strong{color:var(--gold)}
-.status.success{border-color:var(--green)}
-.status.error{border-color:var(--red)}
-.searchbar{
-  width:100%;
-  display:block;
-  background:#071c2a;
-  color:var(--text);
-  border:1px solid var(--border);
-  border-radius:12px;
-  padding:14px;
-  margin:12px 0;
+input, select, button {
+  background: var(--panel2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px 13px;
 }
-.searchbar::placeholder{color:var(--muted)}
-.toolbar{
-  display:flex;
-  gap:10px;
-  align-items:center;
-  flex-wrap:wrap;
-  margin-bottom:15px;
+.filters input { flex: 2; min-width: 180px; }
+.filters select { flex: 1; }
+details { margin-top: 12px; }
+summary {
+  cursor: pointer;
+  color: var(--blue);
+  font-weight: 700;
 }
-.small-btn,select{
-  background:var(--panel2);
-  border:1px solid var(--border);
-  color:var(--text);
-  border-radius:9px;
-  padding:9px 12px;
+li { margin: 5px 0; }
+.chip {
+  display: inline-block;
+  border: 1px solid var(--green);
+  border-radius: 20px;
+  padding: 3px 9px;
+  color: var(--green);
+  font-size: 12px;
 }
-.pmu-card{border-top:3px solid var(--gold)}
-.pmu-card h3{color:var(--gold)}
-.pmu-details{
-  border-top:1px solid var(--border);
-  margin-top:12px;
-  padding-top:12px;
+footer {
+  text-align: center;
+  border-top: 1px solid var(--border);
+  padding: 30px 15px;
+  color: var(--muted);
+  margin-top: 40px;
 }
-.pmu-details summary{
-  cursor:pointer;
-  color:var(--blue);
-  font-weight:700;
+@media (max-width: 650px) {
+  .header-inner { justify-content: center; }
+  nav { justify-content: center; }
+  main { padding: 12px; }
+  .hero { padding: 30px 15px; }
 }
-.horse-list{
-  list-style:none;
-  padding:0;
-  margin:12px 0 0;
-}
-.horse-list li{
-  display:flex;
-  justify-content:space-between;
-  gap:12px;
-  padding:9px 0;
-  border-bottom:1px solid var(--border);
-}
-.horse-list li:last-child{border-bottom:0}
-.horse-list small{
-  display:block;
-  color:var(--muted);
-}
-.np{color:var(--red);font-weight:700}
-.chip{
-  display:inline-block;
-  border:1px solid var(--border);
-  border-radius:999px;
-  padding:2px 9px;
-  color:var(--muted);
-  font-size:12px;
-}
-.chip.ok{border-color:var(--green);color:var(--green)}
-.manifesto{
-  background:linear-gradient(150deg,#163b35,#112d42);
-  border:1px solid var(--gold);
-  border-radius:20px;
-  padding:28px;
-}
-.manifesto h2{color:var(--gold);text-align:center}
-.manifesto p{font-size:16px}
-footer{
-  text-align:center;
-  border-top:1px solid var(--border);
-  color:var(--muted);
-  margin-top:40px;
-  padding:30px 15px;
-}
-footer strong{color:var(--gold)}
-#topBtn{
-  position:fixed;
-  right:15px;
-  bottom:15px;
-  z-index:30;
-  background:var(--panel2);
-  color:var(--gold);
-  border:1px solid var(--gold);
-  border-radius:12px;
-  padding:10px 15px;
-}
-@media(max-width:600px){
-  .header-inner{justify-content:center;padding:10px}
-  .brand{text-align:center}
-  nav{justify-content:center}
-  nav a{font-size:11px;padding:5px 8px}
-  .container{padding:12px}
-  .hero{padding:35px 15px}
-  .card,.principle{padding:16px}
-  .manifesto{padding:18px}
-  .section-title{font-size:21px}
-  .horse-list li{flex-direction:column;gap:3px}
-}
-@media(prefers-reduced-motion:reduce){
-  html{scroll-behavior:auto}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
 }
 </style>
 </head>
@@ -292,36 +206,36 @@ footer strong{color:var(--gold)}
 
 <header>
   <div class="header-inner">
-    <div class="brand">
+    <div class="logo">
       🇸🇳🧠🔥 X1000
       <small>INTELLIGENCE HIPPIQUE HUMAINE</small>
     </div>
     <nav aria-label="Navigation principale">
       <a href="#accueil">Accueil</a>
-      <a href="#mission">Mission</a>
-      <a href="#hippique">PMU réel</a>
+      <a href="#courses">Courses</a>
+      <a href="#analyses">Analyses</a>
+      <a href="#paris">Paris PMU</a>
+      <a href="#apprendre">Apprendre</a>
+      <a href="#resultats">Archives</a>
       <a href="#principes">Principes</a>
-      <a href="#manifeste">Manifeste</a>
+      <a href="#diagnostic">Diagnostic</a>
     </nav>
   </div>
 </header>
 
-<main class="container">
+<main>
 
 <section id="accueil" class="hero">
   <div class="eyebrow">
     OBSERVATION • DISCERNEMENT • APPRENTISSAGE
   </div>
 
-  <h1>
-    🇸🇳🧠🔥 X1000<br>
-    INTELLIGENCE HIPPIQUE HUMAINE
-  </h1>
+  <h1>🇸🇳🧠🔥 X1000<br>PORTAIL PMU INTELLIGENT</h1>
 
   <p>
-    Une nouvelle vision de l'analyse hippique,
-    inspirée de l'intelligence humaine, de l'expérience,
-    de l'observation et de la compréhension des courses.
+    Un espace consacré à la compréhension des courses
+    hippiques françaises, des chevaux, des paris,
+    des analyses sportives et des résultats officiels.
   </p>
 
   <div class="quote">
@@ -330,864 +244,312 @@ footer strong{color:var(--gold)}
     et apprendre de chaque course. »
   </div>
 
-  <p>
-    Comprendre avant de prédire. Étudier chaque cheval.
-    Déjouer les apparences. Apprendre des résultats.
-  </p>
-
-  <div class="actions">
-    <a class="btn" href="#hippique">
-      🏇 Consulter les courses PMU
-    </a>
-    <a class="btn secondary" href="#principes">
-      📜 Découvrir les 16 principes
-    </a>
-  </div>
+  <a class="button" href="#courses">🏇 Voir les courses</a>
+  <a class="button secondary" href="#paris">🎟️ Comprendre les paris</a>
 </section>
 
-<section id="mission">
-  <h2 class="section-title">🧠 Notre mission</h2>
+<section id="courses">
+  <h2>🏇 Courses PMU françaises</h2>
 
-  <div class="grid">
-    <article class="card">
-      <h3>👁️ Observer</h3>
-      <p>Identifier les informations importantes, y compris celles qui pourraient être négligées.</p>
-    </article>
-    <article class="card">
-      <h3>🔍 Comprendre</h3>
-      <p>Rechercher les causes et les circonstances expliquant les performances.</p>
-    </article>
-    <article class="card">
-      <h3>⚖️ Raisonner</h3>
-      <p>Comparer plusieurs possibilités et confronter les arguments sportifs.</p>
-    </article>
-    <article class="card">
-      <h3>🎯 Anticiper</h3>
-      <p>Construire des scénarios plausibles et établir des prévisions avant les départs.</p>
-    </article>
-    <article class="card">
-      <h3>📚 Apprendre</h3>
-      <p>Examiner les résultats officiels, comprendre les erreurs et améliorer les analyses.</p>
-    </article>
-  </div>
-</section>
-
-<section id="hippique">
-  <h2 class="section-title">
-    🏇 Espace PMU — Courses françaises réelles
-  </h2>
-
-  <div id="pmuStatus" class="status" role="status" aria-live="polite">
-    <strong>Connexion aux données publiées :</strong>
-    <span id="pmuStatusText">
-      Chargement du programme PMU…
-    </span>
-  </div>
-
-  <p id="pmuMeta" class="muted">
-    Source attendue : data/publication_courses.json
+  <p class="muted">
+    Programme issu des données réellement publiées.
+    Une publication ancienne n'est jamais présentée
+    comme un flux en direct.
   </p>
 
-  <div class="toolbar">
-    <button id="pmuRefresh" class="small-btn" type="button">
-      ↻ Actualiser
-    </button>
+  <div id="coursesStatus" class="notice" role="status">
+    Chargement des données PMU…
+  </div>
 
+  <div class="filters">
     <input
-      id="pmuSearch"
-      class="searchbar"
+      id="search"
       type="search"
-      autocomplete="off"
-      placeholder="Course, hippodrome ou cheval…"
-      aria-label="Rechercher une course PMU"
-      style="flex:1;min-width:190px;width:auto;margin:0"
+      placeholder="Hippodrome, course, cheval…"
+      aria-label="Rechercher une course"
     >
 
-    <select
-      id="pmuDiscipline"
-      aria-label="Filtrer les courses par discipline"
-    >
+    <select id="discipline" aria-label="Filtrer par discipline">
       <option value="">Toutes les disciplines</option>
     </select>
+
+    <button id="reload" type="button">↻ Actualiser</button>
   </div>
 
-  <p id="pmuCount" class="muted" aria-live="polite"></p>
+  <p id="count" class="muted"></p>
+  <div id="courseCards" class="grid"></div>
+</section>
 
-  <div id="pmuCourses" class="grid"></div>
+<section id="analyses">
+  <h2>🧠 Analyses hippiques</h2>
 
-  <div class="status">
-    <strong>Règle de sécurité :</strong>
-    <span class="muted">
-      Seules les courses dont la localisation en France
-      est explicitement vérifiée sont affichées.
-      Cette page ne fabrique ni participants, ni analyses,
-      ni pronostics, ni FIGÉs, ni résultats officiels.
-    </span>
+  <p>
+    L'objectif est d'étudier les chevaux individuellement,
+    d'évaluer les favoris et de rechercher les outsiders
+    présentant des arguments sportifs vérifiables.
+  </p>
+
+  <div id="analysisStatus" class="notice">
+    Chargement des analyses…
   </div>
 
-  <h2 class="section-title">
-    🧠 Les capacités de l'intelligence hippique
-  </h2>
+  <div id="analysisCards" class="grid"></div>
+</section>
+
+<section id="paris">
+  <h2>🎟️ Comprendre les paris PMU</h2>
+
+  <p class="muted">
+    Présentation pédagogique des principales formules.
+    Les conditions exactes sont celles des règlements PMU
+    applicables à chaque pari.
+  </p>
 
   <div class="grid">
+
     <article class="card">
-      <h3>🏟️ Courses françaises</h3>
-      <p>Recherche des réunions et courses PMU physiquement disputées en France.</p>
-      <p class="muted">Affichage depuis les données réellement publiées.</p>
+      <h3>🥇 Simple</h3>
+      <p>
+        Sélectionner un cheval gagnant ou placé
+        selon la formule choisie.
+      </p>
     </article>
 
     <article class="card">
-      <h3>🐎 Étude des chevaux</h3>
-      <p>Forme, musique, distance, terrain, jockey ou driver, entraîneur et opposition.</p>
-      <p class="muted">Les informations absentes restent non renseignées.</p>
+      <h3>🥈 Couplé</h3>
+      <p>
+        Choisir deux chevaux à l'arrivée,
+        selon les conditions du Couplé Gagnant ou Placé.
+      </p>
     </article>
 
     <article class="card">
-      <h3>🔎 Chevaux cachés</h3>
-      <p>Identifier les concurrents négligés à partir d'arguments sportifs vérifiables.</p>
-      <p class="muted">Moteur d'analyse à connecter.</p>
+      <h3>🥉 Trio</h3>
+      <p>
+        Trouver les trois premiers chevaux,
+        sans ordre dans la formule classique.
+      </p>
     </article>
 
     <article class="card">
-      <h3>⚠️ Faux favoris</h3>
-      <p>Évaluer les favoris avec la même rigueur que les autres chevaux.</p>
-      <p class="muted">Aucune évaluation fictive.</p>
+      <h3>🐎 Multi</h3>
+      <p>
+        Trouver les quatre premiers chevaux
+        parmi une sélection, selon la formule choisie.
+      </p>
     </article>
 
     <article class="card">
-      <h3>📋 Prévisions argumentées</h3>
-      <p>Décisions sportives explicables et horodatées avant les départs.</p>
-      <p class="muted">Aucune prévision simulée.</p>
+      <h3>3️⃣ Tiercé</h3>
+      <p>
+        Trouver les trois premiers chevaux.
+        Les rapports dépendent notamment de l'ordre.
+      </p>
     </article>
 
     <article class="card">
-      <h3>🔐 Décisions historiques</h3>
-      <p>Conserver les décisions et révisions sans réécriture rétroactive.</p>
-      <p class="muted">Archives à connecter en lecture seule.</p>
+      <h3>4️⃣ Quarté+</h3>
+      <p>
+        Trouver les quatre premiers chevaux
+        selon les conditions du pari.
+      </p>
     </article>
 
     <article class="card">
-      <h3>📊 Résultats officiels</h3>
-      <p>Comparer les décisions aux arrivées officielles vérifiées.</p>
-      <p class="muted">Source officielle à connecter.</p>
+      <h3>5️⃣ Quinté+</h3>
+      <p>
+        Trouver les cinq premiers chevaux.
+        Plusieurs catégories de rapports existent.
+      </p>
     </article>
 
     <article class="card">
-      <h3>📈 Apprentissage</h3>
-      <p>Comprendre les réussites, les erreurs et améliorer la méthode.</p>
-      <p class="muted">Historique vérifié à connecter.</p>
+      <h3>🎯 Pick5</h3>
+      <p>
+        Formule portant sur cinq chevaux,
+        proposée sur certaines courses éligibles.
+      </p>
     </article>
+
+    <article class="card">
+      <h3>🏆 Super4</h3>
+      <p>
+        Formule portant sur les quatre premiers chevaux,
+        selon les règles du pari.
+      </p>
+    </article>
+
   </div>
+
+  <div class="notice">
+    <strong>Jeu responsable :</strong>
+    les paris hippiques comportent un risque de perte.
+    Aucun pronostic ne garantit un gain.
+    Les paris sont réservés aux personnes majeures.
+  </div>
+</section>
+
+<section id="apprendre">
+  <h2>📖 Académie hippique</h2>
+
+  <div class="grid">
+
+    <article class="card">
+      <h3>🏇 Le plat</h3>
+      <p>
+        Courses de vitesse et de tactique,
+        sans obstacle.
+      </p>
+    </article>
+
+    <article class="card">
+      <h3>🐎 Le trot attelé</h3>
+      <p>
+        Le cheval tracte un sulky conduit par un driver.
+      </p>
+    </article>
+
+    <article class="card">
+      <h3>🐴 Le trot monté</h3>
+      <p>
+        Le jockey est en selle et le cheval doit
+        respecter l'allure du trot.
+      </p>
+    </article>
+
+    <article class="card">
+      <h3>🏟️ L'obstacle</h3>
+      <p>
+        Courses comprenant des obstacles :
+        haies, steeple-chase ou cross.
+      </p>
+    </article>
+
+    <article class="card">
+      <h3>📋 La musique</h3>
+      <p>
+        Résumé codifié des performances précédentes
+        d'un cheval. Son interprétation dépend
+        de la discipline.
+      </p>
+    </article>
+
+    <article class="card">
+      <h3>⭐ Les favoris</h3>
+      <p>
+        Chevaux appréciés du marché.
+        Leur popularité ne garantit pas leur performance.
+      </p>
+    </article>
+
+    <article class="card">
+      <h3>🔎 Les outsiders</h3>
+      <p>
+        Chevaux moins attendus pouvant présenter
+        des arguments sportifs intéressants.
+      </p>
+    </article>
+
+    <article class="card">
+      <h3>⚠️ Les non-partants</h3>
+      <p>
+        Chevaux retirés de la course.
+        Les changements officiels doivent être
+        vérifiés avant toute décision.
+      </p>
+    </article>
+
+  </div>
+</section>
+
+<section id="resultats">
+  <h2>📚 Résultats officiels et archives</h2>
+
+  <div id="archivesStatus" class="notice">
+    Vérification de la disponibilité des archives…
+  </div>
+
+  <p>
+    Les arrivées officielles doivent être accompagnées
+    de leur source vérifiée.
+  </p>
+
+  <p>
+    Les décisions prises avant les départs doivent être
+    conservées avec leurs horodatages.
+    Aucun FIGÉ rétroactif n'est autorisé.
+  </p>
 </section>
 
 <section id="principes">
-  <h2 class="section-title">
-    📜 Les 16 principes fondateurs
-  </h2>
+  <h2>📜 Les 16 principes fondateurs</h2>
 
-  <p class="muted">
-    Les fondements intellectuels de X1000 :
-    observation, indépendance, rigueur et apprentissage.
+  <p>
+    L'Intelligence Hippique Humaine repose sur
+    l'observation, la compréhension, le raisonnement,
+    l'anticipation et l'apprentissage.
   </p>
 
-  <input
-    id="search"
-    class="searchbar"
-    type="search"
-    autocomplete="off"
-    placeholder="Favori, cheval, apprentissage…"
-    aria-label="Rechercher dans les principes"
-    aria-controls="principlesList"
-  >
-
-  <div class="toolbar">
-    <span
-      id="searchCount"
-      class="muted"
-      role="status"
-      aria-live="polite"
-    ></span>
-
-    <button
-      id="clearSearch"
-      class="small-btn"
-      type="button"
-    >
-      Effacer la recherche
-    </button>
-  </div>
-
-  <div id="principlesList">
-
-    <article class="principle">
-      <h3>1. Naissance et vision du projet</h3>
-      <p>
-        X1000 est né d'une conviction profonde :
-        les courses hippiques ne doivent pas être étudiées
-        uniquement à travers les favoris, les cotes,
-        les classements ou les pronostics populaires.
-      </p>
-      <p>
-        Derrière chaque course se trouvent des chevaux,
-        des capacités physiques, des aptitudes,
-        des préparations, des stratégies,
-        des conditions sportives et des circonstances
-        particulières qui méritent une véritable réflexion.
-      </p>
-      <p>
-        L'ambition du projet est de construire une intelligence
-        hippique inspirée de la manière dont un être humain
-        expérimenté observe, comprend, compare, doute,
-        anticipe et prend ses décisions.
-      </p>
-      <p>
-        X1000 doit transformer les informations hippiques
-        en connaissances, puis les connaissances
-        en raisonnements et en prévisions sportives argumentées.
-      </p>
-      <p>
-        Il ne s'agit pas de reproduire aveuglément
-        les pronostics existants.
-      </p>
-      <p>
-        <strong>
-          L'objectif fondamental est de comprendre les courses
-          avant de chercher à prédire leurs résultats.
-        </strong>
-      </p>
-    </article>
-
-    <article class="principle">
-      <h3>2. L'intelligence humaine comme inspiration</h3>
-      <p>
-        L'intelligence hippique recherchée doit s'inspirer
-        des qualités essentielles du raisonnement humain.
-      </p>
-      <p>
-        Un observateur expérimenté ne regarde pas seulement
-        quel cheval est favori.
-      </p>
-      <p>
-        Il cherche à comprendre pourquoi ce cheval est apprécié,
-        quelles sont ses véritables qualités,
-        quelles difficultés il pourrait rencontrer
-        et quels concurrents seraient capables de le battre.
-      </p>
-      <p>
-        Il examine le passé sans oublier le présent.
-        Il tient compte des statistiques
-        sans leur accorder une confiance aveugle.
-      </p>
-      <p>
-        Il compare les performances en respectant
-        les différences de contexte.
-      </p>
-      <p>
-        Il sait qu'un cheval battu précédemment
-        peut se retrouver dans des conditions favorables.
-        Il sait également qu'un cheval victorieux
-        peut rencontrer une opposition plus difficile.
-      </p>
-      <p>Il accepte l'incertitude.</p>
-      <p>
-        <strong>
-          Comprendre avant de choisir,
-          comparer avant de conclure
-          et vérifier avant d'affirmer.
-        </strong>
-      </p>
-    </article>
-
-    <article class="principle">
-      <h3>3. Étudier chaque cheval comme un cas unique</h3>
-      <p>
-        Chaque cheval possède une histoire sportive,
-        des qualités, des limites et des caractéristiques particulières.
-      </p>
-      <p>
-        Aucun participant ne doit être écarté simplement
-        parce qu'il est peu connu, peu joué ou mal classé
-        dans les pronostics publics.
-      </p>
-      <p>L'étude doit examiner :</p>
-      <ul>
-        <li>La forme physique et les performances récentes.</li>
-        <li>La régularité et la progression sportive.</li>
-        <li>L'endurance, la vitesse et l'accélération.</li>
-        <li>L'aptitude à la distance et au parcours.</li>
-        <li>Les résultats sur l'hippodrome.</li>
-        <li>L'adaptation au terrain et à la météo.</li>
-        <li>Le comportement au départ.</li>
-        <li>Le jockey ou le driver.</li>
-        <li>L'entraîneur et l'entourage.</li>
-        <li>Les gains et les engagements.</li>
-        <li>Le niveau des adversaires rencontrés.</li>
-        <li>Les avantages et handicaps du jour.</li>
-        <li>Les changements sportifs significatifs.</li>
-      </ul>
-      <p>
-        L'analyse doit rechercher les relations entre ces éléments.
-      </p>
-      <p>
-        Un bon cheval dans de mauvaises conditions
-        n'est pas nécessairement le meilleur choix.
-      </p>
-      <p>
-        Un cheval discret bénéficiant de conditions favorables
-        peut représenter une possibilité sportive intéressante.
-      </p>
-      <p>
-        <strong>
-          Chaque cheval mérite d'être compris
-          avant d'être retenu ou écarté.
-        </strong>
-      </p>
-    </article>
-
-    <article class="principle">
-      <h3>4. Ne jamais suivre aveuglément les favoris</h3>
-      <p>
-        La popularité d'un cheval ne constitue pas
-        une preuve de supériorité.
-      </p>
-      <p>
-        Les favoris doivent être étudiés
-        avec la même rigueur que les autres participants.
-      </p>
-      <p>
-        X1000 doit distinguer les favoris solides
-        des favoris fragiles ou trompeurs.
-      </p>
-      <p>
-        Un favori peut rencontrer une distance défavorable,
-        un terrain inhabituel, une mauvaise position de départ,
-        une opposition renforcée ou une forme incertaine.
-      </p>
-      <p>
-        À l'inverse, un concurrent négligé
-        peut posséder les qualités nécessaires pour surprendre.
-      </p>
-      <div class="quote">
-        « Ne jamais choisir un cheval uniquement parce qu'il est favori.
-        Comprendre pourquoi il peut gagner,
-        pourquoi il peut perdre,
-        et quel adversaire possède les qualités
-        nécessaires pour le battre. »
-      </div>
-    </article>
-
-    <article class="principle">
-      <h3>5. Découvrir les chevaux cachés</h3>
-      <p>
-        L'une des ambitions majeures de X1000
-        est de découvrir ce que les analyses superficielles
-        risquent de manquer.
-      </p>
-      <p>
-        Un cheval peut présenter une musique peu séduisante
-        tout en ayant affronté des adversaires très difficiles.
-      </p>
-      <p>
-        Un autre peut avoir été désavantagé
-        par le déroulement de ses dernières courses.
-      </p>
-      <p>
-        Un participant peut retrouver une distance favorable,
-        bénéficier d'un meilleur engagement
-        ou montrer des signes de progression.
-      </p>
-      <p>
-        L'intelligence hippique doit rechercher les chevaux
-        sous-estimés à partir d'arguments sportifs vérifiables.
-      </p>
-      <p>
-        Il ne s'agit pas de choisir systématiquement des outsiders.
-      </p>
-      <p>
-        <strong>
-          La véritable intelligence ne suit pas uniquement l'évidence.
-          Elle cherche à comprendre ce qui n'est pas immédiatement visible.
-        </strong>
-      </p>
-    </article>
-
-    <article class="principle">
-      <h3>6. Rechercher largement les courses analysables</h3>
-      <p>
-        X1000 doit adopter une démarche ouverte,
-        ambitieuse et méthodique.
-      </p>
-      <p>
-        Son domaine d'étude concerne les courses PMU
-        physiquement disputées en France.
-      </p>
-      <p>
-        Il ne doit pas limiter son attention
-        aux grandes réunions ou aux courses populaires.
-      </p>
-      <p>
-        Chaque course peut offrir une possibilité d'analyse intéressante.
-      </p>
-      <p>
-        La recherche doit être large,
-        sans sélection excessivement sévère.
-      </p>
-      <p>
-        Une course complexe ou ouverte
-        ne doit pas être automatiquement rejetée.
-      </p>
-      <p>
-        Les informations insuffisantes ou contradictoires
-        doivent cependant être signalées.
-      </p>
-      <div class="quote">
-        « Ne pas chercher des courses parfaites.
-        Chercher des courses compréhensibles,
-        analysables et présentant de véritables possibilités sportives. »
-      </div>
-    </article>
-
-    <article class="principle">
-      <h3>7. Comprendre la course dans son ensemble</h3>
-      <p>
-        Une course hippique n'est pas une simple addition de chevaux.
-      </p>
-      <p>
-        C'est une confrontation sportive dans laquelle
-        chaque participant évolue face à des adversaires
-        et dans des conditions déterminées.
-      </p>
-      <p>
-        L'analyse doit chercher à comprendre
-        la dynamique probable de la compétition.
-      </p>
-      <ul>
-        <li>Quels chevaux peuvent prendre la tête ?</li>
-        <li>Lesquels ont besoin d'un parcours préservé ?</li>
-        <li>Qui peut accélérer au moment décisif ?</li>
-        <li>Quels chevaux risquent de subir le rythme ?</li>
-        <li>Qui peut résister jusqu'à l'arrivée ?</li>
-      </ul>
-      <p>
-        Plusieurs scénarios doivent être confrontés,
-        sans considérer un seul déroulement comme certain.
-      </p>
-      <p>
-        <strong>
-          Comprendre une course, c'est comprendre
-          les interactions entre les chevaux,
-          le parcours, les conditions et les circonstances sportives.
-        </strong>
-      </p>
-    </article>
-
-    <article class="principle">
-      <h3>8. Construire une prévision indépendante</h3>
-      <p>
-        La finalité de l'étude est de transformer l'observation
-        en une décision sportive compréhensible.
-      </p>
-      <p>
-        Une prévision ne doit pas être
-        une succession de numéros choisis au hasard.
-      </p>
-      <p>
-        Elle doit résulter d'un raisonnement
-        fondé sur les données disponibles.
-      </p>
-      <ul>
-        <li>Pourquoi ce cheval peut-il gagner ?</li>
-        <li>Pourquoi cet autre peut-il se placer ?</li>
-        <li>Quels concurrents représentent les menaces ?</li>
-        <li>Quelles incertitudes peuvent changer l'arrivée ?</li>
-      </ul>
-      <p>
-        Une prévision doit distinguer les faits vérifiés,
-        les interprétations, les hypothèses
-        et les niveaux de confiance.
-      </p>
-      <p>
-        <strong>
-          Une bonne analyse se mesure aussi
-          à la qualité des raisons qui conduisent à sa conclusion.
-        </strong>
-      </p>
-    </article>
-
-    <article class="principle">
-      <h3>9. Décider avant le départ</h3>
-      <p>
-        Les informations hippiques peuvent évoluer
-        jusqu'au départ d'une course.
-      </p>
-      <p>
-        Un non-partant, une modification du terrain
-        ou une information officielle nouvelle
-        peuvent modifier l'évaluation initiale.
-      </p>
-      <p>
-        X1000 doit pouvoir réexaminer ses conclusions
-        lorsqu'un élément nouveau le justifie.
-      </p>
-      <p>
-        Il ne doit pas changer d'avis sans raison,
-        ni conserver une décision dépassée par simple rigidité.
-      </p>
-      <p>
-        À l'approche du départ, une décision finale
-        doit pouvoir être établie, datée et conservée.
-      </p>
-      <p>
-        Toute révision avant le départ doit être justifiée et traçable.
-      </p>
-      <p>
-        Une fois le départ officiel donné,
-        les décisions historiques ne doivent jamais être réécrites.
-      </p>
-      <p><strong>Aucun FIGÉ rétroactif.</strong></p>
-      <p>
-        <strong>
-          La crédibilité repose sur la capacité
-          à décider avant de connaître le résultat.
-        </strong>
-      </p>
-    </article>
-
-    <article class="principle">
-      <h3>10. Apprendre des résultats et de ses erreurs</h3>
-      <p>
-        Une intelligence véritable ne doit pas seulement
-        produire des prévisions.
-      </p>
-      <p>
-        Elle doit être capable d'examiner ses décisions
-        après les courses.
-      </p>
-      <p>
-        Lorsqu'une prévision réussit, il faut comprendre pourquoi.
-      </p>
-      <p>
-        Lorsqu'elle échoue, il faut rechercher les raisons de l'erreur.
-      </p>
-      <ul>
-        <li>Un cheval avait-il été surestimé ?</li>
-        <li>Un concurrent avait-il été négligé ?</li>
-        <li>Le scénario prévu était-il incorrect ?</li>
-        <li>Une information avait-elle été mal interprétée ?</li>
-        <li>Un incident était-il imprévisible ?</li>
-      </ul>
-      <p>
-        L'apprentissage doit s'appuyer sur les résultats officiels
-        et les décisions réellement prises avant les départs.
-      </p>
-      <div class="quote">
-        « Une erreur comprise peut devenir une connaissance.
-        Une victoire non comprise ne suffit pas
-        à prouver la qualité d'une méthode. »
-      </div>
-    </article>
-
-    <article class="principle">
-      <h3>11. La vérité et la transparence</h3>
-      <p>
-        X1000 doit être construit
-        sur une exigence absolue de sincérité.
-      </p>
-      <ul>
-        <li>Aucune donnée hippique inventée.</li>
-        <li>Aucun cheval fictif.</li>
-        <li>Aucun résultat officiel fabriqué.</li>
-        <li>Aucune prévision antidatée.</li>
-        <li>Aucune décision historique réécrite.</li>
-        <li>Aucune validation fictive.</li>
-      </ul>
-      <p>Les informations manquantes doivent être reconnues.</p>
-      <p>Les erreurs techniques doivent être signalées.</p>
-      <p>Les analyses incertaines doivent être identifiées.</p>
-      <p>
-        Les réussites comme les échecs doivent pouvoir être consultés.
-      </p>
-      <p>
-        <strong>
-          Mieux vaut reconnaître une incertitude
-          que présenter une fausse certitude.
-        </strong>
-      </p>
-    </article>
-
-    <article class="principle">
-      <h3>12. Une intelligence autonome et responsable</h3>
-      <p>
-        L'ambition est de créer un site internet
-        capable d'effectuer un travail d'analyse hippique
-        régulier et structuré.
-      </p>
-      <p>
-        Le système doit pouvoir rechercher les informations
-        disponibles, les organiser, les comparer,
-        produire des analyses et suivre leur évolution.
-      </p>
-      <p>
-        Il doit favoriser la continuité du travail
-        sans intervention humaine permanente
-        pour chaque opération.
-      </p>
-      <p>
-        Cette autonomie doit respecter des règles
-        de qualité, de traçabilité et de sécurité.
-      </p>
-      <p>
-        L'automatisation ne doit jamais masquer les erreurs
-        ou inventer des données.
-      </p>
-      <p>
-        Elle doit reconnaître ses limites
-        et suspendre une conclusion insuffisamment fondée.
-      </p>
-      <p>
-        <strong>
-          Être autonome ne signifie pas décider sans contrôle.
-          Cela signifie accomplir un travail cohérent,
-          vérifiable et responsable.
-        </strong>
-      </p>
-    </article>
-
-    <article class="principle">
-      <h3>13. Un site vivant, clair et intelligent</h3>
-      <p>
-        X1000 ne doit pas être seulement un tableau de résultats
-        ou une page présentant des pronostics.
-      </p>
-      <p>
-        Il doit devenir un véritable espace de connaissance hippique.
-      </p>
-      <p>
-        Le visiteur doit pouvoir comprendre les courses étudiées,
-        découvrir les participants, examiner les arguments sportifs
-        et suivre les décisions prises avant les départs.
-      </p>
-      <p>
-        Le site doit présenter clairement les informations disponibles,
-        leur date de mise à jour et leur niveau de vérification.
-      </p>
-      <p>
-        Il doit permettre de consulter les analyses du jour,
-        les décisions historiques, les résultats officiels
-        et les enseignements tirés des courses précédentes.
-      </p>
-      <p>
-        Son interface doit être rapide, accessible
-        et adaptée aux téléphones comme aux ordinateurs.
-      </p>
-      <p>
-        <strong>
-          Un site réellement intelligent ne se contente pas
-          d'afficher une réponse : il aide à comprendre
-          pourquoi elle a été proposée.
-        </strong>
-      </p>
-    </article>
-
-    <article class="principle">
-      <h3>14. Respecter l'incertitude sportive</h3>
-      <p>
-        Les courses hippiques restent des compétitions
-        soumises à de nombreuses variables.
-      </p>
-      <p>
-        Même une étude approfondie
-        ne peut garantir le résultat d'une course.
-      </p>
-      <p>
-        Un incident, un mauvais départ, un parcours défavorable
-        ou une performance inattendue peuvent modifier l'arrivée.
-      </p>
-      <p>
-        X1000 ne doit jamais promettre
-        une victoire certaine ou un gain garanti.
-      </p>
-      <p>
-        Son objectif est d'améliorer la qualité de l'analyse,
-        non de supprimer artificiellement le risque.
-      </p>
-      <p>
-        Les décisions de pari doivent rester libres,
-        responsables et proportionnées aux moyens de chacun.
-      </p>
-      <p>
-        <strong>
-          L'intelligence hippique ne consiste pas
-          à prétendre connaître l'avenir.
-          Elle consiste à mieux comprendre les possibilités
-          avant qu'elles se réalisent.
-        </strong>
-      </p>
-    </article>
-
-    <article class="principle">
-      <h3>15. Une progression permanente</h3>
-      <p>X1000 doit rester un projet vivant.</p>
-      <p>
-        Chaque journée de courses peut enrichir les connaissances.
-      </p>
-      <p>
-        Chaque nouvelle information peut affiner
-        la compréhension d'un cheval.
-      </p>
-      <p>
-        Chaque résultat peut révéler une qualité sous-estimée
-        ou une faiblesse insuffisamment prise en compte.
-      </p>
-      <p>
-        La progression doit être continue,
-        sans effacer les enseignements du passé.
-      </p>
-      <p>
-        La méthode doit évoluer lorsque les observations
-        et les résultats vérifiés justifient une amélioration.
-      </p>
-      <p>
-        Les principes fondateurs restent stables :
-        indépendance, rigueur, ouverture,
-        honnêteté, responsabilité et recherche de compréhension.
-      </p>
-      <p>
-        <strong>
-          L'ambition n'est pas de paraître intelligent.
-          L'ambition est de développer une intelligence utile,
-          capable de progresser et de reconnaître ses limites.
-        </strong>
-      </p>
-    </article>
-
-    <article class="principle">
-      <h3>16. La mission fondamentale de X1000</h3>
-      <p>
-        X1000 doit réunir cinq grandes qualités
-        de l'intelligence humaine.
-      </p>
-      <p>
-        <strong>L'observation :</strong>
-        voir les informations importantes,
-        y compris celles que d'autres pourraient négliger.
-      </p>
-      <p>
-        <strong>La compréhension :</strong>
-        rechercher les causes, les relations
-        et les circonstances expliquant les performances.
-      </p>
-      <p>
-        <strong>Le raisonnement :</strong>
-        comparer plusieurs possibilités,
-        confronter les arguments
-        et éviter les conclusions précipitées.
-      </p>
-      <p>
-        <strong>L'anticipation :</strong>
-        construire des scénarios sportifs plausibles
-        et établir des prévisions avant les départs.
-      </p>
-      <p>
-        <strong>L'apprentissage :</strong>
-        examiner les résultats, comprendre les erreurs
-        et améliorer progressivement les analyses.
-      </p>
-      <p>
-        Ces qualités constituent le cœur intellectuel
-        du projet et doivent guider l'évolution du site.
-      </p>
-    </article>
-
-  </div>
-
-  <p id="noResults" class="status" role="status" hidden>
-    Aucun principe ne correspond à votre recherche.
-    Essayez un autre mot.
+  <p>
+    Les 16 principes détaillés sont conservés
+    dans la page fondatrice.
   </p>
+
+  <a class="button" href="principes.html#principes">
+    📜 Lire les 16 principes
+  </a>
 </section>
 
-<section id="manifeste">
-  <div class="manifesto">
-    <h2>🇸🇳🧠🔥 NOTRE MANIFESTE</h2>
+<section id="diagnostic">
+  <h2>🛠️ Diagnostic du portail</h2>
 
-    <p>Nous croyons que chaque course mérite d'être comprise avant d'être jugée.</p>
-    <p>Nous croyons que chaque cheval mérite une étude attentive, indépendamment de sa popularité.</p>
-    <p>Nous croyons qu'un favori doit démontrer sa valeur sportive et qu'un outsider ne doit jamais être écarté sans raison.</p>
-    <p>Nous croyons que l'observation, la réflexion, la comparaison et l'expérience permettent de construire des analyses plus pertinentes.</p>
-    <p>Nous croyons qu'une prévision doit être expliquée, datée et confrontée honnêtement à la réalité.</p>
-    <p>Nous croyons que les erreurs doivent servir à apprendre et non à dissimuler les faiblesses.</p>
-    <p>Nous croyons que l'autonomie doit toujours s'accompagner de responsabilité.</p>
-    <p>Nous croyons qu'un site internet intelligent doit aider à comprendre, et non simplement demander à être cru.</p>
-    <p>Nous voulons construire une intelligence hippique indépendante, curieuse, rigoureuse, évolutive et inspirée du discernement humain.</p>
+  <div class="grid">
+    <article class="card">
+      <h3>Collecte PMU</h3>
+      <p id="dCourses">Non vérifiée</p>
+    </article>
 
-    <div class="quote">
-      Notre ambition n'est pas de suivre les pronostics.
-      Notre ambition est de comprendre les courses,
-      d'anticiper leurs possibilités et de progresser
-      grâce à l'expérience.
-    </div>
+    <article class="card">
+      <h3>Analyses sportives</h3>
+      <p id="dAnalyses">Non vérifiées</p>
+    </article>
 
-    <h2>DEVISE FINALE</h2>
+    <article class="card">
+      <h3>Résultats et archives</h3>
+      <p id="dArchives">Non vérifiés</p>
+    </article>
+  </div>
 
-    <div class="quote">
-      « Étudier largement. Observer profondément.
-      Comprendre chaque cheval. Déjouer les apparences.
-      Décider avec discernement. Vérifier les résultats.
-      Apprendre continuellement. »
-    </div>
+  <div class="notice">
+    <strong>Protection :</strong>
+    ce site consulte les données publiées en lecture seule.
+    Il ne crée aucun cheval, pronostic, FIGÉ
+    ou résultat officiel.
   </div>
 </section>
 
 </main>
 
 <footer>
-  <strong>
-    🇸🇳🧠🔥 X1000 — INTELLIGENCE HIPPIQUE HUMAINE
-  </strong>
-  <p>
-    L'intelligence au service de la compréhension
-    des courses hippiques.
-  </p>
-  <p>Document fondateur — 1er novembre 2026</p>
-  <p>
-    Aucune prévision ne garantit un gain.
-    Aucune donnée hippique fictive.
-  </p>
+  <strong>🇸🇳🧠🔥 X1000 — INTELLIGENCE HIPPIQUE HUMAINE</strong>
+  <p>Comprendre avant de prédire. Apprendre après chaque course.</p>
+  <p>Aucune donnée fictive. Aucun gain garanti.</p>
   <p>© <span id="year"></span> X1000</p>
 </footer>
-
-<button
-  id="topBtn"
-  type="button"
-  aria-label="Retour en haut"
-  hidden
->
-  ↑ Haut
-</button>
 
 <script>
 "use strict";
 
 (function () {
-  const PARIS = "Europe/Paris";
-  const PMU_URL = "data/publication_courses.json";
-  const TIMEOUT_MS = 15000;
-  const FRESHNESS_MS = 3 * 60 * 60 * 1000;
 
   const $ = id => document.getElementById(id);
 
-  const status = $("pmuStatus");
-  const statusText = $("pmuStatusText");
-  const meta = $("pmuMeta");
-  const coursesContainer = $("pmuCourses");
-  const count = $("pmuCount");
-  const refresh = $("pmuRefresh");
-  const search = $("pmuSearch");
-  const disciplineSelect = $("pmuDiscipline");
+  const COURSES_URL = "data/publication_courses.json";
+  const ANALYSES_URL = "data/publication_analyses.json";
+  const TIMEOUT_MS = 15000;
+  const FRESHNESS_MS = 3 * 60 * 60 * 1000;
 
-  let verifiedCourses = [];
-  let activeRequest = null;
+  let courses = [];
 
   function str(value) {
     return typeof value === "string" ? value.trim() : "";
@@ -1197,525 +559,31 @@ footer strong{color:var(--gold)}
     return String(value ?? "")
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "")
-      .toLowerCase()
-      .trim()
-      .replace(/\s+/g, " ");
+      .toLowerCase();
   }
 
-  function element(tag, value) {
+  function element(tag, text) {
     const node = document.createElement(tag);
-
-    if (value !== undefined && value !== null) {
-      node.textContent = String(value);
-    }
-
+    node.textContent = String(text ?? "");
     return node;
   }
 
-  function addLine(parent, label, value) {
-    const p = element("p");
-    p.append(
-      element("strong", label + " : "),
-      document.createTextNode(String(value))
-    );
-    parent.append(p);
-  }
-
-  function validISODate(value) {
-    if (
-      typeof value !== "string" ||
-      !/^\d{4}-\d{2}-\d{2}$/.test(value)
-    ) {
-      return false;
-    }
-
-    const date = new Date(value + "T12:00:00Z");
-
-    return (
-      Number.isFinite(date.getTime()) &&
-      date.toISOString().slice(0, 10) === value
-    );
-  }
-
-  function parseInstant(value) {
-    if (
-      typeof value !== "string" ||
-      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value) ||
-      !/(?:Z|[+-]\d{2}:\d{2})$/i.test(value)
-    ) {
-      return null;
-    }
-
+  function formatParis(value) {
     const date = new Date(value);
 
-    return Number.isFinite(date.getTime()) ? date : null;
-  }
-
-  function parisDateParts(value) {
-    const date = value instanceof Date
-      ? value
-      : parseInstant(value);
-
-    if (!date || !Number.isFinite(date.getTime())) {
-      return null;
-    }
-
-    const parts = new Intl.DateTimeFormat("en-GB", {
-      timeZone: PARIS,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit"
-    }).formatToParts(date);
-
-    const get = type =>
-      parts.find(part => part.type === type)?.value || "";
-
-    return get("year") + "-" + get("month") + "-" + get("day");
-  }
-
-  function todayParis() {
-    return parisDateParts(new Date());
-  }
-
-  function parisDateTime(value) {
-    const date = value instanceof Date
-      ? value
-      : parseInstant(value);
-
-    if (!date || !Number.isFinite(date.getTime())) {
+    if (!Number.isFinite(date.getTime())) {
       return "Non renseigné";
     }
 
     return new Intl.DateTimeFormat("fr-FR", {
-      timeZone: PARIS,
+      timeZone: "Europe/Paris",
       dateStyle: "short",
       timeStyle: "short"
     }).format(date);
   }
 
-  function isPositiveInteger(value) {
-    return Number.isSafeInteger(value) && value > 0;
-  }
-
-  function validateCourse(course, date) {
-    if (
-      !course ||
-      typeof course !== "object" ||
-      Array.isArray(course)
-    ) {
-      return "Objet course invalide";
-    }
-
-    if (course.localisation_france_verifiee !== true) {
-      return "Localisation française non vérifiée";
-    }
-
-    if (course.depart_verifie !== true) {
-      return "Départ non vérifié";
-    }
-
-    if (!str(course.discipline)) {
-      return "Discipline absente";
-    }
-
-    const idPattern =
-      /^\d{4}-\d{2}-\d{2}-R[1-9]\d*-C[1-9]\d*$/;
-
-    if (
-      !idPattern.test(str(course.id)) ||
-      !course.id.startsWith(date + "-")
-    ) {
-      return "Identifiant de course invalide";
-    }
-
-    const departure = parseInstant(course.depart);
-
-    if (!departure) {
-      return "Date de départ ou fuseau invalide";
-    }
-
-    if (parisDateParts(departure) !== date) {
-      return "Départ incohérent avec la date de course";
-    }
-
-    if (
-      !Array.isArray(course.partants) ||
-      course.partants.length === 0
-    ) {
-      return "Liste des participants absente";
-    }
-
-    if (!Array.isArray(course.non_partants)) {
-      return "Liste des non-partants invalide";
-    }
-
-    if (
-      !isPositiveInteger(course.nombre_participants) ||
-      course.nombre_participants !== course.partants.length
-    ) {
-      return "Nombre de participants incohérent";
-    }
-
-    if (!isPositiveInteger(course.nombre_partants)) {
-      return "Nombre de partants actifs invalide";
-    }
-
-    const numbers = new Set();
-    const nonStarters = new Set();
-
-    for (const horse of course.partants) {
-      if (
-        !horse ||
-        typeof horse !== "object" ||
-        Array.isArray(horse)
-      ) {
-        return "Participant invalide";
-      }
-
-      if (
-        !isPositiveInteger(horse.numero) ||
-        !str(horse.nom) ||
-        typeof horse.non_partant !== "boolean"
-      ) {
-        return "Numéro, nom ou statut de cheval invalide";
-      }
-
-      if (numbers.has(horse.numero)) {
-        return "Numéro de cheval en doublon";
-      }
-
-      numbers.add(horse.numero);
-
-      if (horse.non_partant) {
-        nonStarters.add(horse.numero);
-      }
-    }
-
-    if (
-      course.nombre_partants !==
-      course.partants.length - nonStarters.size
-    ) {
-      return "Décompte des partants actifs incohérent";
-    }
-
-    if (course.non_partants.length !== nonStarters.size) {
-      return "Décompte des non-partants incohérent";
-    }
-
-    const declared = new Set();
-
-    for (const np of course.non_partants) {
-      if (
-        !np ||
-        typeof np !== "object" ||
-        !isPositiveInteger(np.numero) ||
-        !nonStarters.has(np.numero) ||
-        declared.has(np.numero)
-      ) {
-        return "Liste des non-partants incohérente";
-      }
-
-      const participant = course.partants.find(
-        horse => horse.numero === np.numero
-      );
-
-      if (
-        str(np.nom) &&
-        str(np.nom) !== participant.nom
-      ) {
-        return "Nom d'un non-partant incohérent";
-      }
-
-      declared.add(np.numero);
-    }
-
-    return null;
-  }
-
-  function validatePublication(data) {
-    if (
-      !data ||
-      typeof data !== "object" ||
-      Array.isArray(data)
-    ) {
-      throw new Error("Structure de publication invalide.");
-    }
-
-    if (!validISODate(data.date)) {
-      throw new Error("Date de publication invalide.");
-    }
-
-    if (!Array.isArray(data.courses)) {
-      throw new Error("Liste des courses absente.");
-    }
-
-    if (!Array.isArray(data.erreurs)) {
-      throw new Error("Diagnostic des erreurs absent.");
-    }
-
-    if (!["OK", "PARTIEL"].includes(data.statut)) {
-      throw new Error(
-        "Collecte non validée : " +
-        (str(data.statut) || "statut inconnu")
-      );
-    }
-
-    if (data.statut === "OK" && data.erreurs.length) {
-      throw new Error(
-        "Statut OK incohérent avec les erreurs déclarées."
-      );
-    }
-
-    const collectedAt = parseInstant(data.collecte_a);
-
-    if (!collectedAt) {
-      throw new Error("Horodatage de collecte invalide.");
-    }
-
-    const futureOffset = collectedAt.getTime() - Date.now();
-
-    if (futureOffset > 5 * 60 * 1000) {
-      throw new Error(
-        "Horodatage de collecte situé dans le futur."
-      );
-    }
-
-    const valid = [];
-    const rejected = [];
-    const ids = new Set();
-
-    for (const course of data.courses) {
-      const reason = validateCourse(course, data.date);
-
-      if (reason) {
-        rejected.push(
-          (str(course?.id) || "Course inconnue") +
-          " : " + reason
-        );
-        continue;
-      }
-
-      if (ids.has(course.id)) {
-        rejected.push(
-          course.id + " : identifiant en doublon"
-        );
-        continue;
-      }
-
-      ids.add(course.id);
-      valid.push(course);
-    }
-
-    return {
-      valid,
-      rejected,
-      collectedAt,
-      partial: data.statut === "PARTIEL",
-      errors: data.erreurs.length,
-      date: data.date,
-      source: str(data.source)
-    };
-  }
-
-  function renderCourses() {
-    coursesContainer.replaceChildren();
-
-    const query = normalize(search.value);
-    const selectedDiscipline = disciplineSelect.value;
-
-    const visible = verifiedCourses.filter(course => {
-      if (
-        selectedDiscipline &&
-        course.discipline !== selectedDiscipline
-      ) {
-        return false;
-      }
-
-      const content = normalize([
-        course.id,
-        course.nom,
-        course.hippodrome,
-        course.discipline,
-        ...course.partants.map(horse => horse.nom)
-      ].join(" "));
-
-      return content.includes(query);
-    });
-
-    count.textContent =
-      visible.length + " course(s) affichée(s) sur " +
-      verifiedCourses.length;
-
-    if (!visible.length) {
-      coursesContainer.append(
-        element(
-          "p",
-          verifiedCourses.length
-            ? "Aucune course ne correspond à votre recherche."
-            : "Aucune course vérifiée à afficher."
-        )
-      );
-      return;
-    }
-
-    for (const course of visible) {
-      const card = element("article");
-      card.className = "card pmu-card";
-
-      card.append(
-        element(
-          "h3",
-          course.id + " — " +
-          (str(course.nom) || "Course sans libellé")
-        )
-      );
-
-      const badge = element(
-        "span",
-        "FRANCE VÉRIFIÉE PAR LE COLLECTEUR"
-      );
-      badge.className = "chip ok";
-      card.append(badge);
-
-      addLine(
-        card,
-        "Hippodrome",
-        str(course.hippodrome) || "Non renseigné"
-      );
-      addLine(card, "Discipline", course.discipline);
-      addLine(
-        card,
-        "Départ Paris",
-        parisDateTime(course.depart)
-      );
-      addLine(
-        card,
-        "Partants actifs",
-        course.nombre_partants
-      );
-      addLine(
-        card,
-        "Participants enregistrés",
-        course.nombre_participants
-      );
-      addLine(
-        card,
-        "Non-partants",
-        course.non_partants.length
-      );
-
-      const details = element("details");
-      details.className = "pmu-details";
-
-      details.append(
-        element(
-          "summary",
-          "Afficher les chevaux de la course"
-        )
-      );
-
-      const list = element("ul");
-      list.className = "horse-list";
-
-      const horses = course.partants.slice().sort(
-        (a, b) => a.numero - b.numero
-      );
-
-      for (const horse of horses) {
-        const li = element("li");
-        const info = element("span");
-
-        info.append(
-          element(
-            "strong",
-            horse.numero + " — " + horse.nom
-          )
-        );
-
-        const extras = [
-          str(horse.jockey_driver)
-            ? "Jockey/driver : " + horse.jockey_driver
-            : "",
-          str(horse.entraineur)
-            ? "Entraîneur : " + horse.entraineur
-            : "",
-          str(horse.musique)
-            ? "Musique : " + horse.musique
-            : ""
-        ].filter(Boolean);
-
-        if (extras.length) {
-          info.append(
-            element("small", extras.join(" • "))
-          );
-        }
-
-        const state = element(
-          "span",
-          horse.non_partant ? "NON-PARTANT" : "PARTANT"
-        );
-
-        if (horse.non_partant) {
-          state.className = "np";
-        }
-
-        li.append(info, state);
-        list.append(li);
-      }
-
-      details.append(list);
-      card.append(details);
-      coursesContainer.append(card);
-    }
-  }
-
-  function updateDisciplines() {
-    const previous = disciplineSelect.value;
-
-    disciplineSelect.replaceChildren();
-
-    const all = element(
-      "option",
-      "Toutes les disciplines"
-    );
-    all.value = "";
-    disciplineSelect.append(all);
-
-    const values = [
-      ...new Set(
-        verifiedCourses.map(course => course.discipline)
-      )
-    ].sort((a, b) => a.localeCompare(b, "fr"));
-
-    for (const value of values) {
-      const option = element("option", value);
-      option.value = value;
-      disciplineSelect.append(option);
-    }
-
-    if (values.includes(previous)) {
-      disciplineSelect.value = previous;
-    }
-  }
-
-  function showStatus(message, kind = "") {
-    status.className = kind
-      ? "status " + kind
-      : "status";
-
-    statusText.textContent = message;
-  }
-
-  async function loadPMU() {
-    if (activeRequest) {
-      activeRequest.abort();
-    }
-
+  async function fetchJSON(path) {
     const controller = new AbortController();
-    activeRequest = controller;
-
-    refresh.disabled = true;
-    showStatus("Lecture du fichier PMU publié…");
 
     const timeout = setTimeout(
       () => controller.abort(),
@@ -1723,256 +591,378 @@ footer strong{color:var(--gold)}
     );
 
     try {
-      const url = new URL(PMU_URL, document.baseURI);
-      url.searchParams.set("v", String(Date.now()));
+      const url = new URL(path, document.baseURI);
+      url.searchParams.set("v", Date.now().toString());
 
       const response = await fetch(url.href, {
         cache: "no-store",
-        signal: controller.signal,
-        credentials: "same-origin"
+        signal: controller.signal
       });
 
       if (!response.ok) {
-        throw new Error(
-          "Fichier JSON inaccessible (HTTP " +
-          response.status + ")."
-        );
+        throw new Error("HTTP " + response.status);
       }
 
-      const data = await response.json();
-
-      if (activeRequest !== controller) {
-        return;
-      }
-
-      const result = validatePublication(data);
-
-      if (result.valid.length === 0) {
-        throw new Error(
-          "Aucune course française exploitable dans la publication."
-        );
-      }
-
-      verifiedCourses = result.valid.sort(
-        (a, b) =>
-          Date.parse(a.depart) - Date.parse(b.depart) ||
-          a.id.localeCompare(b.id)
-      );
-
-      updateDisciplines();
-      renderCourses();
-
-      const age =
-        Date.now() - result.collectedAt.getTime();
-
-      const historical =
-        result.date !== todayParis();
-
-      const stale = age > FRESHNESS_MS;
-
-      const incomplete =
-        result.partial ||
-        result.errors > 0 ||
-        result.rejected.length > 0;
-
-      const qualifiers = [];
-
-      if (historical) {
-        qualifiers.push("programme historique");
-      } else if (stale) {
-        qualifiers.push("collecte ancienne");
-      } else {
-        qualifiers.push("collecte récente");
-      }
-
-      if (incomplete) {
-        qualifiers.push("publication partielle");
-      }
-
-      showStatus(
-        verifiedCourses.length +
-        " course(s) françaises vérifiées — " +
-        qualifiers.join(" • ") + ".",
-        historical || stale || incomplete
-          ? ""
-          : "success"
-      );
-
-      meta.textContent =
-        "Programme : " + result.date +
-        " • Collecte : " +
-        parisDateTime(result.collectedAt) +
-        " (heure de Paris)" +
-        " • Courses rejetées : " +
-        result.rejected.length +
-        " • Erreurs déclarées : " +
-        result.errors +
-        " • Source déclarée : " +
-        (result.source || "non renseignée") +
-        ". Données issues du dernier fichier publié, pas d'un flux en direct.";
-
-    } catch (error) {
-      if (activeRequest !== controller) {
-        return;
-      }
-
-      verifiedCourses = [];
-      updateDisciplines();
-      renderCourses();
-
-      let message = "Erreur inconnue.";
-
-      if (controller.signal.aborted) {
-        message = "Chargement interrompu ou délai dépassé.";
-      } else if (error instanceof Error) {
-        message = error.message;
-      }
-
-      showStatus(
-        "Données PMU indisponibles : " + message,
-        "error"
-      );
-
-      meta.textContent =
-        "Aucune donnée fictive affichée. " +
-        "Vérifiez la publication réelle du fichier " +
-        PMU_URL + " dans GitHub Pages.";
+      return await response.json();
 
     } finally {
       clearTimeout(timeout);
-
-      if (activeRequest === controller) {
-        activeRequest = null;
-        refresh.disabled = false;
-      }
     }
   }
 
-  refresh.addEventListener("click", loadPMU);
-  search.addEventListener("input", renderCourses);
-  disciplineSelect.addEventListener(
+  function renderCourses() {
+    const container = $("courseCards");
+    container.replaceChildren();
+
+    const query = normalize($("search").value);
+    const discipline = $("discipline").value;
+
+    const visible = courses.filter(course => {
+
+      if (
+        discipline &&
+        course.discipline !== discipline
+      ) {
+        return false;
+      }
+
+      const text = normalize([
+        course.id,
+        course.nom,
+        course.hippodrome,
+        course.discipline,
+        ...course.partants.map(h => h.nom)
+      ].join(" "));
+
+      return text.includes(query);
+    });
+
+    $("count").textContent =
+      visible.length + " course(s) sur " +
+      courses.length;
+
+    if (!visible.length) {
+      container.append(
+        element("p", "Aucune course correspondante.")
+      );
+      return;
+    }
+
+    for (const course of visible) {
+
+      const card = element("article", "");
+      card.className = "card";
+
+      card.append(
+        element(
+          "h3",
+          (str(course.nom) || course.id) +
+          " — " + course.id
+        )
+      );
+
+      const badge = element(
+        "span",
+        "FRANCE VÉRIFIÉE PAR LE COLLECTEUR"
+      );
+      badge.className = "chip";
+      card.append(badge);
+
+      card.append(
+        element(
+          "p",
+          "Hippodrome : " +
+          (str(course.hippodrome) || "Non renseigné")
+        ),
+        element(
+          "p",
+          "Discipline : " + course.discipline
+        ),
+        element(
+          "p",
+          "Départ Paris : " +
+          formatParis(course.depart)
+        ),
+        element(
+          "p",
+          "Partants actifs : " +
+          course.nombre_partants
+        )
+      );
+
+      const details = document.createElement("details");
+      const summary = element(
+        "summary",
+        "Voir les chevaux"
+      );
+
+      const list = document.createElement("ul");
+
+      for (const horse of course.partants) {
+        list.append(
+          element(
+            "li",
+            horse.numero + " — " +
+            horse.nom +
+            (horse.non_partant ? " (NON-PARTANT)" : "")
+          )
+        );
+      }
+
+      details.append(summary, list);
+      card.append(details);
+      container.append(card);
+    }
+  }
+
+  async function loadCourses() {
+
+    const status = $("coursesStatus");
+
+    status.className = "notice";
+    status.textContent = "Chargement des courses…";
+
+    try {
+
+      const data = await fetchJSON(COURSES_URL);
+
+      if (
+        !data ||
+        !Array.isArray(data.courses) ||
+        !["OK", "PARTIEL"].includes(data.statut) ||
+        typeof data.collecte_a !== "string" ||
+        !Number.isFinite(Date.parse(data.collecte_a))
+      ) {
+        throw new Error("Publication PMU non validée.");
+      }
+
+      const ids = new Set();
+      const verified = [];
+
+      for (const course of data.courses) {
+
+        if (
+          !course ||
+          course.localisation_france_verifiee !== true ||
+          course.depart_verifie !== true ||
+          !Array.isArray(course.partants) ||
+          !Array.isArray(course.non_partants) ||
+          !str(course.id) ||
+          !str(course.discipline) ||
+          !Number.isFinite(Date.parse(course.depart)) ||
+          ids.has(course.id)
+        ) {
+          continue;
+        }
+
+        if (!course.partants.every(h =>
+          h &&
+          Number.isSafeInteger(h.numero) &&
+          h.numero > 0 &&
+          str(h.nom) &&
+          typeof h.non_partant === "boolean"
+        )) {
+          continue;
+        }
+
+        const numbers = course.partants.map(h => h.numero);
+
+        if (new Set(numbers).size !== numbers.length) {
+          continue;
+        }
+
+        const inactive = course.partants
+          .filter(h => h.non_partant)
+          .map(h => h.numero);
+
+        const declared = course.non_partants
+          .map(h => h && h.numero);
+
+        if (
+          !Number.isSafeInteger(course.nombre_partants) ||
+          course.nombre_partants !==
+            course.partants.length - inactive.length ||
+          declared.length !== inactive.length ||
+          new Set(declared).size !== declared.length ||
+          !declared.every(n => inactive.includes(n))
+        ) {
+          continue;
+        }
+
+        ids.add(course.id);
+        verified.push(course);
+      }
+
+      courses = verified.sort(
+        (a, b) =>
+          Date.parse(a.depart) - Date.parse(b.depart)
+      );
+
+      const select = $("discipline");
+      const previous = select.value;
+
+      select.replaceChildren(
+        new Option("Toutes les disciplines", "")
+      );
+
+      const disciplines = [
+        ...new Set(courses.map(c => c.discipline))
+      ].sort();
+
+      for (const name of disciplines) {
+        select.add(new Option(name, name));
+      }
+
+      if (disciplines.includes(previous)) {
+        select.value = previous;
+      }
+
+      renderCourses();
+
+      const age =
+        Date.now() - Date.parse(data.collecte_a);
+
+      const old = age > FRESHNESS_MS;
+
+      status.textContent =
+        courses.length +
+        " course(s) françaises vérifiées. " +
+        "Collecte : " +
+        formatParis(data.collecte_a) +
+        (old ? " — Données anciennes." : " — Collecte récente.") +
+        " Statut : " + data.statut + ".";
+
+      if (!old && data.statut === "OK") {
+        status.className = "notice success";
+      }
+
+      $("dCourses").textContent =
+        courses.length +
+        " course(s) dans la publication.";
+
+    } catch (error) {
+
+      courses = [];
+      renderCourses();
+
+      status.className = "notice error";
+      status.textContent =
+        "Données PMU indisponibles : " +
+        error.message;
+
+      $("dCourses").textContent =
+        "Collecte indisponible.";
+    }
+  }
+
+  async function loadAnalyses() {
+
+    const status = $("analysisStatus");
+    const container = $("analysisCards");
+
+    try {
+
+      const data = await fetchJSON(ANALYSES_URL);
+
+      const analyses = Array.isArray(data)
+        ? data
+        : Array.isArray(data.analyses)
+          ? data.analyses
+          : null;
+
+      if (!analyses) {
+        throw new Error(
+          "Format des analyses non reconnu."
+        );
+      }
+
+      status.textContent =
+        analyses.length +
+        " analyse(s) publiée(s).";
+
+      $("dAnalyses").textContent =
+        analyses.length + " entrée(s).";
+
+      container.replaceChildren();
+
+      for (const analyse of analyses.slice(0, 30)) {
+
+        if (
+          !analyse ||
+          typeof analyse !== "object"
+        ) {
+          continue;
+        }
+
+        const card = element("article", "");
+        card.className = "card";
+
+        card.append(
+          element(
+            "h3",
+            str(analyse.course_id) ||
+            str(analyse.id) ||
+            "Analyse publiée"
+          )
+        );
+
+        card.append(
+          element(
+            "p",
+            "Statut : " +
+            (str(analyse.statut) ||
+             str(analyse.status) ||
+             "Non renseigné")
+          )
+        );
+
+        container.append(card);
+      }
+
+    } catch (error) {
+
+      status.className = "notice error";
+
+      status.textContent =
+        "Analyses non affichables : " +
+        error.message;
+
+      $("dAnalyses").textContent =
+        "Non vérifiées.";
+    }
+  }
+
+  function loadArchives() {
+
+    $("archivesStatus").textContent =
+      "Aucun index public d'archives officielles " +
+      "n'est encore configuré pour cette interface.";
+
+    $("dArchives").textContent =
+      "Connexion des archives à finaliser.";
+  }
+
+  $("reload").addEventListener(
+    "click",
+    loadCourses
+  );
+
+  $("search").addEventListener(
+    "input",
+    renderCourses
+  );
+
+  $("discipline").addEventListener(
     "change",
     renderCourses
   );
 
-  // Recherche dans les 16 principes fondateurs
-  const principleSearch = $("search");
-
-  const principles = Array.from(
-    document.querySelectorAll(
-      "#principlesList .principle"
-    )
-  );
-
-  const principleCount = $("searchCount");
-  const noResults = $("noResults");
-  const clearSearch = $("clearSearch");
-
-  const indexedPrinciples = principles.map(article => ({
-    element: article,
-    content: normalize(article.textContent)
-  }));
-
-  function filterPrinciples() {
-    const terms = normalize(principleSearch.value)
-      .split(/\s+/)
-      .filter(Boolean);
-
-    let visible = 0;
-
-    for (const item of indexedPrinciples) {
-      const match = terms.every(
-        term => item.content.includes(term)
-      );
-
-      item.element.hidden = !match;
-
-      if (match) {
-        visible++;
-      }
-    }
-
-    principleCount.textContent =
-      visible + " principe(s) affiché(s) sur " +
-      principles.length;
-
-    noResults.hidden = visible !== 0;
-
-    clearSearch.disabled =
-      principleSearch.value.length === 0;
-  }
-
-  principleSearch.addEventListener(
-    "input",
-    filterPrinciples
-  );
-
-  clearSearch.addEventListener("click", () => {
-    principleSearch.value = "";
-    filterPrinciples();
-    principleSearch.focus();
-  });
-
-  // Navigation et retour en haut
-  const topBtn = $("topBtn");
-  const header = document.querySelector("header");
-
-  function updateHeaderHeight() {
-    if (!header) {
-      return;
-    }
-
-    const height =
-      Math.ceil(header.getBoundingClientRect().height) + 12;
-
-    document.documentElement.style.setProperty(
-      "--header-height",
-      height + "px"
-    );
-  }
-
-  function updateTopButton() {
-    topBtn.hidden = window.scrollY < 350;
-  }
-
-  topBtn.addEventListener("click", () => {
-    const reducedMotion = window.matchMedia(
-      "(prefers-reduced-motion: reduce)"
-    ).matches;
-
-    window.scrollTo({
-      top: 0,
-      behavior: reducedMotion ? "auto" : "smooth"
-    });
-  });
-
-  window.addEventListener(
-    "scroll",
-    updateTopButton,
-    { passive: true }
-  );
-
-  window.addEventListener(
-    "resize",
-    updateHeaderHeight,
-    { passive: true }
-  );
-
-  if (header && "ResizeObserver" in window) {
-    const observer = new ResizeObserver(
-      updateHeaderHeight
-    );
-    observer.observe(header);
-  }
-
   $("year").textContent =
-    String(new Date().getFullYear());
+    new Date().getFullYear();
 
-  updateHeaderHeight();
-  filterPrinciples();
-  updateTopButton();
-  renderCourses();
-  loadPMU();
+  loadCourses();
+  loadAnalyses();
+  loadArchives();
 
 })();
 </script>
