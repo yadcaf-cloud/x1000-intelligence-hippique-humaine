@@ -1,0 +1,129 @@
+name: "X1000 - Validation PMU securisee"
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - "feature/activation-pmu-analyses-archives"
+    paths:
+      - "pmu_engine.py"
+      - ".github/workflows/validation-pmu-securisee.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-validation-pmu-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validation-pmu:
+    name: "Tests PMU sans publication"
+
+    if: >-
+      github.ref ==
+      'refs/heads/feature/activation-pmu-analyses-archives'
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      TZ: Europe/Paris
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONNOUSERSITE: "1"
+
+    steps:
+      - name: "Recuperer la branche securisee"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: "Installer Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: "Verifier les fichiers requis"
+        run: |
+          set -euo pipefail
+
+          test -f pmu_engine.py
+
+          echo "Collecteur PMU present."
+
+      - name: "Verifier la syntaxe Python"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          source = Path("pmu_engine.py")
+          ast.parse(
+              source.read_text(encoding="utf-8"),
+              filename=str(source)
+          )
+          print("Syntaxe Python valide.")
+          PY
+
+      - name: "Executer les autotests"
+        run: |
+          set -euo pipefail
+
+          python pmu_engine.py --self-test
+
+      - name: "Tester la collecte en isolation"
+        run: |
+          set -euo pipefail
+
+          TEMP_DIR="$(mktemp -d)"
+          trap 'rm -rf "$TEMP_DIR"' EXIT
+
+          cp pmu_engine.py "$TEMP_DIR/"
+
+          (
+            cd "$TEMP_DIR"
+            python pmu_engine.py --dry-run
+          )
+
+          echo "Test de collecte termine."
+
+      - name: "Verifier integrite du depot"
+        if: always()
+        run: |
+          set -euo pipefail
+
+          echo "Verification des modifications."
+
+          git diff --exit-code
+          git diff --cached --exit-code
+
+          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "ERREUR : fichiers non suivis detectes."
+            git ls-files --others --exclude-standard
+            exit 1
+          fi
+
+          echo "Aucune modification detectee."
+
+      - name: "Bilan de validation"
+        if: success()
+        run: |
+          echo "================================"
+          echo "X1000 - VALIDATION PMU SECURISEE"
+          echo "================================"
+          echo "Syntaxe Python : OK"
+          echo "Autotests : OK"
+          echo "Collecte dry-run : OK"
+          echo "Integrite du depot : OK"
+          echo "Publication : DESACTIVEE"
+          echo "Creation de FIGE : AUCUNE"
+          echo "Resultats inventes : AUCUN"
+          echo "================================"
