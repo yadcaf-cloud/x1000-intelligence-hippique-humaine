@@ -1,4 +1,4 @@
-name: "X1000 - Validation PMU et protection des archives V1.6"
+name: "X1000 - Validation PMU et protection des archives V1.7"
 
 on:
   workflow_dispatch:
@@ -32,7 +32,7 @@ concurrency:
 
 jobs:
   validation:
-    name: "Validation et archives historiques"
+    name: "Validation et protection historique"
 
     if: >-
       (github.event_name == 'workflow_dispatch' &&
@@ -59,13 +59,13 @@ jobs:
 
     steps:
       - name: "Recuperer le depot"
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: "Installer Python 3.12"
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -146,9 +146,7 @@ jobs:
                       f"Publication manquante : {name}"
                   )
 
-              with path.open(
-                  encoding="utf-8-sig"
-              ) as f:
+              with path.open(encoding="utf-8-sig") as f:
                   data = json.load(
                       f,
                       object_pairs_hook=unique_keys,
@@ -160,19 +158,17 @@ jobs:
                       f"Objet JSON attendu : {name}"
                   )
 
-              print("Publication JSON valide :", name)
+              print("JSON valide :", name)
           PY
 
       - name: "Verifier les analyses sans publication"
         run: |
           set -euo pipefail
-
           python analyse_hippique.py --dry-run
 
       - name: "Verifier les archives existantes"
         run: |
           set -euo pipefail
-
           python resultats_archives.py --verify-archives
 
       - name: "Proteger les archives historiques"
@@ -180,31 +176,40 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
 
         run: |
           set -euo pipefail
 
           echo "Protection des archives historiques"
 
-          # Checkout complet, sans modification du depot.
-          # Aucune nouvelle authentification necessaire.
-
           if [ "$EVENT_NAME" = "pull_request" ]; then
             BASE_SHA="$PR_BASE_SHA"
             HEAD_SHA="$PR_HEAD_SHA"
           else
-            BASE_SHA="$(
-              git rev-parse refs/remotes/origin/main
-            )"
-            HEAD_SHA="$(
-              git rev-parse HEAD
-            )"
+            BASE_SHA="$(git rev-parse refs/remotes/origin/main)"
+            HEAD_SHA="$(git rev-parse HEAD)"
           fi
 
           export BASE_SHA HEAD_SHA
 
           git cat-file -e "${BASE_SHA}^{commit}"
           git cat-file -e "${HEAD_SHA}^{commit}"
+
+          # Controle supplementaire du commit precedent
+          # pour les push sur la branche de travail.
+          PREVIOUS_SHA=""
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            if [[ "$PUSH_BEFORE_SHA" =~ ^[0-9a-f]{40}$ ]] &&
+               [[ ! "$PUSH_BEFORE_SHA" =~ ^0+$ ]]; then
+              git cat-file -e \
+                "${PUSH_BEFORE_SHA}^{commit}"
+              PREVIOUS_SHA="$PUSH_BEFORE_SHA"
+            fi
+          fi
+
+          export PREVIOUS_SHA
 
           python - <<'PY'
           import hashlib
@@ -221,12 +226,8 @@ jobs:
 
           def tracked(ref):
               raw = git(
-                  "ls-tree",
-                  "-r",
-                  "-z",
-                  ref,
-                  "--",
-                  PREFIX,
+                  "ls-tree", "-r", "-z",
+                  ref, "--", PREFIX
               )
 
               result = {}
@@ -249,9 +250,7 @@ jobs:
                   )
 
                   result[filename] = (
-                      mode,
-                      kind,
-                      sha,
+                      mode, kind, sha
                   )
 
               return result
@@ -263,7 +262,6 @@ jobs:
                   .replace("\r", "%0D")
                   .replace("\n", "%0A")
               )
-
               print(f"::error::{safe}")
 
           def unique_keys(pairs):
@@ -274,7 +272,6 @@ jobs:
                       raise ValueError(
                           "Cle JSON dupliquee"
                       )
-
                   result[key] = value
 
               return result
@@ -284,17 +281,12 @@ jobs:
                   "Constante JSON interdite"
               )
 
-          base = tracked(
-              os.environ["BASE_SHA"]
-          )
-
-          head = tracked(
-              os.environ["HEAD_SHA"]
-          )
+          base = tracked(os.environ["BASE_SHA"])
+          head = tracked(os.environ["HEAD_SHA"])
 
           problems = []
 
-          # Interdire modification ou suppression.
+          # Archives de main : immuables.
           for path, metadata in base.items():
               if head.get(path) != metadata:
                   problems.append(
@@ -302,21 +294,34 @@ jobs:
                       f"ou supprimee : {path}"
                   )
 
-          # Interdire liens symboliques et types invalides.
+          # Protection du commit precedent.
+          previous_sha = os.environ.get(
+              "PREVIOUS_SHA", ""
+          )
+
+          if previous_sha:
+              previous = tracked(previous_sha)
+
+              for path, metadata in previous.items():
+                  if head.get(path) != metadata:
+                      problems.append(
+                          "Archive precedente modifiee "
+                          f"ou supprimee : {path}"
+                      )
+
+          # Controle des types.
           for path, metadata in head.items():
               mode, kind, sha = metadata
 
               if mode != "100644" or kind != "blob":
                   problems.append(
-                      "Type non autorise : "
-                      + path
+                      "Type non autorise : " + path
                   )
 
-          added = sorted(
-              set(head) - set(base)
-          )
+          # Toutes les archives absentes de main
+          # sont verifiees, sans les modifier.
+          added = sorted(set(head) - set(base))
 
-          # Verifier toutes les nouvelles archives.
           for path in added:
               mode, kind, sha = head[path]
 
@@ -357,14 +362,9 @@ jobs:
                   ).hexdigest()
 
                   print(
-                      "Nouvelle archive valide :",
-                      path,
+                      "Archive valide :", path
                   )
-
-                  print(
-                      "SHA256 :",
-                      digest,
-                  )
+                  print("SHA256 :", digest)
 
               except (
                   ValueError,
@@ -386,42 +386,37 @@ jobs:
 
           print(
               "Archives historiques preservees :",
-              len(base),
+              len(base)
           )
-
           print(
-              "Nouvelles archives controlees :",
-              len(added),
+              "Archives supplementaires verifiees :",
+              len(added)
           )
-
-          print(
-              "Protection des archives : OK"
-          )
+          print("Protection des archives : OK")
           PY
 
       - name: "Verifier aucune modification locale"
         run: |
           set -euo pipefail
 
-          git diff --exit-code
+          git diff --exit-code HEAD --
           git diff --cached --exit-code
 
           if [ -n "$(
             git ls-files --others --exclude-standard
           )" ]; then
-
             echo "::error::Fichiers non suivis detectes"
-
             git ls-files --others --exclude-standard
-
             exit 1
           fi
+
+          echo "Depot de travail intact : OK"
 
       - name: "Rapport officiel"
         if: success()
         run: |
           {
-            echo "## X1000 - Validation V1.6"
+            echo "## X1000 - Validation V1.7"
             echo ""
             echo "- Syntaxe Python : OK"
             echo "- Autotests : OK"
