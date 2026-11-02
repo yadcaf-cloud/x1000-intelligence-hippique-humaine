@@ -1,11 +1,11 @@
-name: "X1000 - Validation PMU et protection des archives V1.7"
+name: "X1000 - Validation PMU et archives V1.9"
 
 on:
   workflow_dispatch:
 
   push:
     branches:
-      - feature/activation-pmu-analyses-archives
+      - "feature/activation-pmu-analyses-archives"
     paths:
       - "pmu_engine.py"
       - "analyse_hippique.py"
@@ -45,7 +45,7 @@ jobs:
        github.base_ref == 'main')
 
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     defaults:
       run:
@@ -58,18 +58,50 @@ jobs:
       PYTHONNOUSERSITE: "1"
 
     steps:
-      - name: "Recuperer le depot"
-        uses: actions/checkout@v5
+      - name: "Recuperer le code et historique complet"
+        id: checkout
+        uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: "Installer Python 3.12"
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: "Verifier la syntaxe Python"
+      - name: "Determiner les references de controle"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin \
+            +refs/heads/main:refs/remotes/origin/main
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE_SHA="$PR_BASE_SHA"
+            HEAD_SHA="$PR_HEAD_SHA"
+          else
+            BASE_SHA="$(git rev-parse refs/remotes/origin/main)"
+            HEAD_SHA="$(git rev-parse HEAD)"
+          fi
+
+          git cat-file -e "${BASE_SHA}^{commit}"
+          git cat-file -e "${HEAD_SHA}^{commit}"
+
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+
+          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
+          echo "HEAD_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
+
+          echo "Base : $BASE_SHA"
+          echo "Branche : $HEAD_SHA"
+
+      - name: "Verifier syntaxe des trois scripts"
         run: |
           set -euo pipefail
 
@@ -86,9 +118,9 @@ jobs:
           for name in scripts:
               path = Path(name)
 
-              if not path.is_file():
+              if not path.is_file() or not path.stat().st_size:
                   raise SystemExit(
-                      f"Script manquant : {name}"
+                      f"Script absent ou vide : {name}"
                   )
 
               ast.parse(
@@ -143,73 +175,38 @@ jobs:
 
               if not path.is_file():
                   raise SystemExit(
-                      f"Publication manquante : {name}"
+                      f"Publication absente : {name}"
                   )
 
-              with path.open(encoding="utf-8-sig") as f:
-                  data = json.load(
-                      f,
-                      object_pairs_hook=unique_keys,
-                      parse_constant=reject_constant,
-                  )
+              payload = json.loads(
+                  path.read_text(encoding="utf-8-sig"),
+                  object_pairs_hook=unique_keys,
+                  parse_constant=reject_constant,
+              )
 
-              if not isinstance(data, dict):
+              if not isinstance(payload, dict):
                   raise SystemExit(
                       f"Objet JSON attendu : {name}"
                   )
 
-              print("JSON valide :", name)
+              print("Publication JSON valide :", name)
           PY
 
-      - name: "Verifier les analyses sans publication"
+      - name: "Verifier analyses sans publication"
         run: |
           set -euo pipefail
+
           python analyse_hippique.py --dry-run
 
-      - name: "Verifier les archives existantes"
+      - name: "Verifier archives existantes"
         run: |
           set -euo pipefail
+
           python resultats_archives.py --verify-archives
 
-      - name: "Proteger les archives historiques"
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PUSH_BEFORE_SHA: ${{ github.event.before }}
-
+      - name: "Proteger toutes les archives historiques"
         run: |
           set -euo pipefail
-
-          echo "Protection des archives historiques"
-
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            BASE_SHA="$PR_BASE_SHA"
-            HEAD_SHA="$PR_HEAD_SHA"
-          else
-            BASE_SHA="$(git rev-parse refs/remotes/origin/main)"
-            HEAD_SHA="$(git rev-parse HEAD)"
-          fi
-
-          export BASE_SHA HEAD_SHA
-
-          git cat-file -e "${BASE_SHA}^{commit}"
-          git cat-file -e "${HEAD_SHA}^{commit}"
-
-          # Controle supplementaire du commit precedent
-          # pour les push sur la branche de travail.
-          PREVIOUS_SHA=""
-
-          if [ "$EVENT_NAME" = "push" ]; then
-            if [[ "$PUSH_BEFORE_SHA" =~ ^[0-9a-f]{40}$ ]] &&
-               [[ ! "$PUSH_BEFORE_SHA" =~ ^0+$ ]]; then
-              git cat-file -e \
-                "${PUSH_BEFORE_SHA}^{commit}"
-              PREVIOUS_SHA="$PUSH_BEFORE_SHA"
-            fi
-          fi
-
-          export PREVIOUS_SHA
 
           python - <<'PY'
           import hashlib
@@ -236,33 +233,33 @@ jobs:
                   if not entry:
                       continue
 
-                  metadata, path = entry.split(
-                      b"\t", 1
-                  )
+                  metadata, path = entry.split(b"\t", 1)
 
                   mode, kind, sha = (
                       metadata.decode("ascii").split()
                   )
 
-                  filename = path.decode(
+                  name = path.decode(
                       "utf-8",
-                      errors="surrogateescape"
+                      errors="surrogateescape",
                   )
 
-                  result[filename] = (
-                      mode, kind, sha
-                  )
+                  if mode != "100644" or kind != "blob":
+                      raise SystemExit(
+                          f"Archive non reguliere : {name}"
+                      )
+
+                  result[name] = sha
 
               return result
 
-          def error(message):
-              safe = (
-                  message
-                  .replace("%", "%25")
-                  .replace("\r", "%0D")
-                  .replace("\n", "%0A")
-              )
-              print(f"::error::{safe}")
+          def preserve(before, after, label):
+              for name, sha in before.items():
+                  if after.get(name) != sha:
+                      raise SystemExit(
+                          f"{label} : archive modifiee "
+                          f"ou supprimee : {name}"
+                      )
 
           def unique_keys(pairs):
               result = {}
@@ -270,7 +267,7 @@ jobs:
               for key, value in pairs:
                   if key in result:
                       raise ValueError(
-                          "Cle JSON dupliquee"
+                          f"Cle JSON dupliquee : {key}"
                       )
                   result[key] = value
 
@@ -278,124 +275,121 @@ jobs:
 
           def reject_constant(value):
               raise ValueError(
-                  "Constante JSON interdite"
+                  f"Constante JSON interdite : {value}"
               )
 
-          base = tracked(os.environ["BASE_SHA"])
-          head = tracked(os.environ["HEAD_SHA"])
-
-          problems = []
-
-          # Archives de main : immuables.
-          for path, metadata in base.items():
-              if head.get(path) != metadata:
-                  problems.append(
-                      "Archive historique modifiee "
-                      f"ou supprimee : {path}"
+          def verify_archive(name, sha):
+              if not name.lower().endswith(".json"):
+                  raise SystemExit(
+                      f"Extension interdite : {name}"
                   )
 
-          # Protection du commit precedent.
-          previous_sha = os.environ.get(
-              "PREVIOUS_SHA", ""
-          )
+              raw = git("cat-file", "blob", sha)
 
-          if previous_sha:
-              previous = tracked(previous_sha)
-
-              for path, metadata in previous.items():
-                  if head.get(path) != metadata:
-                      problems.append(
-                          "Archive precedente modifiee "
-                          f"ou supprimee : {path}"
-                      )
-
-          # Controle des types.
-          for path, metadata in head.items():
-              mode, kind, sha = metadata
-
-              if mode != "100644" or kind != "blob":
-                  problems.append(
-                      "Type non autorise : " + path
+              if len(raw) > 2_000_000:
+                  raise SystemExit(
+                      f"Archive trop volumineuse : {name}"
                   )
 
-          # Toutes les archives absentes de main
-          # sont verifiees, sans les modifier.
-          added = sorted(set(head) - set(base))
+              payload = json.loads(
+                  raw.decode("utf-8-sig"),
+                  object_pairs_hook=unique_keys,
+                  parse_constant=reject_constant,
+              )
 
-          for path in added:
-              mode, kind, sha = head[path]
-
-              if mode != "100644" or kind != "blob":
-                  continue
-
-              if not path.lower().endswith(".json"):
-                  problems.append(
-                      "Extension non autorisee : "
-                      + path
-                  )
-                  continue
-
-              try:
-                  raw = git(
-                      "show",
-                      f"{os.environ['HEAD_SHA']}:{path}"
+              if not isinstance(payload, dict):
+                  raise SystemExit(
+                      f"Archive JSON invalide : {name}"
                   )
 
-                  if len(raw) > 2_000_000:
-                      raise ValueError(
-                          "Archive trop volumineuse"
-                      )
+              print(
+                  "Archive controlee :", name,
+                  hashlib.sha256(raw).hexdigest(),
+              )
 
-                  data = json.loads(
-                      raw.decode("utf-8-sig"),
-                      object_pairs_hook=unique_keys,
-                      parse_constant=reject_constant,
-                  )
+          base = os.environ["BASE_SHA"]
+          head = os.environ["HEAD_SHA"]
 
-                  if not isinstance(data, dict):
-                      raise ValueError(
-                          "Objet JSON attendu"
-                      )
+          merge_base = git(
+              "merge-base", base, head
+          ).decode().strip()
 
-                  digest = hashlib.sha256(
-                      raw
-                  ).hexdigest()
-
-                  print(
-                      "Archive valide :", path
-                  )
-                  print("SHA256 :", digest)
-
-              except (
-                  ValueError,
-                  UnicodeError,
-                  subprocess.CalledProcessError,
-              ) as exc:
-                  problems.append(
-                      f"Archive invalide : {path} "
-                      f"({exc})"
-                  )
-
-          if problems:
-              for message in problems:
-                  error(message)
-
+          if not merge_base:
               raise SystemExit(
-                  "Protection des archives : ECHEC"
+                  "Ancetre commun introuvable"
               )
 
-          print(
-              "Archives historiques preservees :",
-              len(base)
+          # Toute archive de main doit etre conservee.
+          preserve(
+              tracked(base),
+              tracked(head),
+              "Protection main",
           )
-          print(
-              "Archives supplementaires verifiees :",
-              len(added)
+
+          # Les archives existantes a la divergence
+          # doivent etre conservees dans la branche.
+          preserve(
+              tracked(merge_base),
+              tracked(head),
+              "Protection origine",
           )
-          print("Protection des archives : OK")
+
+          commits = git(
+              "rev-list",
+              "--reverse",
+              "--topo-order",
+              f"{merge_base}..{head}",
+          ).decode().splitlines()
+
+          verified = set()
+
+          # Controle de chaque commit et de ses parents.
+          for commit in commits:
+              current = tracked(commit)
+
+              parents = git(
+                  "rev-list",
+                  "--parents",
+                  "-n", "1",
+                  commit,
+              ).decode().strip().split()[1:]
+
+              for parent in parents:
+                  previous = tracked(parent)
+
+                  preserve(
+                      previous,
+                      current,
+                      f"Commit {commit[:12]}",
+                  )
+
+                  for name, sha in current.items():
+                      if name not in previous:
+                          key = (name, sha)
+
+                          if key not in verified:
+                              verify_archive(name, sha)
+                              verified.add(key)
+
+          # Controle final de toutes les archives
+          # presentes dans la branche.
+          final = tracked(head)
+
+          for name, sha in final.items():
+              if not name.lower().endswith(".json"):
+                  raise SystemExit(
+                      f"Extension interdite : {name}"
+                  )
+
+          print("Commits controles :", len(commits))
+          print("Archives main :", len(tracked(base)))
+          print("Archives branche :", len(final))
+          print("Nouvelles archives controlees :", len(verified))
+          print("Protection historique : OK")
           PY
 
       - name: "Verifier aucune modification locale"
+        if: always() && steps.checkout.outcome == 'success'
         run: |
           set -euo pipefail
 
@@ -412,25 +406,27 @@ jobs:
 
           echo "Depot de travail intact : OK"
 
-      - name: "Rapport officiel"
+      - name: "Rapport de validation"
         if: success()
         run: |
           {
-            echo "## X1000 - Validation V1.7"
+            echo "## X1000 - Validation PMU V1.9"
             echo ""
             echo "- Syntaxe Python : OK"
             echo "- Autotests : OK"
             echo "- Publications JSON : OK"
             echo "- Analyse dry-run : OK"
-            echo "- Verification archives : OK"
-            echo "- Protection historique : OK"
-            echo "- Modifications locales : AUCUNE"
-            echo "- Fusion automatique : AUCUNE"
-            echo "- Publication automatique : AUCUNE"
+            echo "- Archives existantes : OK"
+            echo "- Archives de main preservees : OK"
+            echo "- Historique branche controle : OK"
+            echo "- Integrite Git : OK"
+            echo "- Fusion automatique : aucune"
+            echo "- Publication automatique : aucune"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: "Signaler un echec"
         if: failure()
         run: |
-          echo "::error::Validation X1000 echouee"
+          echo "::error::Validation X1000 V1.9 echouee"
+          echo "Consulter les journaux GitHub Actions."
           echo "Ne pas fusionner vers main."
