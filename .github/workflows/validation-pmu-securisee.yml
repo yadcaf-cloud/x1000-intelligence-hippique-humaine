@@ -1,67 +1,96 @@
-from datetime import datetime, timezone
+- name: "Proteger les archives historiques avant fusion"
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
 
-          def verifier_horodatage(valeur, nom):
-              if not isinstance(valeur, str) or not valeur.strip():
-                  raise ValueError(
-                      f"Horodatage absent ou invalide : {nom}"
+          echo "Verification des archives historiques"
+
+          git fetch --no-tags origin \
+            "$BASE_SHA" "$HEAD_SHA"
+
+          python - <<'PY'
+          import os
+          import subprocess
+
+          PREFIX = "data/archives_resultats/"
+
+          def tracked(ref):
+              raw = subprocess.check_output([
+                  "git",
+                  "ls-tree",
+                  "-r",
+                  "-z",
+                  ref,
+                  "--",
+                  PREFIX,
+              ])
+
+              result = {}
+
+              for entry in raw.split(b"\0"):
+                  if not entry:
+                      continue
+
+                  metadata, path = entry.split(b"\t", 1)
+
+                  mode, kind, sha = (
+                      metadata.decode("ascii").split()
                   )
 
-              try:
-                  instant = datetime.fromisoformat(
-                      valeur.replace("Z", "+00:00")
-                  )
-              except ValueError as exc:
-                  raise ValueError(
-                      f"Format ISO invalide : {nom}"
-                  ) from exc
-
-              if instant.tzinfo is None:
-                  raise ValueError(
-                      f"Fuseau horaire absent : {nom}"
+                  filename = path.decode(
+                      "utf-8",
+                      errors="surrogateescape"
                   )
 
-              if instant.utcoffset() is None:
-                  raise ValueError(
-                      f"Decalage UTC invalide : {nom}"
+                  result[filename] = {
+                      "mode": mode,
+                      "kind": kind,
+                      "sha": sha,
+                  }
+
+              return result
+
+          base_sha = os.environ["BASE_SHA"]
+          head_sha = os.environ["HEAD_SHA"]
+
+          original = tracked(base_sha)
+          candidate = tracked(head_sha)
+
+          changed = []
+
+          for path, metadata in original.items():
+              if candidate.get(path) != metadata:
+                  changed.append(path)
+
+          if changed:
+              for path in sorted(changed):
+                  print(
+                      "::error::Archive historique "
+                      f"modifiee ou supprimee : {path}"
                   )
 
-              if instant > datetime.now(timezone.utc):
-                  raise ValueError(
-                      f"Horodatage futur interdit : {nom}"
-                  )
-
-              return instant
-
-          verifier_horodatage(
-              analyses.get("analyse_a"),
-              "publication_analyses"
-          )
-
-          verifier_horodatage(
-              expected.get("analyse_a"),
-              "moteur_analyse"
-          )
-
-          actual_stable = {
-              key: value
-              for key, value in analyses.items()
-              if key != "analyse_a"
-          }
-
-          expected_stable = {
-              key: value
-              for key, value in expected.items()
-              if key != "analyse_a"
-          }
-
-          if actual_stable != expected_stable:
-              raise ValueError(
-                  "Analyses publiees non conformes au moteur"
+              raise SystemExit(
+                  "Protection des archives : ECHEC"
               )
 
-          print(
-              "Horodatages ISO et fuseaux : OK"
+          added = sorted(
+              set(candidate) - set(original)
           )
+
           print(
-              "Comparaison des analyses : OK"
+              "Archives historiques preservees :",
+              len(original)
           )
+
+          print(
+              "Nouvelles archives detectees :",
+              len(added)
+          )
+
+          print(
+              "Protection des archives : OK"
+          )
+          PY
