@@ -1,99 +1,185 @@
-name: "X1000 - Connexion PMU reelle"
+name: "X1000 - Collecte PMU reelle securisee"
 
 on:
   workflow_dispatch:
 
+  push:
+    branches:
+      - "feature/activation-pmu-analyses-archives"
+    paths:
+      - "pmu_engine.py"
+      - ".github/workflows/collecte-pmu-reelle.yml"
+
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: x1000-pmu-reel-${{ github.ref }}
+  group: x1000-collecte-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   collecte-pmu:
-    name: "Collecte et publication PMU"
+    name: "Controle PMU reel sans publication"
+
     if: github.ref == 'refs/heads/feature/activation-pmu-analyses-archives'
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
+
+    defaults:
+      run:
+        shell: bash
 
     env:
       TZ: Europe/Paris
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONUNBUFFERED: "1"
+      PYTHONNOUSERSITE: "1"
 
     steps:
       - name: "Recuperer la branche securisee"
         uses: actions/checkout@v4
         with:
-          ref: feature/activation-pmu-analyses-archives
-          persist-credentials: true
+          persist-credentials: false
 
       - name: "Installer Python 3.12"
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: "Collecter les donnees reelles PMU"
+      - name: "Verifier la branche et le collecteur"
+        run: |
+          set -euo pipefail
+
+          test "$GITHUB_REF" = \
+            "refs/heads/feature/activation-pmu-analyses-archives"
+
+          test -s pmu_engine.py
+
+          echo "Branche securisee confirmee."
+          echo "Collecteur PMU present."
+          python --version
+
+      - name: "Verifier la syntaxe Python"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          path = Path("pmu_engine.py")
+
+          ast.parse(
+              path.read_text(encoding="utf-8"),
+              filename=str(path)
+          )
+
+          print("Syntaxe PMU valide.")
+          PY
+
+      - name: "Executer les autotests"
+        run: |
+          set -euo pipefail
+
+          python pmu_engine.py --self-test
+
+          echo "Autotests PMU termines."
+
+      - name: "Preparer une copie isolee"
+        run: |
+          set -euo pipefail
+
+          TEST_DIR="$RUNNER_TEMP/x1000-collecte-pmu"
+
+          mkdir -p "$TEST_DIR"
+
+          cp pmu_engine.py "$TEST_DIR/pmu_engine.py"
+
+          test -s "$TEST_DIR/pmu_engine.py"
+
+          echo "Copie temporaire preparee."
+
+      - name: "Tester la collecte PMU reelle"
         id: collecte
         run: |
           set -euo pipefail
-          python pmu_engine.py
 
-      - name: "Publier les donnees reelles"
-        if: steps.collecte.outcome == 'success'
+          TEST_DIR="$RUNNER_TEMP/x1000-collecte-pmu"
+
+          cd "$TEST_DIR"
+
+          echo "=================================="
+          echo "X1000 - COLLECTE PMU REELLE"
+          echo "=================================="
+
+          echo "Mode DRY-RUN."
+          echo "Aucune publication autorisee."
+
+          python pmu_engine.py --dry-run
+
+          echo "Collecte PMU validee sans ecriture."
+
+      - name: "Verifier la copie temporaire"
+        if: always()
         run: |
           set -euo pipefail
 
-          test -s data/publication_courses.json
+          TEST_DIR="$RUNNER_TEMP/x1000-collecte-pmu"
 
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          path = Path("data/publication_courses.json")
-          data = json.loads(path.read_text(encoding="utf-8"))
-
-          assert data["statut"] == "OK"
-          assert len(data["courses"]) > 0
-
-          for course in data["courses"]:
-              assert course["localisation_france_verifiee"] is True
-              assert course["depart_verifie"] is True
-              assert course["discipline"]
-              assert course["nombre_partants"] > 0
-              assert course["partants"]
-
-          print(
-              "Courses PMU reelles admissibles :",
-              len(data["courses"])
-          )
-          PY
-
-          git config user.name "github-actions[bot]"
-          git config user.email \
-            "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add -- \
-            data/publication_courses.json \
-            data/diagnostic_collecte_pmu.json
-
-          if git diff --cached --quiet; then
-            echo "Aucune modification de donnees."
-            exit 0
+          if [ ! -d "$TEST_DIR" ]; then
+            echo "::error::Copie temporaire absente."
+            exit 1
           fi
 
-          git commit -m "data: publication PMU reelle"
+          if [ -d "$TEST_DIR/data" ]; then
+            echo "::error::Repertoire data cree pendant le test."
+            exit 1
+          fi
 
-          git push origin \
-            HEAD:feature/activation-pmu-analyses-archives
+          if [ -d "$TEST_DIR/__pycache__" ]; then
+            echo "::error::Cache Python detecte."
+            exit 1
+          fi
 
-      - name: "Rapport"
+          echo "Aucune ecriture de donnees detectee."
+
+      - name: "Verifier l'integrite du depot"
         if: always()
         run: |
-          echo "Collecte PMU terminee."
-          echo "Branche securisee uniquement."
-          echo "Aucun FIGE cree."
-          echo "Aucun pronostic invente."
-          echo "Aucun moteur M1-M5 execute."
+          set -euo pipefail
+
+          git diff --exit-code
+          git diff --cached --exit-code
+
+          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "::error::Fichiers non suivis detectes."
+            git ls-files --others --exclude-standard
+            exit 1
+          fi
+
+          echo "Integrite du depot confirmee."
+
+      - name: "Bilan de validation"
+        if: success()
+        run: |
+          echo "=================================="
+          echo "X1000 - VALIDATION PMU SECURISEE"
+          echo "=================================="
+          echo "Branche securisee : OK"
+          echo "Syntaxe Python : OK"
+          echo "Autotests : OK"
+          echo "Collecte PMU dry-run : OK"
+          echo "Integrite du depot : OK"
+          echo "Publication : DESACTIVEE"
+          echo "Pronostics fictifs : AUCUN"
+          echo "FIGE : AUCUN"
+          echo "Modification main : AUCUNE"
+          echo "=================================="
+
+      - name: "Signaler un echec"
+        if: failure()
+        run: |
+          echo "::error::Validation PMU non reussie."
+          echo "Consulter les etapes precedentes."
+          echo "Aucune publication effectuee."
