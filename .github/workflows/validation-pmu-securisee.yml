@@ -1,7 +1,17 @@
-name: "X1000 - Validation PMU et protection des archives V1.4"
+name: "X1000 - Validation PMU et protection des archives V1.6"
 
 on:
   workflow_dispatch:
+
+  push:
+    branches:
+      - feature/activation-pmu-analyses-archives
+    paths:
+      - "pmu_engine.py"
+      - "analyse_hippique.py"
+      - "resultats_archives.py"
+      - "data/**"
+      - ".github/workflows/validation-pmu-securisee.yml"
 
   pull_request:
     branches:
@@ -26,8 +36,9 @@ jobs:
 
     if: >-
       (github.event_name == 'workflow_dispatch' &&
-       github.ref == 'refs/heads/feature/activation-pmu-analyses-archives')
-      ||
+       github.ref == 'refs/heads/feature/activation-pmu-analyses-archives') ||
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/feature/activation-pmu-analyses-archives') ||
       (github.event_name == 'pull_request' &&
        github.event.pull_request.head.repo.full_name == github.repository &&
        github.head_ref == 'feature/activation-pmu-analyses-archives' &&
@@ -66,11 +77,13 @@ jobs:
           import ast
           from pathlib import Path
 
-          for name in (
+          scripts = (
               "pmu_engine.py",
               "analyse_hippique.py",
               "resultats_archives.py",
-          ):
+          )
+
+          for name in scripts:
               path = Path(name)
 
               if not path.is_file():
@@ -102,11 +115,30 @@ jobs:
           import json
           from pathlib import Path
 
-          for name in (
+          def unique_keys(pairs):
+              result = {}
+
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(
+                          f"Cle JSON dupliquee : {key}"
+                      )
+                  result[key] = value
+
+              return result
+
+          def reject_constant(value):
+              raise ValueError(
+                  f"Constante JSON interdite : {value}"
+              )
+
+          files = (
               "data/publication_courses.json",
               "data/publication_analyses.json",
               "data/diagnostic_collecte_pmu.json",
-          ):
+          )
+
+          for name in files:
               path = Path(name)
 
               if not path.is_file():
@@ -114,8 +146,14 @@ jobs:
                       f"Publication manquante : {name}"
                   )
 
-              with path.open(encoding="utf-8") as f:
-                  data = json.load(f)
+              with path.open(
+                  encoding="utf-8-sig"
+              ) as f:
+                  data = json.load(
+                      f,
+                      object_pairs_hook=unique_keys,
+                      parse_constant=reject_constant,
+                  )
 
               if not isinstance(data, dict):
                   raise SystemExit(
@@ -137,26 +175,30 @@ jobs:
 
           python resultats_archives.py --verify-archives
 
-      - name: "Proteger les archives historiques avant fusion"
+      - name: "Proteger les archives historiques"
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
         run: |
           set -euo pipefail
 
-          echo "Verification des archives historiques"
+          echo "Protection des archives historiques"
 
-          git fetch --no-tags origin \
-            +refs/heads/main:refs/remotes/origin/main \
-            +refs/heads/feature/activation-pmu-analyses-archives:refs/remotes/origin/feature/activation-pmu-analyses-archives
+          # Checkout complet, sans modification du depot.
+          # Aucune nouvelle authentification necessaire.
 
           if [ "$EVENT_NAME" = "pull_request" ]; then
             BASE_SHA="$PR_BASE_SHA"
             HEAD_SHA="$PR_HEAD_SHA"
           else
-            BASE_SHA="$(git rev-parse refs/remotes/origin/main)"
-            HEAD_SHA="$(git rev-parse HEAD)"
+            BASE_SHA="$(
+              git rev-parse refs/remotes/origin/main
+            )"
+            HEAD_SHA="$(
+              git rev-parse HEAD
+            )"
           fi
 
           export BASE_SHA HEAD_SHA
@@ -179,8 +221,12 @@ jobs:
 
           def tracked(ref):
               raw = git(
-                  "ls-tree", "-r", "-z",
-                  ref, "--", PREFIX
+                  "ls-tree",
+                  "-r",
+                  "-z",
+                  ref,
+                  "--",
+                  PREFIX,
               )
 
               result = {}
@@ -203,7 +249,9 @@ jobs:
                   )
 
                   result[filename] = (
-                      mode, kind, sha
+                      mode,
+                      kind,
+                      sha,
                   )
 
               return result
@@ -215,7 +263,26 @@ jobs:
                   .replace("\r", "%0D")
                   .replace("\n", "%0A")
               )
+
               print(f"::error::{safe}")
+
+          def unique_keys(pairs):
+              result = {}
+
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(
+                          "Cle JSON dupliquee"
+                      )
+
+                  result[key] = value
+
+              return result
+
+          def reject_constant(value):
+              raise ValueError(
+                  "Constante JSON interdite"
+              )
 
           base = tracked(
               os.environ["BASE_SHA"]
@@ -225,39 +292,35 @@ jobs:
               os.environ["HEAD_SHA"]
           )
 
-          changed = sorted(
-              path
-              for path, metadata in base.items()
-              if head.get(path) != metadata
-          )
+          problems = []
 
-          invalid = sorted(
-              path
-              for path, metadata in head.items()
-              if metadata[0] != "100644"
-              or metadata[1] != "blob"
-          )
+          # Interdire modification ou suppression.
+          for path, metadata in base.items():
+              if head.get(path) != metadata:
+                  problems.append(
+                      "Archive historique modifiee "
+                      f"ou supprimee : {path}"
+                  )
+
+          # Interdire liens symboliques et types invalides.
+          for path, metadata in head.items():
+              mode, kind, sha = metadata
+
+              if mode != "100644" or kind != "blob":
+                  problems.append(
+                      "Type non autorise : "
+                      + path
+                  )
 
           added = sorted(
               set(head) - set(base)
           )
 
-          problems = []
-
-          for path in changed:
-              problems.append(
-                  "Archive historique modifiee "
-                  f"ou supprimee : {path}"
-              )
-
-          for path in invalid:
-              problems.append(
-                  "Type d'archive non autorise : "
-                  + path
-              )
-
+          # Verifier toutes les nouvelles archives.
           for path in added:
-              if path in invalid:
+              mode, kind, sha = head[path]
+
+              if mode != "100644" or kind != "blob":
                   continue
 
               if not path.lower().endswith(".json"):
@@ -278,21 +341,6 @@ jobs:
                           "Archive trop volumineuse"
                       )
 
-                  def unique_keys(pairs):
-                      result = {}
-                      for key, value in pairs:
-                          if key in result:
-                              raise ValueError(
-                                  "Cle JSON dupliquee"
-                              )
-                          result[key] = value
-                      return result
-
-                  def reject_constant(value):
-                      raise ValueError(
-                          "Constante JSON interdite"
-                      )
-
                   data = json.loads(
                       raw.decode("utf-8-sig"),
                       object_pairs_hook=unique_keys,
@@ -309,16 +357,19 @@ jobs:
                   ).hexdigest()
 
                   print(
-                      "Nouvelle archive :",
+                      "Nouvelle archive valide :",
                       path,
+                  )
+
+                  print(
                       "SHA256 :",
-                      digest
+                      digest,
                   )
 
               except (
                   ValueError,
                   UnicodeError,
-                  subprocess.CalledProcessError
+                  subprocess.CalledProcessError,
               ) as exc:
                   problems.append(
                       f"Archive invalide : {path} "
@@ -335,12 +386,12 @@ jobs:
 
           print(
               "Archives historiques preservees :",
-              len(base)
+              len(base),
           )
 
           print(
-              "Nouvelles archives JSON :",
-              len(added)
+              "Nouvelles archives controlees :",
+              len(added),
           )
 
           print(
@@ -348,16 +399,21 @@ jobs:
           )
           PY
 
-      - name: "Verifier l'absence de modification locale"
+      - name: "Verifier aucune modification locale"
         run: |
           set -euo pipefail
 
           git diff --exit-code
           git diff --cached --exit-code
 
-          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
-            echo "::error::Fichiers non suivis detectes"
+          if [ -n "$(
             git ls-files --others --exclude-standard
+          )" ]; then
+
+            echo "::error::Fichiers non suivis detectes"
+
+            git ls-files --others --exclude-standard
+
             exit 1
           fi
 
@@ -365,16 +421,17 @@ jobs:
         if: success()
         run: |
           {
-            echo "## X1000 - Validation V1.4"
+            echo "## X1000 - Validation V1.6"
             echo ""
-            echo "- Scripts Python : OK"
+            echo "- Syntaxe Python : OK"
             echo "- Autotests : OK"
             echo "- Publications JSON : OK"
             echo "- Analyse dry-run : OK"
-            echo "- Verification des archives : OK"
-            echo "- Protection historique Git : OK"
+            echo "- Verification archives : OK"
+            echo "- Protection historique : OK"
             echo "- Modifications locales : AUCUNE"
             echo "- Fusion automatique : AUCUNE"
+            echo "- Publication automatique : AUCUNE"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: "Signaler un echec"
