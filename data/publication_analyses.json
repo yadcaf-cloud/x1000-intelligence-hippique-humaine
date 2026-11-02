@@ -2,9 +2,9 @@
   "version": "X1000-ANALYSE-FACTUELLE-1.0",
   "date": "2026-11-02",
   "source": "data/publication_courses.json",
-  "source_sha256": "4774ca961c139927fdf7feb84ddb991dda2a7d22d416b9262e0393fc398f4513",
-  "collecte_a": "2026-11-02T03:50:25+01:00",
-  "analyse_a": "2026-11-02T02:50:25.924827+00:00",
+  "source_sha256": "90ed8eb2e509622bb9a1c23edef73d7b261ab2d1ca70451b4113cddd4b6b5e4a",
+  "collecte_a": "2026-11-02T04:18:17+01:00",
+  "analyse_a": "2026-11-02T03:18:17.258023+00:00",
   "statut": "DESCRIPTIF_SANS_PRONOSTIC",
   "courses": [
     {
