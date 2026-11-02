@@ -1,29 +1,32 @@
-name: "X1000 - Validation PMU securisee V1.3"
+name: "X1000 - Validation generale securisee"
 
 on:
   workflow_dispatch:
-
   push:
     branches:
       - "feature/activation-pmu-analyses-archives"
     paths:
       - "pmu_engine.py"
+      - "analyse_hippique.py"
+      - "resultats_archives.py"
+      - "data/publication_courses.json"
+      - "data/publication_analyses.json"
+      - "data/diagnostic_collecte_pmu.json"
+      - "data/archives_resultats/**"
       - ".github/workflows/validation-pmu-securisee.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: x1000-validation-pmu-${{ github.ref }}
+  group: x1000-validation-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  validation-pmu:
-    name: "Validation PMU - Tests sans publication"
-
+  validation:
+    name: "Validation complete sans publication"
     if: github.ref == 'refs/heads/feature/activation-pmu-analyses-archives'
-
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     defaults:
@@ -41,7 +44,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
-          fetch-depth: 1
 
       - name: "Installer Python 3.12"
         uses: actions/setup-python@v5
@@ -55,138 +57,247 @@ jobs:
           test "$GITHUB_REF" = \
             "refs/heads/feature/activation-pmu-analyses-archives"
 
-          test -f pmu_engine.py
+          test -s pmu_engine.py
+          test -s analyse_hippique.py
+          test -s resultats_archives.py
 
-          echo "Branche securisee confirmee."
-          echo "Moteur PMU present."
-          python --version
+          test -s data/publication_courses.json
+          test -s data/publication_analyses.json
+          test -s data/diagnostic_collecte_pmu.json
+
+          echo "Branche et fichiers requis : OK"
 
       - name: "Verifier la syntaxe Python"
         run: |
           set -euo pipefail
 
           python - <<'PY'
+          import ast
           from pathlib import Path
 
-          source = Path("pmu_engine.py").read_bytes()
-          compile(source, "pmu_engine.py", "exec")
+          scripts = (
+              "pmu_engine.py",
+              "analyse_hippique.py",
+              "resultats_archives.py",
+          )
 
-          print("Syntaxe Python valide.")
+          for name in scripts:
+              path = Path(name)
+
+              ast.parse(
+                  path.read_text(encoding="utf-8"),
+                  filename=name
+              )
+
+              print("Syntaxe OK :", name)
           PY
 
-      - name: "Executer les tests internes"
+      - name: "Executer les trois autotests"
         run: |
           set -euo pipefail
 
           python pmu_engine.py --self-test
+          python analyse_hippique.py --self-test
+          python resultats_archives.py --self-test
 
-          echo "Tests internes termines."
-
-      - name: "Preparer une copie temporaire"
+      - name: "Verifier les donnees et analyses"
         run: |
           set -euo pipefail
 
-          TEST_DIR="$RUNNER_TEMP/x1000-pmu-test"
+          python - <<'PY'
+          import json
+          import hashlib
+          from pathlib import Path
+          from datetime import datetime
 
-          mkdir -p "$TEST_DIR"
+          def load_json(path):
+              file = Path(path)
 
-          cp pmu_engine.py "$TEST_DIR/pmu_engine.py"
+              if not file.is_file() or file.stat().st_size == 0:
+                  raise ValueError(f"Fichier absent ou vide : {path}")
 
-          test -f "$TEST_DIR/pmu_engine.py"
+              return json.loads(file.read_text(encoding="utf-8"))
 
-          echo "Copie isolee preparee."
+          source = Path("data/publication_courses.json")
 
-      - name: "Tester la collecte PMU reelle"
+          courses = load_json(source)
+          analyses = load_json("data/publication_analyses.json")
+          diagnostic = load_json(
+              "data/diagnostic_collecte_pmu.json"
+          )
+
+          if not isinstance(courses, dict):
+              raise ValueError("Format courses invalide")
+
+          if courses.get("statut") != "OK":
+              raise ValueError("Statut PMU non OK")
+
+          if courses.get("erreurs") != []:
+              raise ValueError("Erreurs PMU detectees")
+
+          if not isinstance(courses.get("courses"), list):
+              raise ValueError("Liste des courses absente")
+
+          if not courses["courses"]:
+              raise ValueError("Aucune course exploitable")
+
+          if diagnostic != courses:
+              raise ValueError(
+                  "Diagnostic et courses non concordants"
+              )
+
+          collected_at = datetime.fromisoformat(
+              courses["collecte_a"]
+          )
+
+          if collected_at.tzinfo is None:
+              raise ValueError("Collecte sans fuseau horaire")
+
+          if analyses.get("statut") != (
+              "DESCRIPTIF_SANS_PRONOSTIC"
+          ):
+              raise ValueError("Statut analyses invalide")
+
+          if analyses.get("date") != courses.get("date"):
+              raise ValueError("Dates non concordantes")
+
+          sha = hashlib.sha256(
+              source.read_bytes()
+          ).hexdigest()
+
+          if analyses.get("source_sha256") != sha:
+              raise ValueError("SHA256 source incorrect")
+
+          originals = courses["courses"]
+          analyzed = analyses.get("courses")
+
+          if not isinstance(analyzed, list):
+              raise ValueError("Liste analyses absente")
+
+          original_ids = []
+          analyzed_ids = []
+
+          for course in originals:
+              if not isinstance(course, dict):
+                  raise ValueError("Course invalide")
+
+              cid = course.get("id")
+
+              if not isinstance(cid, str) or not cid:
+                  raise ValueError("ID course invalide")
+
+              if course.get(
+                  "localisation_france_verifiee"
+              ) is not True:
+                  raise ValueError("Course France non verifiee")
+
+              if course.get("depart_verifie") is not True:
+                  raise ValueError("Depart non verifie")
+
+              if not course.get("discipline"):
+                  raise ValueError("Discipline absente")
+
+              if not isinstance(course.get("partants"), list):
+                  raise ValueError("Partants invalides")
+
+              original_ids.append(cid)
+
+          for course in analyzed:
+              if not isinstance(course, dict):
+                  raise ValueError("Analyse invalide")
+
+              cid = course.get("id")
+
+              if not isinstance(cid, str) or not cid:
+                  raise ValueError("ID analyse invalide")
+
+              analyzed_ids.append(cid)
+
+              if course.get("selection") is not None:
+                  raise ValueError("Selection inattendue")
+
+              if course.get("fige") is not None:
+                  raise ValueError("FIGE inattendu")
+
+              if course.get("resultat") is not None:
+                  raise ValueError("Resultat inattendu")
+
+              chevaux = course.get("chevaux")
+
+              if not isinstance(chevaux, list):
+                  raise ValueError("Liste chevaux invalide")
+
+              for horse in chevaux:
+                  if horse.get(
+                      "evaluation_sportive"
+                  ) != "NON_EVALUE":
+                      raise ValueError(
+                          "Evaluation sportive non autorisee"
+                      )
+
+          if len(set(original_ids)) != len(original_ids):
+              raise ValueError("Doublons courses")
+
+          if len(set(analyzed_ids)) != len(analyzed_ids):
+              raise ValueError("Doublons analyses")
+
+          if set(original_ids) != set(analyzed_ids):
+              raise ValueError(
+                  "Correspondance courses/analyses invalide"
+              )
+
+          print("Courses validees :", len(original_ids))
+          print("Analyses validees :", len(analyzed_ids))
+          print("SHA256 :", sha)
+          print("Collecte :", collected_at.isoformat())
+          print("Validation JSON : OK")
+          PY
+
+      - name: "Verifier les archives officielles"
         run: |
           set -euo pipefail
 
-          TEST_DIR="$RUNNER_TEMP/x1000-pmu-test"
+          python resultats_archives.py --verify-archives
 
-          cd "$TEST_DIR"
+          echo "Verification archives : OK"
 
-          echo "=================================="
-          echo "X1000 - TEST COLLECTE PMU REELLE"
-          echo "=================================="
-
-          echo "Mode DRY-RUN : aucune ecriture."
-          echo "Debut de la collecte PMU."
-
-          if python pmu_engine.py --dry-run; then
-            echo "Collecte PMU validee."
-          else
-            echo "::error::La collecte PMU a echoue."
-            echo "::error::Verifier les erreurs API et les donnees PMU."
-            exit 1
-          fi
-
-          echo "Test termine sans publication."
-
-      - name: "Verifier la copie temporaire"
+      - name: "Verifier l'integrite du depot"
         if: always()
         run: |
           set -euo pipefail
 
-          TEST_DIR="$RUNNER_TEMP/x1000-pmu-test"
-
-          if [ ! -d "$TEST_DIR" ]; then
-            echo "::warning::Copie temporaire absente."
-            exit 0
-          fi
-
-          if [ -d "$TEST_DIR/data" ]; then
-            echo "::error::Repertoire data cree pendant le test."
-            exit 1
-          fi
-
-          if [ -d "$TEST_DIR/__pycache__" ]; then
-            echo "::error::Cache Python cree pendant le test."
-            exit 1
-          fi
-
-          echo "Aucune publication detectee dans la copie."
-
-      - name: "Verifier les fichiers suivis"
-        if: always()
-        run: |
-          set -euo pipefail
-
-          if ! git diff --quiet; then
-            echo "::error::Fichiers suivis modifies."
-            exit 1
-          fi
-
-          if ! git diff --cached --quiet; then
-            echo "::error::Index Git modifie."
-            exit 1
-          fi
-
-          echo "Aucun fichier suivi modifie."
-
-      - name: "Verifier les nouveaux fichiers"
-        if: always()
-        run: |
-          set -euo pipefail
+          git diff --exit-code
+          git diff --cached --exit-code
 
           if [ -n "$(git ls-files --others --exclude-standard)" ]; then
-            echo "::error::Nouveaux fichiers non suivis detectes."
+            echo "::error::Fichiers non suivis detectes"
             git ls-files --others --exclude-standard
             exit 1
           fi
 
-          echo "Aucun nouveau fichier non suivi."
+          echo "Integrite Git : OK"
 
-      - name: "Rapport de securite"
-        if: always()
+      - name: "Bilan de reussite"
+        if: success()
         run: |
-          echo "=================================="
-          echo "X1000 - VALIDATION PMU SECURISEE"
-          echo "=================================="
-          echo "Branche : $GITHUB_REF"
-          echo "Date UTC : $(date -u '+%Y-%m-%d %H:%M:%S')"
-          echo "Aucun git push execute."
-          echo "Aucun deploiement execute."
-          echo "Aucune publication PMU demandee."
-          echo "Aucun pronostic genere par le workflow."
-          echo "Aucun FIGE genere par le workflow."
-          echo "Moteurs M1-M5 non executes."
-          echo "=================================="
+          echo "======================================"
+          echo "X1000 - VALIDATION GENERALE SECURISEE"
+          echo "======================================"
+          echo "Branche securisee : OK"
+          echo "Syntaxe Python : OK"
+          echo "Autotests : OK"
+          echo "Donnees PMU : OK"
+          echo "Analyses descriptives : OK"
+          echo "Correspondance SHA256 : OK"
+          echo "Verification archives : OK"
+          echo "Integrite Git : OK"
+          echo "Publication : DESACTIVEE"
+          echo "Fusion vers main : AUCUNE"
+          echo "======================================"
+
+      - name: "Bilan d'echec"
+        if: failure()
+        run: |
+          echo "::error::Validation generale X1000 non reussie."
+          echo "Consulter les erreurs des etapes precedentes."
+          echo "Ne pas fusionner vers main."
