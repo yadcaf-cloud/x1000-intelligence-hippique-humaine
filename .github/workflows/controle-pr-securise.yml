@@ -1,0 +1,334 @@
+name: "X1000 - Controle officiel avant fusion V1.1"
+
+on:
+  workflow_dispatch:
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "pmu_engine.py"
+      - "analyse_hippique.py"
+      - "resultats_archives.py"
+      - "data/**"
+      - ".github/workflows/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-controle-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validation:
+    name: "Validation generale securisee"
+
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/feature/activation-pmu-analyses-archives')
+      ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.head_ref == 'feature/activation-pmu-analyses-archives' &&
+       github.base_ref == 'main')
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      TZ: Europe/Paris
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONNOUSERSITE: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+    steps:
+      - name: "Recuperer les fichiers"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: "Installer Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: "Verifier les scripts et leur syntaxe"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          scripts = (
+              "pmu_engine.py",
+              "analyse_hippique.py",
+              "resultats_archives.py",
+          )
+
+          for name in scripts:
+              path = Path(name)
+
+              if not path.is_file():
+                  raise SystemExit(
+                      f"Script absent : {name}"
+                  )
+
+              if not path.stat().st_size:
+                  raise SystemExit(
+                      f"Script vide : {name}"
+                  )
+
+              ast.parse(
+                  path.read_text(
+                      encoding="utf-8-sig"
+                  ),
+                  filename=name,
+              )
+
+              print("Syntaxe OK :", name)
+          PY
+
+      - name: "Verifier les fichiers JSON"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          files = (
+              "data/publication_courses.json",
+              "data/publication_analyses.json",
+              "data/diagnostic_collecte_pmu.json",
+          )
+
+          for name in files:
+              path = Path(name)
+
+              if not path.is_file():
+                  raise SystemExit(
+                      f"Fichier absent : {name}"
+                  )
+
+              with path.open(
+                  encoding="utf-8"
+              ) as f:
+                  data = json.load(f)
+
+              if not isinstance(data, dict):
+                  raise SystemExit(
+                      f"Objet JSON attendu : {name}"
+                  )
+
+              print("JSON valide :", name)
+
+          PY
+
+      - name: "Verifier la structure PMU et les analyses"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from analyse_hippique import (
+              validate,
+              validate_course,
+          )
+
+          with Path(
+              "data/publication_courses.json"
+          ).open(encoding="utf-8") as f:
+              payload = json.load(f)
+
+          date = validate(payload)
+          ids = set()
+
+          for course in payload["courses"]:
+              cid = validate_course(
+                  course, date
+              )
+
+              if cid in ids:
+                  raise ValueError(
+                      f"Course dupliquee : {cid}"
+                  )
+
+              ids.add(cid)
+
+          print("Date PMU :", date)
+          print("Courses validees :", len(ids))
+          print("Structure PMU : OK")
+          PY
+
+      - name: "Memoriser les empreintes SHA256"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          snapshot = {}
+
+          for path in Path(".").rglob("*"):
+              if not path.is_file():
+                  continue
+
+              if ".git" in path.parts:
+                  continue
+
+              snapshot[path.as_posix()] = (
+                  hashlib.sha256(
+                      path.read_bytes()
+                  ).hexdigest()
+              )
+
+          Path(
+              "/tmp/x1000-controle-snapshot.json"
+          ).write_text(
+              json.dumps(
+                  snapshot,
+                  sort_keys=True
+              ),
+              encoding="utf-8"
+          )
+
+          print(
+              "Fichiers proteges :",
+              len(snapshot)
+          )
+          PY
+
+      - name: "Executer les trois autotests"
+        run: |
+          set -euo pipefail
+
+          python pmu_engine.py --self-test
+          python analyse_hippique.py --self-test
+          python resultats_archives.py --self-test
+
+          echo "Trois autotests termines."
+
+      - name: "Verifier les archives historiques"
+        run: |
+          set -euo pipefail
+
+          python resultats_archives.py --verify-archives
+
+          echo "Verification archives terminee."
+
+      - name: "Tester les analyses sans publication"
+        run: |
+          set -euo pipefail
+
+          python analyse_hippique.py --dry-run
+
+          echo "Analyse en lecture seule terminee."
+
+      - name: "Verifier integrite finale SHA256"
+        if: always()
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          snapshot_path = Path(
+              "/tmp/x1000-controle-snapshot.json"
+          )
+
+          if not snapshot_path.is_file():
+              raise SystemExit(
+                  "Empreintes initiales absentes"
+              )
+
+          snapshot = json.loads(
+              snapshot_path.read_text(
+                  encoding="utf-8"
+              )
+          )
+
+          current = {}
+
+          for path in Path(".").rglob("*"):
+              if not path.is_file():
+                  continue
+
+              if ".git" in path.parts:
+                  continue
+
+              current[path.as_posix()] = (
+                  hashlib.sha256(
+                      path.read_bytes()
+                  ).hexdigest()
+              )
+
+          modified = sorted(
+              name
+              for name in set(snapshot) | set(current)
+              if snapshot.get(name) != current.get(name)
+          )
+
+          if modified:
+              for name in modified:
+                  print(
+                      f"::error::Fichier modifie : {name}"
+                  )
+
+              raise SystemExit(
+                  "Integrite SHA256 non respectee"
+              )
+
+          print("Integrite SHA256 : OK")
+          PY
+
+          git diff --exit-code
+          git diff --cached --exit-code
+
+          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "::error::Fichiers non suivis detectes"
+            git ls-files --others --exclude-standard
+            exit 1
+          fi
+
+          echo "Integrite Git : OK"
+
+      - name: "Rapport officiel"
+        if: success()
+        run: |
+          {
+            echo "## X1000 - Validation officielle V1.1"
+            echo ""
+            echo "- Branche securisee : OK"
+            echo "- Syntaxe Python : OK"
+            echo "- Fichiers JSON : OK"
+            echo "- Structure PMU : OK"
+            echo "- Trois autotests : OK"
+            echo "- Archives historiques : OK"
+            echo "- Analyse dry-run : OK"
+            echo "- Integrite SHA256 : OK"
+            echo "- Integrite Git : OK"
+            echo "- Publication : DESACTIVEE"
+            echo "- FIGE cree : AUCUN"
+            echo "- Fusion automatique : AUCUNE"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Signaler un echec"
+        if: failure()
+        run: |
+          echo "::error::Validation officielle X1000 echouee."
+          echo "Ne pas fusionner vers main."
+          echo "Examiner les erreurs avant correction."
