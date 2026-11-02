@@ -44,30 +44,69 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 1
 
       - name: "Installer Python 3.12"
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: "Verifier la branche et les fichiers"
+      - name: "Verifier branche et fichiers"
         run: |
           set -euo pipefail
 
           test "$GITHUB_REF" = \
             "refs/heads/feature/activation-pmu-analyses-archives"
 
-          test -s pmu_engine.py
-          test -s analyse_hippique.py
-          test -s resultats_archives.py
+          for file in \
+            pmu_engine.py \
+            analyse_hippique.py \
+            resultats_archives.py \
+            data/publication_courses.json \
+            data/publication_analyses.json \
+            data/diagnostic_collecte_pmu.json
+          do
+            test -s "$file" || {
+              echo "::error::Fichier absent ou vide : $file"
+              exit 1
+            }
+          done
 
-          test -s data/publication_courses.json
-          test -s data/publication_analyses.json
-          test -s data/diagnostic_collecte_pmu.json
+          python --version
+          echo "Branche et fichiers : OK"
 
-          echo "Branche et fichiers requis : OK"
+      - name: "Memoriser l'etat initial du depot"
+        run: |
+          set -euo pipefail
 
-      - name: "Verifier la syntaxe Python"
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          snapshot = {}
+
+          for path in Path(".").rglob("*"):
+              if not path.is_file():
+                  continue
+              if ".git" in path.parts:
+                  continue
+
+              snapshot[path.as_posix()] = (
+                  hashlib.sha256(
+                      path.read_bytes()
+                  ).hexdigest()
+              )
+
+          Path("/tmp/x1000-validation-snapshot.json").write_text(
+              json.dumps(snapshot, sort_keys=True),
+              encoding="utf-8"
+          )
+
+          print("Fichiers proteges :", len(snapshot))
+          PY
+
+      - name: "Verifier syntaxe Python"
         run: |
           set -euo pipefail
 
@@ -82,13 +121,12 @@ jobs:
           )
 
           for name in scripts:
-              path = Path(name)
-
               ast.parse(
-                  path.read_text(encoding="utf-8"),
+                  Path(name).read_text(
+                      encoding="utf-8-sig"
+                  ),
                   filename=name
               )
-
               print("Syntaxe OK :", name)
           PY
 
@@ -100,134 +138,147 @@ jobs:
           python analyse_hippique.py --self-test
           python resultats_archives.py --self-test
 
-      - name: "Verifier les donnees et analyses"
+          echo "Trois autotests : OK"
+
+      - name: "Verifier donnees PMU et analyses"
         run: |
           set -euo pipefail
 
           python - <<'PY'
-          import json
           import hashlib
+          import json
           from pathlib import Path
-          from datetime import datetime
 
-          def load_json(path):
-              file = Path(path)
+          from analyse_hippique import (
+              validate,
+              validate_course,
+              analyze,
+          )
 
-              if not file.is_file() or file.stat().st_size == 0:
-                  raise ValueError(f"Fichier absent ou vide : {path}")
-
-              return json.loads(file.read_text(encoding="utf-8"))
+          def read(path):
+              p = Path(path)
+              raw = p.read_bytes()
+              return json.loads(raw), raw
 
           source = Path("data/publication_courses.json")
 
-          courses = load_json(source)
-          analyses = load_json("data/publication_analyses.json")
-          diagnostic = load_json(
+          courses, source_raw = read(source)
+
+          analyses, _ = read(
+              "data/publication_analyses.json"
+          )
+
+          diagnostic, _ = read(
               "data/diagnostic_collecte_pmu.json"
           )
 
           if not isinstance(courses, dict):
-              raise ValueError("Format courses invalide")
+              raise ValueError("Publication PMU invalide")
 
           if courses.get("statut") != "OK":
               raise ValueError("Statut PMU non OK")
 
           if courses.get("erreurs") != []:
-              raise ValueError("Erreurs PMU detectees")
-
-          if not isinstance(courses.get("courses"), list):
-              raise ValueError("Liste des courses absente")
-
-          if not courses["courses"]:
-              raise ValueError("Aucune course exploitable")
+              raise ValueError("Erreurs PMU presentes")
 
           if diagnostic != courses:
               raise ValueError(
-                  "Diagnostic et courses non concordants"
+                  "Diagnostic et publication non concordants"
               )
 
-          collected_at = datetime.fromisoformat(
-              courses["collecte_a"]
-          )
+          date = validate(courses)
 
-          if collected_at.tzinfo is None:
-              raise ValueError("Collecte sans fuseau horaire")
+          ids = set()
+          actifs = 0
+
+          for course in courses["courses"]:
+              cid = validate_course(course, date)
+
+              if cid in ids:
+                  raise ValueError(
+                      "Course dupliquee : " + cid
+                  )
+
+              ids.add(cid)
+              actifs += course["nombre_partants"]
+
+          if not isinstance(analyses, dict):
+              raise ValueError("Analyses invalides")
 
           if analyses.get("statut") != (
               "DESCRIPTIF_SANS_PRONOSTIC"
           ):
-              raise ValueError("Statut analyses invalide")
+              raise ValueError(
+                  "Statut des analyses incorrect"
+              )
 
-          if analyses.get("date") != courses.get("date"):
-              raise ValueError("Dates non concordantes")
+          if analyses.get("date") != date:
+              raise ValueError(
+                  "Dates PMU et analyses differentes"
+              )
 
           sha = hashlib.sha256(
-              source.read_bytes()
+              source_raw
           ).hexdigest()
 
           if analyses.get("source_sha256") != sha:
-              raise ValueError("SHA256 source incorrect")
+              raise ValueError(
+                  "Empreinte SHA256 source incorrecte"
+              )
 
-          originals = courses["courses"]
-          analyzed = analyses.get("courses")
+          expected = analyze(courses, source_raw)
 
-          if not isinstance(analyzed, list):
-              raise ValueError("Liste analyses absente")
+          actual_courses = analyses.get("courses")
+          expected_courses = expected.get("courses")
 
-          original_ids = []
-          analyzed_ids = []
+          if actual_courses != expected_courses:
+              raise ValueError(
+                  "Analyses publiees non conformes "
+                  "au moteur descriptif actuel"
+              )
 
-          for course in originals:
-              if not isinstance(course, dict):
-                  raise ValueError("Course invalide")
+          for key in (
+              "version",
+              "source",
+              "collecte_a",
+              "statut",
+              "date",
+          ):
+              if analyses.get(key) != expected.get(key):
+                  raise ValueError(
+                      "Champ d'analyse incoherent : " + key
+                  )
 
-              cid = course.get("id")
+          analyzed_ids = set()
 
-              if not isinstance(cid, str) or not cid:
-                  raise ValueError("ID course invalide")
+          for course in actual_courses:
+              cid = course["id"]
 
-              if course.get(
-                  "localisation_france_verifiee"
-              ) is not True:
-                  raise ValueError("Course France non verifiee")
+              if cid in analyzed_ids:
+                  raise ValueError(
+                      "Analyse dupliquee : " + cid
+                  )
 
-              if course.get("depart_verifie") is not True:
-                  raise ValueError("Depart non verifie")
+              analyzed_ids.add(cid)
 
-              if not course.get("discipline"):
-                  raise ValueError("Discipline absente")
+              for key in (
+                  "selection",
+                  "fige",
+                  "resultat",
+              ):
+                  if course.get(key) is not None:
+                      raise ValueError(
+                          "Champ interdit : " + key
+                      )
 
-              if not isinstance(course.get("partants"), list):
-                  raise ValueError("Partants invalides")
+              if course.get("statut") != (
+                  "ANALYSE_DESCRIPTIVE"
+              ):
+                  raise ValueError(
+                      "Statut de course incorrect"
+                  )
 
-              original_ids.append(cid)
-
-          for course in analyzed:
-              if not isinstance(course, dict):
-                  raise ValueError("Analyse invalide")
-
-              cid = course.get("id")
-
-              if not isinstance(cid, str) or not cid:
-                  raise ValueError("ID analyse invalide")
-
-              analyzed_ids.append(cid)
-
-              if course.get("selection") is not None:
-                  raise ValueError("Selection inattendue")
-
-              if course.get("fige") is not None:
-                  raise ValueError("FIGE inattendu")
-
-              if course.get("resultat") is not None:
-                  raise ValueError("Resultat inattendu")
-
-              chevaux = course.get("chevaux")
-
-              if not isinstance(chevaux, list):
-                  raise ValueError("Liste chevaux invalide")
-
-              for horse in chevaux:
+              for horse in course["chevaux"]:
                   if horse.get(
                       "evaluation_sportive"
                   ) != "NON_EVALUE":
@@ -235,36 +286,91 @@ jobs:
                           "Evaluation sportive non autorisee"
                       )
 
-          if len(set(original_ids)) != len(original_ids):
-              raise ValueError("Doublons courses")
-
-          if len(set(analyzed_ids)) != len(analyzed_ids):
-              raise ValueError("Doublons analyses")
-
-          if set(original_ids) != set(analyzed_ids):
+          if ids != analyzed_ids:
               raise ValueError(
                   "Correspondance courses/analyses invalide"
               )
 
-          print("Courses validees :", len(original_ids))
-          print("Analyses validees :", len(analyzed_ids))
-          print("SHA256 :", sha)
-          print("Collecte :", collected_at.isoformat())
-          print("Validation JSON : OK")
+          print("Date PMU :", date)
+          print("Courses :", len(ids))
+          print("Partants actifs :", actifs)
+          print("SHA256 source :", sha)
+          print("Analyses descriptives : OK")
           PY
 
-      - name: "Verifier les archives officielles"
+      - name: "Valider analyse en lecture seule"
+        run: |
+          set -euo pipefail
+
+          python analyse_hippique.py --dry-run
+
+          echo "Analyse sans ecriture : OK"
+
+      - name: "Verifier archives officielles"
         run: |
           set -euo pipefail
 
           python resultats_archives.py --verify-archives
 
-          echo "Verification archives : OK"
+          echo "Archives : verification terminee"
 
-      - name: "Verifier l'integrite du depot"
+      - name: "Verifier integrite du depot"
         if: always()
         run: |
           set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          snapshot_path = Path(
+              "/tmp/x1000-validation-snapshot.json"
+          )
+
+          if not snapshot_path.is_file():
+              raise SystemExit(
+                  "Empreintes initiales absentes"
+              )
+
+          snapshot = json.loads(
+              snapshot_path.read_text(
+                  encoding="utf-8"
+              )
+          )
+
+          current = {}
+
+          for path in Path(".").rglob("*"):
+              if not path.is_file():
+                  continue
+              if ".git" in path.parts:
+                  continue
+
+              current[path.as_posix()] = (
+                  hashlib.sha256(
+                      path.read_bytes()
+                  ).hexdigest()
+              )
+
+          changed = sorted(
+              name for name in
+              set(snapshot) | set(current)
+              if snapshot.get(name) != current.get(name)
+          )
+
+          if changed:
+              for name in changed:
+                  print(
+                      "::error::Modification detectee :",
+                      name
+                  )
+              raise SystemExit(
+                  "Integrite du depot non respectee"
+              )
+
+          print("Empreintes SHA256 : OK")
+          PY
 
           git diff --exit-code
           git diff --cached --exit-code
@@ -280,24 +386,32 @@ jobs:
       - name: "Bilan de reussite"
         if: success()
         run: |
-          echo "======================================"
-          echo "X1000 - VALIDATION GENERALE SECURISEE"
-          echo "======================================"
-          echo "Branche securisee : OK"
-          echo "Syntaxe Python : OK"
-          echo "Autotests : OK"
-          echo "Donnees PMU : OK"
-          echo "Analyses descriptives : OK"
-          echo "Correspondance SHA256 : OK"
-          echo "Verification archives : OK"
-          echo "Integrite Git : OK"
-          echo "Publication : DESACTIVEE"
-          echo "Fusion vers main : AUCUNE"
-          echo "======================================"
+          {
+            echo "## X1000 - Validation generale securisee"
+            echo ""
+            echo "- Branche securisee : OK"
+            echo "- Syntaxe Python : OK"
+            echo "- Trois autotests : OK"
+            echo "- Donnees PMU : OK"
+            echo "- Analyses descriptives : OK"
+            echo "- SHA256 source : OK"
+            echo "- Archives : verification reussie"
+            echo "- Integrite du depot : OK"
+            echo "- Publication : DESACTIVEE"
+            echo "- Fusion main : AUCUNE"
+            echo "- FIGE cree : AUCUN"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: "Bilan d'echec"
         if: failure()
         run: |
-          echo "::error::Validation generale X1000 non reussie."
-          echo "Consulter les erreurs des etapes precedentes."
-          echo "Ne pas fusionner vers main."
+          {
+            echo "## X1000 - Validation echouee"
+            echo ""
+            echo "Une ou plusieurs verifications ont echoue."
+            echo ""
+            echo "Ne pas fusionner vers main."
+            echo "Consulter les journaux GitHub Actions."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "::error::Validation generale X1000 echouee."
