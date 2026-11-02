@@ -1,0 +1,413 @@
+name: "X1000 - Activation automatique securisee V1.1"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-activation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  activation:
+    name: "Collecte PMU, analyses et archives"
+
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/feature/activation-pmu-analyses-archives'
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      TZ: Europe/Paris
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONNOUSERSITE: "1"
+
+    steps:
+      - name: "Recuperer la branche securisee"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: "Installer Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: "Verifier les moteurs Python"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          for name in (
+              "pmu_engine.py",
+              "analyse_hippique.py",
+              "resultats_archives.py",
+          ):
+              path = Path(name)
+
+              if not path.is_file():
+                  raise SystemExit(
+                      f"Moteur absent : {name}"
+                  )
+
+              ast.parse(
+                  path.read_text(encoding="utf-8-sig"),
+                  filename=name,
+              )
+
+              print("Syntaxe OK :", name)
+          PY
+
+      - name: "Executer les autotests existants"
+        run: |
+          set -euo pipefail
+
+          python pmu_engine.py --self-test
+          python analyse_hippique.py --self-test
+          python resultats_archives.py --self-test
+
+      - name: "Verifier les archives historiques"
+        run: |
+          set -euo pipefail
+
+          python resultats_archives.py --verify-archives
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path("data/archives_resultats")
+          snapshot = {}
+
+          if root.exists():
+              for path in sorted(root.rglob("*")):
+                  if path.is_symlink():
+                      raise SystemExit(
+                          "Lien symbolique interdit dans les archives"
+                      )
+
+                  if path.is_file():
+                      relative = path.relative_to(root).as_posix()
+                      snapshot[relative] = hashlib.sha256(
+                          path.read_bytes()
+                      ).hexdigest()
+
+          destination = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-archives-avant.json"
+          )
+
+          destination.write_text(
+              json.dumps(snapshot, sort_keys=True),
+              encoding="utf-8",
+          )
+
+          print("Archives protegees :", len(snapshot))
+          PY
+
+      - name: "Preparer l'environnement isole"
+        run: |
+          set -euo pipefail
+
+          TEST_DIR="$RUNNER_TEMP/x1000"
+
+          mkdir -p "$TEST_DIR/data"
+
+          cp pmu_engine.py "$TEST_DIR/"
+          cp analyse_hippique.py "$TEST_DIR/"
+          cp resultats_archives.py "$TEST_DIR/"
+
+          # Ne pas copier une publication ancienne.
+          # Le collecteur doit produire des donnees nouvelles.
+
+          test -s "$TEST_DIR/pmu_engine.py"
+          test -s "$TEST_DIR/analyse_hippique.py"
+          test -s "$TEST_DIR/resultats_archives.py"
+
+      - name: "Collecter les donnees PMU reelles"
+        run: |
+          set -euo pipefail
+
+          cd "$RUNNER_TEMP/x1000"
+
+          python pmu_engine.py
+
+          test -s data/publication_courses.json
+          test -s data/diagnostic_collecte_pmu.json
+
+          echo "Collecte PMU executee."
+
+      - name: "Valider la collecte et sa fraicheur"
+        run: |
+          set -euo pipefail
+
+          cd "$RUNNER_TEMP/x1000"
+
+          python - <<'PY'
+          import datetime as dt
+          import json
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          from analyse_hippique import (
+              validate,
+              validate_course,
+              parse_instant,
+          )
+
+          path = Path(
+              "data/publication_courses.json"
+          )
+
+          payload = json.loads(
+              path.read_text(encoding="utf-8")
+          )
+
+          date = validate(payload)
+
+          now = dt.datetime.now(dt.timezone.utc)
+
+          paris = ZoneInfo("Europe/Paris")
+
+          today = now.astimezone(
+              paris
+          ).date().isoformat()
+
+          if date != today:
+              raise SystemExit(
+                  "Date du programme PMU incorrecte"
+              )
+
+          collected = parse_instant(
+              payload["collecte_a"]
+          ).astimezone(dt.timezone.utc)
+
+          age = (now - collected).total_seconds()
+
+          if age < -300 or age > 1800:
+              raise SystemExit(
+                  "Collecte trop ancienne ou future"
+              )
+
+          ids = set()
+          participants = 0
+
+          for course in payload["courses"]:
+              cid = validate_course(course, date)
+
+              if cid in ids:
+                  raise SystemExit(
+                      f"Course en doublon : {cid}"
+                  )
+
+              ids.add(cid)
+              participants += course["nombre_partants"]
+
+          if not ids:
+              raise SystemExit(
+                  "Aucune course PMU verifiee"
+              )
+
+          print("Date Paris :", today)
+          print("Courses :", len(ids))
+          print("Partants actifs :", participants)
+          print("Fraicheur : OK")
+          PY
+
+      - name: "Produire les analyses"
+        run: |
+          set -euo pipefail
+
+          cd "$RUNNER_TEMP/x1000"
+
+          python analyse_hippique.py
+
+          test -s data/publication_analyses.json
+
+      - name: "Controler les analyses et les empreintes"
+        run: |
+          set -euo pipefail
+
+          cd "$RUNNER_TEMP/x1000"
+
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          source = Path(
+              "data/publication_courses.json"
+          ).read_bytes()
+
+          courses = json.loads(source)
+
+          analyses = json.loads(
+              Path(
+                  "data/publication_analyses.json"
+              ).read_text(encoding="utf-8")
+          )
+
+          digest = hashlib.sha256(
+              source
+          ).hexdigest()
+
+          if analyses.get("source_sha256") != digest:
+              raise SystemExit(
+                  "Empreinte SHA256 incoherente"
+              )
+
+          source_ids = {
+              c["id"]
+              for c in courses["courses"]
+          }
+
+          result_courses = analyses.get("courses")
+
+          if not isinstance(result_courses, list):
+              raise SystemExit(
+                  "Liste des analyses invalide"
+              )
+
+          result_ids = [
+              c["id"] for c in result_courses
+          ]
+
+          if (
+              len(result_ids) != len(set(result_ids))
+              or set(result_ids) != source_ids
+          ):
+              raise SystemExit(
+                  "Courses analysees incoherentes"
+              )
+
+          for course in result_courses:
+              if course.get("fige") is not None:
+                  raise SystemExit(
+                      "FIGE non autorise"
+                  )
+
+              if course.get("resultat") is not None:
+                  raise SystemExit(
+                      "Resultat non verifie"
+                  )
+
+              if course.get("selection") is not None:
+                  raise SystemExit(
+                      "Selection non validee"
+                  )
+
+          print("Analyses :", len(result_courses))
+          print("SHA256 : OK")
+          print("Aucune donnee fictive ajoutee")
+          PY
+
+      - name: "Reverifier les archives historiques"
+        run: |
+          set -euo pipefail
+
+          python resultats_archives.py --verify-archives
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path("data/archives_resultats")
+
+          initial = json.loads(
+              (
+                  Path(os.environ["RUNNER_TEMP"])
+                  / "x1000-archives-avant.json"
+              ).read_text(encoding="utf-8")
+          )
+
+          current = {}
+
+          if root.exists():
+              for path in sorted(root.rglob("*")):
+                  if path.is_symlink():
+                      raise SystemExit(
+                          "Lien symbolique interdit"
+                      )
+
+                  if path.is_file():
+                      relative = path.relative_to(root).as_posix()
+                      current[relative] = hashlib.sha256(
+                          path.read_bytes()
+                      ).hexdigest()
+
+          if current != initial:
+              raise SystemExit(
+                  "Archives historiques modifiees"
+              )
+
+          print("Archives historiques intactes")
+          PY
+
+      - name: "Conserver les publications de test"
+        uses: actions/upload-artifact@v4
+        with:
+          name: x1000-validation-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/x1000/data/publication_courses.json
+            ${{ runner.temp }}/x1000/data/publication_analyses.json
+            ${{ runner.temp }}/x1000/data/diagnostic_collecte_pmu.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: "Verifier l'integrite du depot"
+        run: |
+          set -euo pipefail
+
+          git diff --exit-code HEAD --
+          git diff --cached --exit-code
+
+          if [ -n "$(
+            git ls-files --others --exclude-standard
+          )" ]; then
+            echo "::error::Fichiers non suivis detectes"
+            exit 1
+          fi
+
+          echo "Depot intact : OK"
+
+      - name: "Rapport de validation"
+        if: success()
+        run: |
+          {
+            echo "## X1000 - Activation securisee V1.1"
+            echo ""
+            echo "- Branche securisee : OK"
+            echo "- Collecte PMU reelle : OK"
+            echo "- Controle de fraicheur : OK"
+            echo "- Analyses descriptives : OK"
+            echo "- SHA256 : OK"
+            echo "- Archives historiques : intactes"
+            echo "- Artefacts de test : disponibles"
+            echo "- Modification main : aucune"
+            echo "- Publication Git : aucune"
+            echo "- FIGE automatique : aucun"
+            echo "- Resultat invente : aucun"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Signaler un echec"
+        if: failure()
+        run: |
+          echo "::error::Activation X1000 V1.1 echouee"
+          echo "Ne pas fusionner vers main."
+          echo "Consulter les journaux de validation."
