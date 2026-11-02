@@ -1,96 +1,89 @@
 - name: "Proteger les archives historiques avant fusion"
-        if: github.event_name == 'pull_request'
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
+  if: github.event_name == 'pull_request'
+  env:
+    BASE_SHA: ${{ github.event.pull_request.base.sha }}
+    HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  run: |
+    set -euo pipefail
 
-          echo "Verification des archives historiques"
+    echo "Verification des archives historiques"
 
-          git fetch --no-tags origin \
-            "$BASE_SHA" "$HEAD_SHA"
+    git fetch --no-tags origin "$BASE_SHA" "$HEAD_SHA"
 
-          python - <<'PY'
-          import os
-          import subprocess
+    git cat-file -e "${BASE_SHA}^{commit}"
+    git cat-file -e "${HEAD_SHA}^{commit}"
 
-          PREFIX = "data/archives_resultats/"
+    python - <<'PY'
+    import os
+    import subprocess
 
-          def tracked(ref):
-              raw = subprocess.check_output([
-                  "git",
-                  "ls-tree",
-                  "-r",
-                  "-z",
-                  ref,
-                  "--",
-                  PREFIX,
-              ])
+    PREFIX = "data/archives_resultats/"
 
-              result = {}
+    def tracked(ref):
+        raw = subprocess.check_output([
+            "git", "ls-tree", "-r", "-z",
+            ref, "--", PREFIX
+        ])
 
-              for entry in raw.split(b"\0"):
-                  if not entry:
-                      continue
+        result = {}
 
-                  metadata, path = entry.split(b"\t", 1)
+        for entry in raw.split(b"\0"):
+            if not entry:
+                continue
 
-                  mode, kind, sha = (
-                      metadata.decode("ascii").split()
-                  )
+            metadata, path = entry.split(b"\t", 1)
+            mode, kind, sha = metadata.decode("ascii").split()
 
-                  filename = path.decode(
-                      "utf-8",
-                      errors="surrogateescape"
-                  )
+            filename = path.decode(
+                "utf-8", errors="surrogateescape"
+            )
 
-                  result[filename] = {
-                      "mode": mode,
-                      "kind": kind,
-                      "sha": sha,
-                  }
+            result[filename] = (mode, kind, sha)
 
-              return result
+        return result
 
-          base_sha = os.environ["BASE_SHA"]
-          head_sha = os.environ["HEAD_SHA"]
+    def report_error(message):
+        safe = (
+            message
+            .replace("%", "%25")
+            .replace("\r", "%0D")
+            .replace("\n", "%0A")
+        )
+        print(f"::error::{safe}")
 
-          original = tracked(base_sha)
-          candidate = tracked(head_sha)
+    base = tracked(os.environ["BASE_SHA"])
+    head = tracked(os.environ["HEAD_SHA"])
 
-          changed = []
+    changed = sorted(
+        path for path, metadata in base.items()
+        if head.get(path) != metadata
+    )
 
-          for path, metadata in original.items():
-              if candidate.get(path) != metadata:
-                  changed.append(path)
+    invalid = sorted(
+        path for path, metadata in head.items()
+        if metadata[0] != "100644"
+        or metadata[1] != "blob"
+    )
 
-          if changed:
-              for path in sorted(changed):
-                  print(
-                      "::error::Archive historique "
-                      f"modifiee ou supprimee : {path}"
-                  )
+    if changed or invalid:
+        for path in changed:
+            report_error(
+                f"Archive historique modifiee "
+                f"ou supprimee : {path}"
+            )
 
-              raise SystemExit(
-                  "Protection des archives : ECHEC"
-              )
+        for path in invalid:
+            report_error(
+                f"Type d'archive non autorise : {path}"
+            )
 
-          added = sorted(
-              set(candidate) - set(original)
-          )
+        raise SystemExit(
+            "Protection des archives : ECHEC"
+        )
 
-          print(
-              "Archives historiques preservees :",
-              len(original)
-          )
+    added = sorted(set(head) - set(base))
 
-          print(
-              "Nouvelles archives detectees :",
-              len(added)
-          )
-
-          print(
-              "Protection des archives : OK"
-          )
-          PY
+    print("Archives preservees :", len(base))
+    print("Nouvelles archives :", len(added))
+    print("Protection des archives : OK")
+    PY
