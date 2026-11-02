@@ -1,0 +1,485 @@
+name: "X1000 - Controle affichage securise V1.1"
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - feature/activation-pmu-analyses-archives
+    paths:
+      - "index.html"
+      - "data/publication_courses.json"
+      - "data/publication_analyses.json"
+      - ".github/workflows/controle-affichage-securise.yml"
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "index.html"
+      - "data/publication_courses.json"
+      - "data/publication_analyses.json"
+      - ".github/workflows/controle-affichage-securise.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-affichage-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  controle:
+    name: "Controle portail PMU avant fusion"
+
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/feature/activation-pmu-analyses-archives') ||
+      (github.event_name == 'push' &&
+       github.ref == 'refs/heads/feature/activation-pmu-analyses-archives') ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.head_ref == 'feature/activation-pmu-analyses-archives' &&
+       github.base_ref == 'main')
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      TZ: Europe/Paris
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONNOUSERSITE: "1"
+
+    steps:
+      - name: "Recuperer le code"
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: "Installer Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: "Verifier les publications PMU"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import re
+          from datetime import datetime
+          from pathlib import Path
+
+          def verifier(condition, message):
+              if not condition:
+                  raise AssertionError(message)
+
+          def objet(valeur):
+              return isinstance(valeur, dict)
+
+          def texte(valeur):
+              return isinstance(valeur, str) and bool(valeur.strip())
+
+          def numero_valide(valeur):
+              return type(valeur) is int and valeur > 0
+
+          def date_valide(valeur):
+              try:
+                  date = datetime.fromisoformat(valeur)
+                  return date.tzinfo is not None
+              except (TypeError, ValueError):
+                  return False
+
+          def charger(chemin):
+              fichier = Path(chemin)
+              verifier(fichier.is_file(), f"Fichier absent: {chemin}")
+              brut = fichier.read_bytes()
+              donnees = json.loads(brut)
+              verifier(objet(donnees), f"JSON invalide: {chemin}")
+              return donnees, brut
+
+          print("=== X1000 CONTROLE SECURISE V1.1 ===")
+
+          page = Path("index.html")
+          verifier(page.is_file(), "index.html absent")
+
+          html = page.read_text(encoding="utf-8")
+
+          for nom in (
+              "data/publication_courses.json",
+              "data/publication_analyses.json",
+              "fetchCourses",
+              "fetchJSON",
+              "renderCourses",
+              "renderAnalyses",
+          ):
+              verifier(
+                  nom in html,
+                  f"Connexion HTML absente: {nom}"
+              )
+
+          print("OK - Connexions HTML presentes")
+
+          publication, brut = charger(
+              "data/publication_courses.json"
+          )
+
+          analyses, _ = charger(
+              "data/publication_analyses.json"
+          )
+
+          verifier(
+              publication.get("statut") in ("OK", "PARTIEL"),
+              "Statut PMU invalide"
+          )
+
+          verifier(
+              date_valide(publication.get("collecte_a")),
+              "Date de collecte invalide"
+          )
+
+          courses = publication.get("courses")
+
+          verifier(
+              isinstance(courses, list) and bool(courses),
+              "Aucune course publiee"
+          )
+
+          identifiants = set()
+          chevaux_par_course = {}
+          total_partants = 0
+
+          for course in courses:
+              verifier(objet(course), "Objet course invalide")
+
+              identifiant = course.get("id")
+
+              verifier(
+                  texte(identifiant) and
+                  re.fullmatch(
+                      r"\d{4}-\d{2}-\d{2}-R\d+-C\d+",
+                      identifiant
+                  ) is not None,
+                  "Identifiant course invalide"
+              )
+
+              verifier(
+                  identifiant not in identifiants,
+                  f"Course dupliquee: {identifiant}"
+              )
+
+              identifiants.add(identifiant)
+
+              verifier(
+                  course.get("localisation_france_verifiee") is True,
+                  f"France non verifiee: {identifiant}"
+              )
+
+              verifier(
+                  course.get("depart_verifie") is True,
+                  f"Depart non verifie: {identifiant}"
+              )
+
+              verifier(
+                  date_valide(course.get("depart")),
+                  f"Depart invalide: {identifiant}"
+              )
+
+              verifier(
+                  texte(course.get("discipline")),
+                  f"Discipline absente: {identifiant}"
+              )
+
+              chevaux = course.get("partants")
+
+              verifier(
+                  isinstance(chevaux, list) and bool(chevaux),
+                  f"Partants absents: {identifiant}"
+              )
+
+              numeros = {}
+              non_partants = set()
+              actifs = 0
+
+              for cheval in chevaux:
+                  verifier(
+                      objet(cheval),
+                      f"Objet cheval invalide: {identifiant}"
+                  )
+
+                  numero = cheval.get("numero")
+
+                  verifier(
+                      numero_valide(numero),
+                      f"Numero invalide: {identifiant}"
+                  )
+
+                  verifier(
+                      numero not in numeros,
+                      f"Numero duplique: {identifiant}/{numero}"
+                  )
+
+                  verifier(
+                      texte(cheval.get("nom")),
+                      f"Nom absent: {identifiant}/{numero}"
+                  )
+
+                  verifier(
+                      type(cheval.get("non_partant")) is bool,
+                      f"Statut NP invalide: {identifiant}/{numero}"
+                  )
+
+                  numeros[numero] = cheval["nom"]
+
+                  if cheval["non_partant"]:
+                      non_partants.add(numero)
+                  else:
+                      actifs += 1
+
+              verifier(
+                  actifs >= 1,
+                  f"Aucun partant actif: {identifiant}"
+              )
+
+              verifier(
+                  course.get("nombre_partants") == actifs,
+                  f"Nombre partants incoherent: {identifiant}"
+              )
+
+              declares = course.get("non_partants")
+
+              verifier(
+                  isinstance(declares, list),
+                  f"Liste NP absente ou invalide: {identifiant}"
+              )
+
+              numeros_declares = set()
+
+              for item in declares:
+                  numero = (
+                      item.get("numero")
+                      if objet(item)
+                      else item
+                  )
+
+                  verifier(
+                      numero_valide(numero),
+                      f"Numero NP invalide: {identifiant}"
+                  )
+
+                  verifier(
+                      numero not in numeros_declares,
+                      f"NP duplique: {identifiant}/{numero}"
+                  )
+
+                  numeros_declares.add(numero)
+
+                  if objet(item):
+                      verifier(
+                          texte(item.get("nom")) and
+                          item["nom"] == numeros.get(numero),
+                          f"Nom NP incoherent: {identifiant}/{numero}"
+                      )
+
+              verifier(
+                  numeros_declares == non_partants,
+                  f"Non-partants incoherents: {identifiant}"
+              )
+
+              chevaux_par_course[identifiant] = {
+                  "chevaux": numeros,
+                  "depart": course["depart"],
+                  "discipline": course["discipline"],
+              }
+
+              total_partants += actifs
+
+          print(
+              f"OK - {len(identifiants)} courses "
+              f"et {total_partants} partants actifs"
+          )
+
+          verifier(
+              analyses.get("statut") ==
+              "DESCRIPTIF_SANS_PRONOSTIC",
+              "Statut analyses non conforme"
+          )
+
+          verifier(
+              analyses.get("source_sha256", "").lower()
+              == hashlib.sha256(brut).hexdigest(),
+              "Empreinte SHA256 differente"
+          )
+
+          liste_analyses = analyses.get("courses")
+
+          verifier(
+              isinstance(liste_analyses, list),
+              "Liste analyses invalide"
+          )
+
+          analyses_vues = set()
+
+          for analyse in liste_analyses:
+              verifier(objet(analyse), "Analyse invalide")
+
+              identifiant = analyse.get("id")
+
+              verifier(
+                  identifiant in chevaux_par_course,
+                  f"Analyse sans course: {identifiant}"
+              )
+
+              verifier(
+                  identifiant not in analyses_vues,
+                  f"Analyse dupliquee: {identifiant}"
+              )
+
+              analyses_vues.add(identifiant)
+
+              reference = chevaux_par_course[identifiant]
+
+              verifier(
+                  analyse.get("depart") == reference["depart"],
+                  f"Depart analyse incoherent: {identifiant}"
+              )
+
+              verifier(
+                  analyse.get("discipline") ==
+                  reference["discipline"],
+                  f"Discipline analyse incoherente: {identifiant}"
+              )
+
+              verifier(
+                  analyse.get("selection") is None and
+                  analyse.get("fige") is None and
+                  analyse.get("resultat") is None,
+                  f"Donnees predictives inattendues: {identifiant}"
+              )
+
+              chevaux = analyse.get("chevaux")
+
+              verifier(
+                  isinstance(chevaux, list),
+                  f"Liste chevaux absente: {identifiant}"
+              )
+
+              numeros_analyses = set()
+
+              for cheval in chevaux:
+                  verifier(
+                      objet(cheval),
+                      f"Cheval analyse invalide: {identifiant}"
+                  )
+
+                  numero = cheval.get("numero")
+
+                  verifier(
+                      numero_valide(numero),
+                      f"Numero analyse invalide: {identifiant}"
+                  )
+
+                  verifier(
+                      numero not in numeros_analyses,
+                      f"Analyse cheval dupliquee: {identifiant}/{numero}"
+                  )
+
+                  numeros_analyses.add(numero)
+
+                  verifier(
+                      numero in reference["chevaux"] and
+                      cheval.get("nom") ==
+                      reference["chevaux"].get(numero),
+                      f"Cheval analyse incoherent: {identifiant}/{numero}"
+                  )
+
+                  verifier(
+                      cheval.get("evaluation_sportive") ==
+                      "NON_EVALUE",
+                      f"Evaluation inattendue: {identifiant}/{numero}"
+                  )
+
+              verifier(
+                  numeros_analyses ==
+                  set(reference["chevaux"]),
+                  f"Chevaux manquants dans analyse: {identifiant}"
+              )
+
+          print(
+              f"OK - {len(analyses_vues)} analyses descriptives"
+          )
+
+          print("OK - Correspondance SHA256")
+          print("OK - Controle statique termine")
+          PY
+
+      - name: "Verifier la syntaxe JavaScript"
+        run: |
+          set -euo pipefail
+
+          node - <<'JS'
+          const fs = require("fs");
+          const vm = require("vm");
+
+          const html = fs.readFileSync(
+            "index.html",
+            "utf8"
+          );
+
+          const scripts = [
+            ...html.matchAll(
+              /<script\b([^>]*)>([\s\S]*?)<\/script>/gi
+            )
+          ];
+
+          if (!scripts.length) {
+            throw new Error("Aucun script JavaScript");
+          }
+
+          let verified = 0;
+
+          for (const script of scripts) {
+            const attributes = script[1];
+
+            if (/\bsrc\s*=/i.test(attributes)) {
+              continue;
+            }
+
+            if (
+              /\btype\s*=\s*["'](?:application\/json|importmap)["']/i
+                .test(attributes)
+            ) {
+              continue;
+            }
+
+            new vm.Script(script[2], {
+              filename: "index.html"
+            });
+
+            verified++;
+          }
+
+          if (!verified) {
+            throw new Error("Aucun script integre verifie");
+          }
+
+          console.log(
+            `OK - ${verified} script(s) JavaScript valide(s)`
+          );
+          JS
+
+      - name: "Bilan securise"
+        if: success()
+        run: |
+          echo "X1000 - Controle statique reussi"
+          echo "Aucune publication automatique"
+          echo "Aucune fusion vers main"
+          echo "Aucune modification des archives"
+          echo "Test navigateur encore necessaire"
