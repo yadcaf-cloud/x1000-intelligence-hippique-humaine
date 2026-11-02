@@ -1,4 +1,4 @@
-name: "X1000 - Resultats et archives securises"
+name: "X1000 - Resultats et archives securises V1.2"
 
 on:
   workflow_dispatch:
@@ -20,12 +20,14 @@ concurrency:
 
 jobs:
   archives:
-    name: "Validation des resultats et archives"
+    name: "Protection historique des archives"
 
-    if: github.ref == 'refs/heads/feature/activation-pmu-analyses-archives'
+    if: >-
+      github.ref ==
+      'refs/heads/feature/activation-pmu-analyses-archives'
 
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     defaults:
       run:
@@ -39,30 +41,36 @@ jobs:
 
     steps:
       - name: "Recuperer la branche securisee"
+        id: checkout
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: "Installer Python 3.12"
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: "Verifier la branche et les fichiers"
+      - name: "Verifier branche et scripts"
         run: |
           set -euo pipefail
 
           test "$GITHUB_REF" = \
             "refs/heads/feature/activation-pmu-analyses-archives"
 
-          test -s resultats_archives.py
-          test -s pmu_engine.py
-          test -s analyse_hippique.py
+          for file in \
+            pmu_engine.py \
+            analyse_hippique.py \
+            resultats_archives.py
+          do
+            test -s "$file" || {
+              echo "::error::Script absent : $file"
+              exit 1
+            }
+          done
 
-          echo "Branche securisee confirmee."
-          echo "Trois moteurs Python presents."
-
-      - name: "Verifier la syntaxe Python"
+      - name: "Verifier syntaxe Python"
         run: |
           set -euo pipefail
 
@@ -70,90 +78,293 @@ jobs:
           import ast
           from pathlib import Path
 
-          scripts = (
+          for name in (
               "pmu_engine.py",
               "analyse_hippique.py",
               "resultats_archives.py",
-          )
-
-          for name in scripts:
-              path = Path(name)
-
+          ):
               ast.parse(
-                  path.read_text(encoding="utf-8"),
-                  filename=name
+                  Path(name).read_text(
+                      encoding="utf-8-sig"
+                  ),
+                  filename=name,
               )
-
               print("Syntaxe OK :", name)
           PY
 
-      - name: "Verifier l'etat initial du depot"
+      - name: "Recuperer reference main"
         run: |
           set -euo pipefail
 
-          git diff --exit-code
-          git diff --cached --exit-code
+          git fetch --no-tags origin \
+            +refs/heads/main:refs/remotes/origin/main
 
-          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
-            echo "::error::Fichiers non suivis avant validation."
-            git ls-files --others --exclude-standard
-            exit 1
-          fi
+          git cat-file -e \
+            "refs/remotes/origin/main^{commit}"
 
-          echo "Etat initial du depot propre."
+      - name: "Proteger historique des archives"
+        run: |
+          set -euo pipefail
 
-      - name: "Executer les autotests des archives"
+          python - <<'PY'
+          import subprocess
+
+          PREFIX = "data/archives_resultats/"
+
+          def git(*args):
+              return subprocess.check_output(
+                  ["git", *args]
+              )
+
+          def tracked(ref):
+              raw = git(
+                  "ls-tree", "-r", "-z",
+                  ref, "--", PREFIX
+              )
+
+              result = {}
+
+              for entry in raw.split(b"\0"):
+                  if not entry:
+                      continue
+
+                  metadata, path = entry.split(
+                      b"\t", 1
+                  )
+
+                  mode, kind, sha = (
+                      metadata.decode("ascii").split()
+                  )
+
+                  name = path.decode(
+                      "utf-8",
+                      errors="surrogateescape"
+                  )
+
+                  if kind != "blob" or mode != "100644":
+                      raise SystemExit(
+                          f"Archive non reguliere : {name}"
+                      )
+
+                  result[name] = sha
+
+              return result
+
+          def preserve(before, after, label):
+              for name, sha in before.items():
+                  if name not in after:
+                      raise SystemExit(
+                          f"{label} : archive supprimee : {name}"
+                      )
+
+                  if after[name] != sha:
+                      raise SystemExit(
+                          f"{label} : archive modifiee : {name}"
+                      )
+
+          main_ref = "refs/remotes/origin/main"
+
+          base = git(
+              "merge-base", main_ref, "HEAD"
+          ).decode().strip()
+
+          commits = git(
+              "rev-list",
+              "--reverse",
+              "--first-parent",
+              f"{base}..HEAD",
+          ).decode().splitlines()
+
+          previous = base
+
+          for commit in commits:
+              preserve(
+                  tracked(previous),
+                  tracked(commit),
+                  f"Commit {commit[:12]}",
+              )
+              previous = commit
+
+          preserve(
+              tracked(main_ref),
+              tracked("HEAD"),
+              "Comparaison avec main",
+          )
+
+          print("Commits controles :", len(commits))
+          print("Archives main :", len(tracked(main_ref)))
+          print("Archives branche :", len(tracked("HEAD")))
+          print("Protection historique : OK")
+          PY
+
+      - name: "Memoriser archives locales"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path("data/archives_resultats")
+          snapshot = {}
+
+          if root.is_symlink():
+              raise SystemExit(
+                  "Lien symbolique racine interdit"
+              )
+
+          if root.exists():
+              if not root.is_dir():
+                  raise SystemExit(
+                      "Repertoire archives invalide"
+                  )
+
+              for path in sorted(root.rglob("*")):
+                  if path.is_symlink():
+                      raise SystemExit(
+                          f"Lien symbolique interdit : {path}"
+                      )
+
+                  if path.is_file():
+                      key = path.relative_to(
+                          root
+                      ).as_posix()
+
+                      snapshot[key] = hashlib.sha256(
+                          path.read_bytes()
+                      ).hexdigest()
+
+          destination = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-archives-snapshot.json"
+          )
+
+          destination.write_text(
+              json.dumps(snapshot, sort_keys=True),
+              encoding="utf-8",
+          )
+
+          print("Archives memorisees :", len(snapshot))
+          PY
+
+      - name: "Executer autotests archives"
         run: |
           set -euo pipefail
 
           python resultats_archives.py --self-test
 
-          echo "Autotests archives termines."
-
-      - name: "Verifier les archives existantes"
+      - name: "Verifier archives existantes"
         run: |
           set -euo pipefail
 
           python resultats_archives.py --verify-archives
 
-          echo "Verification des archives terminee."
-
-      - name: "Verifier l'integrite apres validation"
-        if: always()
+      - name: "Verifier integrite finale"
+        if: always() && steps.checkout.outcome == 'success'
         run: |
           set -euo pipefail
 
-          git diff --exit-code
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path("data/archives_resultats")
+
+          destination = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-archives-snapshot.json"
+          )
+
+          if not destination.is_file():
+              print(
+                  "::notice::Snapshot non initialise"
+              )
+          else:
+              initial = json.loads(
+                  destination.read_text(encoding="utf-8")
+              )
+
+              current = {}
+
+              if root.is_symlink():
+                  raise SystemExit(
+                      "Lien symbolique racine interdit"
+                  )
+
+              if root.exists():
+                  if not root.is_dir():
+                      raise SystemExit(
+                          "Repertoire archives invalide"
+                      )
+
+                  for path in sorted(root.rglob("*")):
+                      if path.is_symlink():
+                          raise SystemExit(
+                              f"Lien symbolique interdit : {path}"
+                          )
+
+                      if path.is_file():
+                          key = path.relative_to(
+                              root
+                          ).as_posix()
+
+                          current[key] = hashlib.sha256(
+                              path.read_bytes()
+                          ).hexdigest()
+
+              if current != initial:
+                  changed = sorted(
+                      name
+                      for name in set(initial) | set(current)
+                      if initial.get(name) != current.get(name)
+                  )
+
+                  for name in changed:
+                      print(
+                          f"::error::Archive modifiee : {name}"
+                      )
+
+                  raise SystemExit(
+                      "Archives modifiees pendant les tests"
+                  )
+
+              print("SHA256 archives : OK")
+          PY
+
+          git diff --exit-code HEAD --
           git diff --cached --exit-code
 
           if [ -n "$(git ls-files --others --exclude-standard)" ]; then
-            echo "::error::Fichiers non suivis detectes."
-            git ls-files --others --exclude-standard
+            echo "::error::Fichiers non suivis detectes"
             exit 1
           fi
 
-          echo "Aucune modification du depot detectee."
+          echo "Depot Git intact"
 
-      - name: "Bilan de reussite"
+      - name: "Rapport de validation"
         if: success()
         run: |
-          echo "======================================"
-          echo "X1000 - ARCHIVES SECURISEES"
-          echo "======================================"
-          echo "Branche securisee : OK"
-          echo "Syntaxe Python : OK"
-          echo "Autotests archives : OK"
-          echo "Verification archives : OK"
-          echo "Integrite Git : OK"
-          echo "Resultat officiel invente : AUCUN"
-          echo "FIGE cree : AUCUN"
-          echo "Publication : DESACTIVEE"
-          echo "Modification main : AUCUNE"
-          echo "======================================"
+          {
+            echo "## X1000 - Archives securisees V1.2"
+            echo ""
+            echo "- Branche securisee : OK"
+            echo "- Syntaxe Python : OK"
+            echo "- Archives de main preservees : OK"
+            echo "- Historique branche controle : OK"
+            echo "- Autotests archives : OK"
+            echo "- Verification SHA256 : OK"
+            echo "- Integrite Git : OK"
+            echo "- Publication automatique : aucune"
+            echo "- Modification main : aucune"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: "Bilan d'echec"
+      - name: "Signaler un echec"
         if: failure()
         run: |
-          echo "::error::Validation des archives non reussie."
-          echo "Examiner les etapes precedentes."
+          echo "::error::Validation archives V1.2 echouee"
           echo "Ne pas fusionner vers main."
+          echo "Consulter les journaux GitHub Actions."
