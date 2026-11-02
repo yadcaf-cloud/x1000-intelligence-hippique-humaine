@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#071521">
-<meta name="description" content="X1000 PHOENIX — Intelligence Hippique Humaine, courses PMU françaises, analyses et cinq moteurs M1 à M5.">
+<meta name="description" content="X1000 PHOENIX — Intelligence Hippique Humaine, courses PMU françaises, analyses et moteurs M1 à M5.">
 <title>🇸🇳🧠🔥 X1000 PHOENIX</title>
 
 <style>
@@ -22,10 +22,7 @@
   --red: #ffaaaa;
 }
 * { box-sizing: border-box; }
-html {
-  scroll-behavior: smooth;
-  scroll-padding-top: 115px;
-}
+html { scroll-behavior: smooth; scroll-padding-top: 115px; }
 body {
   margin: 0;
   background: var(--bg);
@@ -53,10 +50,7 @@ nav {
   align-items: center;
   gap: 12px;
 }
-nav strong {
-  color: var(--gold);
-  margin-right: auto;
-}
+nav strong { color: var(--gold); margin-right: auto; }
 nav a {
   color: var(--text);
   text-decoration: none;
@@ -113,10 +107,7 @@ input, select, button {
 }
 input { flex: 2; min-width: 190px; }
 select { flex: 1; min-width: 180px; }
-button {
-  cursor: pointer;
-  background: #245947;
-}
+button { cursor: pointer; background: #245947; }
 button:hover { filter: brightness(1.15); }
 button:disabled { opacity: .5; cursor: wait; }
 .stats span {
@@ -125,14 +116,8 @@ button:disabled { opacity: .5; cursor: wait; }
   border-radius: 12px;
   padding: 12px 18px;
 }
-.notice.error {
-  border-color: #b85e5e;
-  color: var(--red);
-}
-.notice.ok {
-  border-color: #5fae91;
-  color: var(--green);
-}
+.notice.error { border-color: #b85e5e; color: var(--red); }
+.notice.ok { border-color: #5fae91; color: var(--green); }
 .horse {
   border-top: 1px solid var(--border);
   padding: 10px 0;
@@ -160,10 +145,7 @@ summary { cursor: pointer; font-weight: 700; }
   font-size: 1.15rem;
 }
 .subheading { margin-top: 30px; }
-footer {
-  text-align: center;
-  color: var(--muted);
-}
+footer { text-align: center; color: var(--muted); }
 [hidden] { display: none !important; }
 @media(max-width:600px) {
   header { position: relative; }
@@ -198,10 +180,7 @@ footer {
 
 <section id="accueil" class="hero">
   <p>OBSERVATION • DISCERNEMENT • AUTONOMIE • APPRENTISSAGE</p>
-  <h1>
-    🇸🇳🧠🔥 X1000 PHOENIX<br>
-    Intelligence Hippique Humaine
-  </h1>
+  <h1>🇸🇳🧠🔥 X1000 PHOENIX<br>Intelligence Hippique Humaine</h1>
   <p class="lead">
     Comprendre avant de prédire. Étudier chaque cheval.
     Déjouer les apparences. Décider indépendamment.
@@ -267,13 +246,11 @@ footer {
   Le site lit les publications et ne collecte
   pas directement les données PMU.
 </p>
-
 <div class="stats">
   <span id="countCourses">— courses</span>
   <span id="countHorses">— partants</span>
   <span id="updated">Collecte : inconnue</span>
 </div>
-
 <div class="controls">
   <input id="pmuSearch" type="search"
     placeholder="Course, hippodrome, cheval…"
@@ -284,9 +261,7 @@ footer {
   </select>
   <button id="reload" type="button">↻ Actualiser</button>
 </div>
-
-<p id="pmuStatus" class="notice"
-  role="status" aria-live="polite">
+<p id="pmuStatus" class="notice" role="status" aria-live="polite">
   Chargement des courses…
 </p>
 <div id="coursesList" class="grid"></div>
@@ -299,8 +274,7 @@ footer {
   des prévisions sportives. Une évaluation absente
   reste « Non évalué ».
 </p>
-<p id="analysisStatus" class="notice"
-  role="status" aria-live="polite">
+<p id="analysisStatus" class="notice" role="status" aria-live="polite">
   Chargement des analyses…
 </p>
 <div id="analysesList" class="grid"></div>
@@ -323,8 +297,7 @@ footer {
 <div class="grid">
 
 <article class="card motor">
-<h3><span class="motor-code">M1</span>
-Statistiques et performances</h3>
+<h3><span class="motor-code">M1</span> Statistiques et performances</h3>
 <p>
   M1 étudie la régularité, les performances historiques,
   les classements, les chronos et les aptitudes
@@ -339,8 +312,7 @@ Statistiques et performances</h3>
 </article>
 
 <article class="card motor">
-<h3><span class="motor-code">M2</span>
-Forme et dynamique actuelle</h3>
+<h3><span class="motor-code">M2</span> Forme et dynamique actuelle</h3>
 <p>
   M2 étudie la progression, les baisses de forme,
   les retours en condition et la cohérence
@@ -355,8 +327,7 @@ Forme et dynamique actuelle</h3>
 </article>
 
 <article class="card motor">
-<h3><span class="motor-code">M3</span>
-Aptitude et scénario de course</h3>
+<h3><span class="motor-code">M3</span> Aptitude et scénario de course</h3>
 <p>
   M3 examine la distance, la discipline,
   le terrain, le parcours, l'hippodrome
@@ -372,8 +343,7 @@ Aptitude et scénario de course</h3>
 </article>
 
 <article class="card motor">
-<h3><span class="motor-code">M4</span>
-Chevaux cachés et faux favoris</h3>
+<h3><span class="motor-code">M4</span> Chevaux cachés et faux favoris</h3>
 <p>
   M4 recherche les chevaux sous-estimés,
   les progrès discrets et les outsiders
@@ -389,8 +359,7 @@ Chevaux cachés et faux favoris</h3>
 </article>
 
 <article class="card motor">
-<h3><span class="motor-code">M5</span>
-Robustesse et contre-analyse</h3>
+<h3><span class="motor-code">M5</span> Robustesse et contre-analyse</h3>
 <p>
   M5 examine les contradictions, les risques,
   les informations manquantes, les performances
@@ -538,9 +507,13 @@ Aucune donnée hippique fictive.<br>
 "use strict";
 
 /*
- X1000 PHOENIX — PORTAIL V2.1
- Lecture seule, contrôles de cohérence,
- aucun pronostic ni résultat inventé.
+ X1000 PHOENIX — PORTAIL SECURISE V2.2
+
+ Lecture seule des JSON publiés.
+ Aucun cheval inventé.
+ Aucun pronostic inventé.
+ Aucun FIGÉ rétroactif.
+ Aucune écriture sur GitHub.
 */
 
 const $ = id => document.getElementById(id);
@@ -573,6 +546,9 @@ const MOTOR_NAMES = {
   M4: "Chevaux cachés et faux favoris",
   M5: "Robustesse et contre-analyse"
 };
+
+const TIMEOUT_MS = 15000;
+const FRESHNESS_MS = 3 * 60 * 60 * 1000;
 
 let courses = [];
 let analyses = [];
@@ -621,6 +597,8 @@ function node(tag, value = "") {
 
 function status(id, message, kind = "") {
   const item = $(id);
+  if (!item) return;
+
   item.textContent = message;
   item.className = "notice" + (kind ? " " + kind : "");
 }
@@ -631,6 +609,18 @@ function freshURL(path) {
   return url.href;
 }
 
+function httpMessage(path, code) {
+  if (code === 404) {
+    return (
+      "Fichier " + path +
+      " introuvable sur le site publié (HTTP 404). " +
+      "Vérifier la branche et les fichiers de GitHub Pages."
+    );
+  }
+
+  return "Erreur HTTP " + code + " pour " + path;
+}
+
 async function fetchJSON(path, signal) {
   const response = await fetch(freshURL(path), {
     cache: "no-store",
@@ -638,10 +628,18 @@ async function fetchJSON(path, signal) {
   });
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+    throw new Error(httpMessage(path, response.status));
   }
 
-  return response.json();
+  try {
+    return await response.json();
+  } catch (error) {
+    if (signal.aborted) throw error;
+
+    throw new Error(
+      "JSON illisible ou invalide : " + path
+    );
+  }
 }
 
 async function sha256(raw) {
@@ -650,8 +648,10 @@ async function sha256(raw) {
   }
 
   const bytes = new TextEncoder().encode(raw);
+
   const digest = await crypto.subtle.digest(
-    "SHA-256", bytes
+    "SHA-256",
+    bytes
   );
 
   return Array.from(
@@ -661,19 +661,31 @@ async function sha256(raw) {
 }
 
 async function fetchSource(signal) {
-  const response = await fetch(
-    freshURL("data/publication_courses.json"),
-    { cache: "no-store", signal }
-  );
+  const path = "data/publication_courses.json";
+
+  const response = await fetch(freshURL(path), {
+    cache: "no-store",
+    signal
+  });
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+    throw new Error(httpMessage(path, response.status));
   }
 
   const raw = await response.text();
 
+  let data;
+
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      "Fichier PMU invalide : JSON impossible à lire."
+    );
+  }
+
   return {
-    data: JSON.parse(raw),
+    data,
     hash: await sha256(raw)
   };
 }
@@ -684,7 +696,7 @@ function activeCount(course) {
   ).length;
 }
 
-/* VALIDATION PMU */
+/* VALIDATION DES COURSES PMU */
 
 function validCourse(course) {
   if (
@@ -697,7 +709,9 @@ function validCourse(course) {
     !Array.isArray(course.partants) ||
     !Array.isArray(course.non_partants) ||
     course.id.slice(0, 10) !== parisDay(course.depart)
-  ) return false;
+  ) {
+    return false;
+  }
 
   const horses = new Map();
   const actualNP = new Set();
@@ -710,7 +724,9 @@ function validCourse(course) {
       !txt(horse.nom) ||
       typeof horse.non_partant !== "boolean" ||
       horses.has(horse.numero)
-    ) return false;
+    ) {
+      return false;
+    }
 
     horses.set(horse.numero, horse);
 
@@ -724,13 +740,14 @@ function validCourse(course) {
   const declaredNP = new Set();
 
   for (const item of course.non_partants) {
-    if (!isObject(item)) return false;
-
     if (
+      !isObject(item) ||
       !Number.isSafeInteger(item.numero) ||
       !actualNP.has(item.numero) ||
       declaredNP.has(item.numero)
-    ) return false;
+    ) {
+      return false;
+    }
 
     const original = horses.get(item.numero);
 
@@ -740,7 +757,9 @@ function validCourse(course) {
         typeof item.nom === "string" &&
         txt(item.nom) !== txt(original.nom)
       )
-    ) return false;
+    ) {
+      return false;
+    }
 
     declaredNP.add(item.numero);
   }
@@ -752,12 +771,16 @@ function validCourse(course) {
   if (
     course.nombre_participants !== undefined &&
     course.nombre_participants !== horses.size
-  ) return false;
+  ) {
+    return false;
+  }
 
   if (
     course.nombre_partants !== undefined &&
     course.nombre_partants !== activeCount(course)
-  ) return false;
+  ) {
+    return false;
+  }
 
   return activeCount(course) >= 1;
 }
@@ -770,7 +793,9 @@ function validSource(payload) {
     !Array.isArray(payload.courses) ||
     !/^\d{4}-\d{2}-\d{2}$/.test(payload.date)
   ) {
-    throw new Error("Publication PMU invalide");
+    throw new Error(
+      "Publication PMU invalide : structure ou statut incorrect."
+    );
   }
 
   const ids = new Set();
@@ -794,7 +819,7 @@ function validSource(payload) {
   return { accepted, rejected };
 }
 
-/* AFFICHAGE COURSES */
+/* AFFICHAGE DES COURSES */
 
 function renderCourses() {
   const query = norm($("pmuSearch").value);
@@ -802,13 +827,16 @@ function renderCourses() {
   const container = $("coursesList");
 
   container.replaceChildren();
+
   let count = 0;
 
   for (const course of courses) {
     if (
       discipline &&
       course.discipline !== discipline
-    ) continue;
+    ) {
+      continue;
+    }
 
     const searchText = [
       course.id,
@@ -817,7 +845,10 @@ function renderCourses() {
       ...course.partants.map(h => h.nom)
     ].join(" ");
 
-    if (query && !norm(searchText).includes(query)) {
+    if (
+      query &&
+      !norm(searchText).includes(query)
+    ) {
       continue;
     }
 
@@ -843,7 +874,10 @@ function renderCourses() {
     );
 
     const details = node("details");
-    details.append(node("summary", "Voir les chevaux"));
+
+    details.append(
+      node("summary", "Voir les chevaux")
+    );
 
     for (const horse of course.partants) {
       const line = node(
@@ -867,7 +901,10 @@ function renderCourses() {
 
   if (!count) {
     container.append(
-      node("p", "Aucune course correspondant aux filtres.")
+      node(
+        "p",
+        "Aucune course correspondant aux filtres."
+      )
     );
   }
 }
@@ -879,17 +916,23 @@ function validAnalysis(analysis, course) {
     !isObject(analysis) ||
     analysis.id !== course.id ||
     !Array.isArray(analysis.chevaux)
-  ) return false;
+  ) {
+    return false;
+  }
 
   if (
     analysis.depart !== undefined &&
     analysis.depart !== course.depart
-  ) return false;
+  ) {
+    return false;
+  }
 
   if (
     analysis.discipline !== undefined &&
     analysis.discipline !== course.discipline
-  ) return false;
+  ) {
+    return false;
+  }
 
   const expected = new Map(
     course.partants.map(h => [h.numero, h])
@@ -904,12 +947,16 @@ function validAnalysis(analysis, course) {
       seen.has(horse.numero) ||
       !expected.has(horse.numero) ||
       txt(horse.nom) !== txt(expected.get(horse.numero).nom)
-    ) return false;
+    ) {
+      return false;
+    }
 
     if (
       horse.evaluation_sportive !== undefined &&
       horse.evaluation_sportive !== "NON_EVALUE"
-    ) return false;
+    ) {
+      return false;
+    }
 
     seen.add(horse.numero);
   }
@@ -931,6 +978,7 @@ function renderAnalyses() {
     );
 
     const details = node("details");
+
     details.append(
       node("summary", "Étude cheval par cheval")
     );
@@ -957,14 +1005,22 @@ function renderAnalyses() {
 
   if (!analyses.length) {
     container.append(
-      node("p", "Aucune analyse descriptive disponible.")
+      node(
+        "p",
+        "Aucune analyse descriptive disponible."
+      )
     );
   }
 }
 
 /* FIGES M1 A M5 */
 
-function validMotorDecision(decision, course, key, publishedAt) {
+function validMotorDecision(
+  decision,
+  course,
+  key,
+  publishedAt
+) {
   if (
     !Object.prototype.hasOwnProperty.call(MOTOR_NAMES, key) ||
     !isObject(decision) ||
@@ -973,7 +1029,9 @@ function validMotorDecision(decision, course, key, publishedAt) {
     !validDate(decision.fige_a) ||
     !Array.isArray(decision.positions) ||
     decision.positions.length !== 5
-  ) return false;
+  ) {
+    return false;
+  }
 
   const depart = Date.parse(course.depart);
   const fige = Date.parse(decision.fige_a);
@@ -985,7 +1043,9 @@ function validMotorDecision(decision, course, key, publishedAt) {
     !Number.isFinite(publication) ||
     fige >= depart ||
     fige > publication
-  ) return false;
+  ) {
+    return false;
+  }
 
   const active = new Set(
     course.partants
@@ -1001,7 +1061,9 @@ function validMotorDecision(decision, course, key, publishedAt) {
       number <= 0 ||
       !active.has(number) ||
       selected.has(number)
-    ) return false;
+    ) {
+      return false;
+    }
 
     selected.add(number);
   }
@@ -1014,14 +1076,19 @@ function validMotorCourse(item, course, publishedAt) {
     !isObject(item) ||
     item.id !== course.id ||
     !isObject(item.moteurs)
-  ) return false;
+  ) {
+    return false;
+  }
 
   const entries = Object.entries(item.moteurs);
 
   return entries.length > 0 &&
     entries.every(([key, decision]) =>
       validMotorDecision(
-        decision, course, key, publishedAt
+        decision,
+        course,
+        key,
+        publishedAt
       )
     );
 }
@@ -1033,6 +1100,7 @@ function renderMotors() {
   for (const item of moteurs) {
     const card = node("article");
     card.className = "card";
+
     card.append(node("h3", item.id));
 
     for (const [key, decision] of Object.entries(item.moteurs)) {
@@ -1074,7 +1142,10 @@ function renderMotors() {
 
   if (!moteurs.length) {
     container.append(
-      node("p", "Aucune décision FIGÉE cohérente disponible.")
+      node(
+        "p",
+        "Aucune décision FIGÉE cohérente disponible."
+      )
     );
   }
 }
@@ -1117,6 +1188,7 @@ async function loadData(id, activeController) {
     if (!current()) return;
 
     const result = validSource(source.data);
+
     courses = result.accepted;
     sourceHash = source.hash;
 
@@ -1160,7 +1232,7 @@ async function loadData(id, activeController) {
     const stale =
       !Number.isFinite(age) ||
       age < -300000 ||
-      age > 10800000;
+      age > FRESHNESS_MS;
 
     status(
       "pmuStatus",
@@ -1179,6 +1251,7 @@ async function loadData(id, activeController) {
 
     courses = [];
     sourceHash = "";
+
     $("coursesList").replaceChildren();
 
     status(
@@ -1196,11 +1269,13 @@ async function loadData(id, activeController) {
       "Analyses indisponibles : aucune course validée.",
       "error"
     );
+
     status(
       "motorsStatus",
       "FIGÉs indisponibles : aucune course validée.",
       "error"
     );
+
     return;
   }
 
@@ -1224,7 +1299,7 @@ async function loadData(id, activeController) {
       payload.source_sha256.toLowerCase() !== sourceHash
     ) {
       throw new Error(
-        "Statut ou empreinte SHA256 des analyses incompatible"
+        "Statut ou empreinte SHA256 des analyses incompatible."
       );
     }
 
@@ -1238,7 +1313,7 @@ async function loadData(id, activeController) {
         !validAnalysis(item, byId.get(item.id))
       ) {
         throw new Error(
-          "Analyse invalide ou dupliquée"
+          "Analyse invalide ou dupliquée."
         );
       }
 
@@ -1286,7 +1361,7 @@ async function loadData(id, activeController) {
       payload.source_sha256.toLowerCase() !== sourceHash
     ) {
       throw new Error(
-        "Statut, date ou empreinte SHA256 des moteurs incompatible"
+        "Statut, date ou empreinte SHA256 des moteurs incompatible."
       );
     }
 
@@ -1304,7 +1379,7 @@ async function loadData(id, activeController) {
         )
       ) {
         throw new Error(
-          "Décision FIGÉE invalide ou dupliquée"
+          "Décision FIGÉE invalide ou dupliquée."
         );
       }
 
@@ -1354,7 +1429,7 @@ async function refresh() {
 
   const timeout = setTimeout(
     () => activeController.abort(),
-    15000
+    TIMEOUT_MS
   );
 
   $("reload").disabled = true;
@@ -1362,6 +1437,7 @@ async function refresh() {
 
   try {
     await loadData(id, activeController);
+
   } catch (error) {
     if (id === refreshId) {
       status(
@@ -1370,30 +1446,36 @@ async function refresh() {
         "error"
       );
     }
+
   } finally {
     clearTimeout(timeout);
 
     if (id === refreshId) {
       if (activeController.signal.aborted) {
-        resetDisplay();
+        // Conserver les données déjà validées.
+        if (!courses.length) {
+          status(
+            "pmuStatus",
+            "Chargement interrompu ou délai dépassé. Réessayez.",
+            "error"
+          );
+        }
 
-        status(
-          "pmuStatus",
-          "Chargement interrompu ou délai dépassé. Réessayez.",
-          "error"
-        );
+        if (!analyses.length) {
+          status(
+            "analysisStatus",
+            "Analyses non chargées : délai dépassé ou interruption.",
+            "error"
+          );
+        }
 
-        status(
-          "analysisStatus",
-          "Chargement interrompu.",
-          "error"
-        );
-
-        status(
-          "motorsStatus",
-          "Chargement interrompu.",
-          "error"
-        );
+        if (!moteurs.length) {
+          status(
+            "motorsStatus",
+            "FIGÉs non chargés : délai dépassé ou interruption.",
+            "error"
+          );
+        }
       }
 
       $("reload").disabled = false;
@@ -1402,7 +1484,7 @@ async function refresh() {
   }
 }
 
-/* LES 16 PRINCIPES */
+/* LES 16 PRINCIPES FONDATEURS */
 
 const principles = [
   [
@@ -1476,12 +1558,15 @@ function renderPrinciples() {
   const container = $("principlesList");
 
   container.replaceChildren();
+
   let count = 0;
 
   principles.forEach(([title, description], index) => {
     if (
       !norm(title + " " + description).includes(query)
-    ) return;
+    ) {
+      return;
+    }
 
     count++;
 
@@ -1501,19 +1586,23 @@ function renderPrinciples() {
 /* INITIALISATION */
 
 $("pmuSearch").addEventListener(
-  "input", renderCourses
+  "input",
+  renderCourses
 );
 
 $("pmuDiscipline").addEventListener(
-  "change", renderCourses
+  "change",
+  renderCourses
 );
 
 $("reload").addEventListener(
-  "click", refresh
+  "click",
+  refresh
 );
 
 $("principleSearch").addEventListener(
-  "input", renderPrinciples
+  "input",
+  renderPrinciples
 );
 
 $("clearSearch").addEventListener(
