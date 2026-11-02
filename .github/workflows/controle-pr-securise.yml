@@ -1,4 +1,4 @@
-name: "X1000 - Controle officiel avant fusion V1.1"
+name: "X1000 - Controle officiel avant fusion V1.3"
 
 on:
   workflow_dispatch:
@@ -22,19 +22,18 @@ concurrency:
 
 jobs:
   validation:
-    name: "Validation generale securisee"
+    name: "Controle officiel securise"
 
     if: >-
       (github.event_name == 'workflow_dispatch' &&
-       github.ref == 'refs/heads/feature/activation-pmu-analyses-archives')
-      ||
+       github.ref == 'refs/heads/feature/activation-pmu-analyses-archives') ||
       (github.event_name == 'pull_request' &&
        github.event.pull_request.head.repo.full_name == github.repository &&
        github.head_ref == 'feature/activation-pmu-analyses-archives' &&
        github.base_ref == 'main')
 
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     defaults:
       run:
@@ -45,21 +44,51 @@ jobs:
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONUNBUFFERED: "1"
       PYTHONNOUSERSITE: "1"
-      PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
     steps:
-      - name: "Recuperer les fichiers"
+      - name: "Recuperer branche et historique"
+        id: checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
-          fetch-depth: 1
 
       - name: "Installer Python 3.12"
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: "Verifier les scripts et leur syntaxe"
+      - name: "Identifier les references"
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin \
+            +refs/heads/main:refs/remotes/origin/main
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            BASE_SHA="$PR_BASE"
+            HEAD_SHA="$PR_HEAD"
+          else
+            BASE_SHA="$(git rev-parse refs/remotes/origin/main)"
+            HEAD_SHA="$(git rev-parse HEAD)"
+          fi
+
+          git cat-file -e "${BASE_SHA}^{commit}"
+          git cat-file -e "${HEAD_SHA}^{commit}"
+
+          test "$(git rev-parse HEAD)" = "$HEAD_SHA"
+
+          echo "BASE_SHA=$BASE_SHA" >> "$GITHUB_ENV"
+          echo "HEAD_SHA=$HEAD_SHA" >> "$GITHUB_ENV"
+
+          echo "References Git : OK"
+
+      - name: "Verifier syntaxe des scripts"
         run: |
           set -euo pipefail
 
@@ -67,72 +96,27 @@ jobs:
           import ast
           from pathlib import Path
 
-          scripts = (
+          for name in (
               "pmu_engine.py",
               "analyse_hippique.py",
               "resultats_archives.py",
-          )
-
-          for name in scripts:
+          ):
               path = Path(name)
 
-              if not path.is_file():
+              if not path.is_file() or not path.stat().st_size:
                   raise SystemExit(
-                      f"Script absent : {name}"
-                  )
-
-              if not path.stat().st_size:
-                  raise SystemExit(
-                      f"Script vide : {name}"
+                      f"Script absent ou vide : {name}"
                   )
 
               ast.parse(
-                  path.read_text(
-                      encoding="utf-8-sig"
-                  ),
+                  path.read_text(encoding="utf-8-sig"),
                   filename=name,
               )
 
               print("Syntaxe OK :", name)
           PY
 
-      - name: "Verifier les fichiers JSON"
-        run: |
-          set -euo pipefail
-
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          files = (
-              "data/publication_courses.json",
-              "data/publication_analyses.json",
-              "data/diagnostic_collecte_pmu.json",
-          )
-
-          for name in files:
-              path = Path(name)
-
-              if not path.is_file():
-                  raise SystemExit(
-                      f"Fichier absent : {name}"
-                  )
-
-              with path.open(
-                  encoding="utf-8"
-              ) as f:
-                  data = json.load(f)
-
-              if not isinstance(data, dict):
-                  raise SystemExit(
-                      f"Objet JSON attendu : {name}"
-                  )
-
-              print("JSON valide :", name)
-
-          PY
-
-      - name: "Verifier la structure PMU et les analyses"
+      - name: "Verifier publications et structure PMU"
         run: |
           set -euo pipefail
 
@@ -145,69 +129,311 @@ jobs:
               validate_course,
           )
 
-          with Path(
-              "data/publication_courses.json"
-          ).open(encoding="utf-8") as f:
-              payload = json.load(f)
+          def unique_keys(pairs):
+              result = {}
 
-          date = validate(payload)
-          ids = set()
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(
+                          f"Cle JSON dupliquee : {key}"
+                      )
+                  result[key] = value
 
-          for course in payload["courses"]:
-              cid = validate_course(
-                  course, date
+              return result
+
+          def reject_constant(value):
+              raise ValueError(
+                  f"Constante interdite : {value}"
               )
 
+          def load_json(name):
+              path = Path(name)
+
+              if not path.is_file():
+                  raise SystemExit(
+                      f"Fichier absent : {name}"
+                  )
+
+              payload = json.loads(
+                  path.read_text(encoding="utf-8-sig"),
+                  object_pairs_hook=unique_keys,
+                  parse_constant=reject_constant,
+              )
+
+              if not isinstance(payload, dict):
+                  raise SystemExit(
+                      f"Objet JSON attendu : {name}"
+                  )
+
+              return payload
+
+          courses = load_json(
+              "data/publication_courses.json"
+          )
+
+          load_json("data/publication_analyses.json")
+          load_json("data/diagnostic_collecte_pmu.json")
+
+          date = validate(courses)
+
+          items = courses.get("courses")
+
+          if not isinstance(items, list):
+              raise SystemExit(
+                  "Liste des courses invalide"
+              )
+
+          ids = set()
+
+          for course in items:
+              cid = validate_course(course, date)
+
+              if not isinstance(cid, str) or not cid:
+                  raise SystemExit(
+                      "Identifiant course invalide"
+                  )
+
               if cid in ids:
-                  raise ValueError(
+                  raise SystemExit(
                       f"Course dupliquee : {cid}"
                   )
 
               ids.add(cid)
 
+          if not ids:
+              raise SystemExit(
+                  "Aucune course PMU verifiee"
+              )
+
           print("Date PMU :", date)
-          print("Courses validees :", len(ids))
-          print("Structure PMU : OK")
+          print("Courses :", len(ids))
+          print("Publications et structure : OK")
           PY
 
-      - name: "Memoriser les empreintes SHA256"
+      - name: "Proteger les archives avant fusion"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          PREFIX = "data/archives_resultats/"
+          MAX_SIZE = 2_000_000
+
+          def git(*args):
+              return subprocess.check_output(
+                  ["git", *args]
+              )
+
+          def archives(ref):
+              raw = git(
+                  "ls-tree", "-r", "-z",
+                  ref, "--", PREFIX
+              )
+
+              result = {}
+
+              for entry in raw.split(b"\0"):
+                  if not entry:
+                      continue
+
+                  meta, path = entry.split(b"\t", 1)
+                  mode, kind, sha = (
+                      meta.decode("ascii").split()
+                  )
+
+                  name = os.fsdecode(path)
+
+                  if mode != "100644" or kind != "blob":
+                      raise SystemExit(
+                          f"Archive non reguliere : {name}"
+                      )
+
+                  result[name] = sha
+
+              return result
+
+          def preserve(before, after, label):
+              for name, sha in before.items():
+                  if after.get(name) != sha:
+                      raise SystemExit(
+                          f"{label} : archive modifiee "
+                          f"ou supprimee : {name}"
+                      )
+
+          def unique_keys(pairs):
+              result = {}
+
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(
+                          "Cle JSON dupliquee"
+                      )
+                  result[key] = value
+
+              return result
+
+          def reject_constant(value):
+              raise ValueError(
+                  f"Constante interdite : {value}"
+              )
+
+          def validate_archive(name, sha):
+              if not name.endswith(".json"):
+                  raise SystemExit(
+                      f"Extension interdite : {name}"
+                  )
+
+              size = int(
+                  git("cat-file", "-s", sha)
+                  .decode().strip()
+              )
+
+              if size > MAX_SIZE:
+                  raise SystemExit(
+                      f"Archive trop volumineuse : {name}"
+                  )
+
+              raw = git("cat-file", "blob", sha)
+
+              payload = json.loads(
+                  raw.decode("utf-8-sig"),
+                  object_pairs_hook=unique_keys,
+                  parse_constant=reject_constant,
+              )
+
+              if not isinstance(payload, dict):
+                  raise SystemExit(
+                      f"Archive JSON invalide : {name}"
+                  )
+
+              print("Archive JSON controlee :", name)
+
+          base = os.environ["BASE_SHA"]
+          head = os.environ["HEAD_SHA"]
+
+          ancestor = git(
+              "merge-base", base, head
+          ).decode().strip()
+
+          if not ancestor:
+              raise SystemExit(
+                  "Ancetre commun introuvable"
+              )
+
+          preserve(
+              archives(base),
+              archives(head),
+              "Protection main",
+          )
+
+          preserve(
+              archives(ancestor),
+              archives(head),
+              "Protection origine",
+          )
+
+          commits = git(
+              "rev-list",
+              "--reverse",
+              "--topo-order",
+              f"{ancestor}..{head}",
+          ).decode().splitlines()
+
+          checked = set()
+
+          for commit in commits:
+              current = archives(commit)
+
+              parents = git(
+                  "rev-list",
+                  "--parents",
+                  "-n", "1",
+                  commit,
+              ).decode().strip().split()[1:]
+
+              if not parents:
+                  raise SystemExit(
+                      f"Commit sans parent : {commit}"
+                  )
+
+              for parent in parents:
+                  previous = archives(parent)
+
+                  preserve(
+                      previous,
+                      current,
+                      f"Commit {commit[:12]}",
+                  )
+
+                  for name, sha in current.items():
+                      if name not in previous:
+                          key = (name, sha)
+
+                          if key not in checked:
+                              validate_archive(name, sha)
+                              checked.add(key)
+
+          final = archives(head)
+
+          for name, sha in final.items():
+              if not name.endswith(".json"):
+                  raise SystemExit(
+                      f"Extension interdite : {name}"
+                  )
+
+          print("Commits verifies :", len(commits))
+          print("Archives finales :", len(final))
+          print("Archives ajoutees controlees :", len(checked))
+          print("Protection historique : OK")
+          PY
+
+      - name: "Memoriser integrite initiale"
         run: |
           set -euo pipefail
 
           python - <<'PY'
           import hashlib
           import json
+          import os
+          import subprocess
           from pathlib import Path
+
+          raw = subprocess.check_output(
+              ["git", "ls-files", "-z"]
+          )
 
           snapshot = {}
 
-          for path in Path(".").rglob("*"):
-              if not path.is_file():
+          for entry in raw.split(b"\0"):
+              if not entry:
                   continue
 
-              if ".git" in path.parts:
-                  continue
+              name = os.fsdecode(entry)
+              path = Path(name)
 
-              snapshot[path.as_posix()] = (
-                  hashlib.sha256(
-                      path.read_bytes()
-                  ).hexdigest()
-              )
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit(
+                      f"Fichier suivi invalide : {name}"
+                  )
 
-          Path(
-              "/tmp/x1000-controle-snapshot.json"
-          ).write_text(
-              json.dumps(
-                  snapshot,
-                  sort_keys=True
-              ),
-              encoding="utf-8"
+              snapshot[name] = hashlib.sha256(
+                  path.read_bytes()
+              ).hexdigest()
+
+          target = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-controle-snapshot.json"
           )
 
-          print(
-              "Fichiers proteges :",
-              len(snapshot)
+          target.write_text(
+              json.dumps(snapshot, sort_keys=True),
+              encoding="utf-8",
           )
+
+          print("Fichiers memorises :", len(snapshot))
           PY
 
       - name: "Executer les trois autotests"
@@ -218,87 +444,91 @@ jobs:
           python analyse_hippique.py --self-test
           python resultats_archives.py --self-test
 
-          echo "Trois autotests termines."
-
-      - name: "Verifier les archives historiques"
+      - name: "Verifier archives existantes"
         run: |
           set -euo pipefail
 
           python resultats_archives.py --verify-archives
 
-          echo "Verification archives terminee."
-
-      - name: "Tester les analyses sans publication"
+      - name: "Tester analyses sans publication"
         run: |
           set -euo pipefail
 
           python analyse_hippique.py --dry-run
 
-          echo "Analyse en lecture seule terminee."
-
-      - name: "Verifier integrite finale SHA256"
-        if: always()
+      - name: "Verifier integrite finale"
+        if: always() && steps.checkout.outcome == 'success'
         run: |
           set -euo pipefail
 
           python - <<'PY'
           import hashlib
           import json
+          import os
+          import subprocess
           from pathlib import Path
 
-          snapshot_path = Path(
-              "/tmp/x1000-controle-snapshot.json"
+          target = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-controle-snapshot.json"
           )
 
-          if not snapshot_path.is_file():
-              raise SystemExit(
-                  "Empreintes initiales absentes"
+          if not target.is_file():
+              print(
+                  "::warning::Snapshot initial absent"
+              )
+          else:
+              initial = json.loads(
+                  target.read_text(encoding="utf-8")
               )
 
-          snapshot = json.loads(
-              snapshot_path.read_text(
-                  encoding="utf-8"
+              current = {}
+
+              raw = subprocess.check_output(
+                  ["git", "ls-files", "-z"]
               )
-          )
 
-          current = {}
+              for entry in raw.split(b"\0"):
+                  if not entry:
+                      continue
 
-          for path in Path(".").rglob("*"):
-              if not path.is_file():
-                  continue
+                  name = os.fsdecode(entry)
+                  path = Path(name)
 
-              if ".git" in path.parts:
-                  continue
+                  if path.is_symlink() or not path.is_file():
+                      raise SystemExit(
+                          f"Fichier suivi invalide : {name}"
+                      )
 
-              current[path.as_posix()] = (
-                  hashlib.sha256(
+                  current[name] = hashlib.sha256(
                       path.read_bytes()
                   ).hexdigest()
-              )
 
-          modified = sorted(
-              name
-              for name in set(snapshot) | set(current)
-              if snapshot.get(name) != current.get(name)
-          )
-
-          if modified:
-              for name in modified:
-                  print(
-                      f"::error::Fichier modifie : {name}"
+              if current != initial:
+                  changed = sorted(
+                      name
+                      for name in set(initial) | set(current)
+                      if initial.get(name) != current.get(name)
                   )
 
-              raise SystemExit(
-                  "Integrite SHA256 non respectee"
-              )
+                  for name in changed:
+                      print(
+                          f"::error::Fichier modifie : {name}"
+                      )
 
-          print("Integrite SHA256 : OK")
+                  raise SystemExit(
+                      "Integrite SHA256 non respectee"
+                  )
+
+              print("Empreintes SHA256 : OK")
           PY
 
-          git diff --exit-code
+          git diff --exit-code HEAD --
           git diff --cached --exit-code
 
-          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+          if [ -n "$(
+            git ls-files --others --exclude-standard
+          )" ]; then
             echo "::error::Fichiers non suivis detectes"
             git ls-files --others --exclude-standard
             exit 1
@@ -306,29 +536,26 @@ jobs:
 
           echo "Integrite Git : OK"
 
-      - name: "Rapport officiel"
+      - name: "Rapport de validation"
         if: success()
         run: |
           {
-            echo "## X1000 - Validation officielle V1.1"
+            echo "## X1000 - Controle officiel V1.3"
             echo ""
-            echo "- Branche securisee : OK"
             echo "- Syntaxe Python : OK"
-            echo "- Fichiers JSON : OK"
+            echo "- Publications JSON : OK"
             echo "- Structure PMU : OK"
-            echo "- Trois autotests : OK"
             echo "- Archives historiques : OK"
+            echo "- Trois autotests : OK"
+            echo "- Verification archives : OK"
             echo "- Analyse dry-run : OK"
             echo "- Integrite SHA256 : OK"
-            echo "- Integrite Git : OK"
-            echo "- Publication : DESACTIVEE"
-            echo "- FIGE cree : AUCUN"
-            echo "- Fusion automatique : AUCUNE"
+            echo "- Publication : aucune"
+            echo "- Fusion automatique : aucune"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: "Signaler un echec"
         if: failure()
         run: |
-          echo "::error::Validation officielle X1000 echouee."
+          echo "::error::Controle officiel X1000 V1.3 echoue"
           echo "Ne pas fusionner vers main."
-          echo "Examiner les erreurs avant correction."
