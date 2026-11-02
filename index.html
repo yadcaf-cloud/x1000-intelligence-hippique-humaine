@@ -33,8 +33,10 @@ body {
   font: 16px/1.6 system-ui, -apple-system, sans-serif;
 }
 a { color: var(--green); }
-a:focus-visible, button:focus-visible,
-input:focus-visible, select:focus-visible,
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
 summary:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 3px;
@@ -87,7 +89,10 @@ h3 {
 .muted, small { color: var(--muted); }
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(
+    auto-fit,
+    minmax(min(260px, 100%), 1fr)
+  );
   gap: 15px;
 }
 .card, .notice, details {
@@ -167,6 +172,7 @@ footer {
   color: var(--muted);
 }
 [hidden] { display: none !important; }
+
 @media (max-width: 600px) {
   header { position: relative; }
   section { scroll-margin-top: 15px; }
@@ -194,7 +200,6 @@ footer {
 </header>
 
 <main>
-
 <section id="accueil" class="hero">
   <p>OBSERVATION • DISCERNEMENT • APPRENTISSAGE</p>
   <h1>🇸🇳🧠🔥 X1000<br>Intelligence Hippique Humaine</h1>
@@ -243,16 +248,15 @@ footer {
 <h2>🏇 Courses PMU françaises réelles</h2>
 <p class="muted">
   Source : data/publication_courses.json.
-  Seules les courses dont la localisation française
-  et le départ sont explicitement vérifiés sont affichées.
+  Affichage limité aux courses dont la localisation française
+  et le départ sont explicitement vérifiés.
+  Le site ne collecte pas directement les données.
 </p>
-
 <div class="stats">
   <span id="countCourses">— courses</span>
   <span id="countHorses">— partants</span>
   <span id="updated">Collecte : inconnue</span>
 </div>
-
 <div class="controls">
   <input id="pmuSearch" type="search"
     placeholder="Course, hippodrome, cheval…"
@@ -263,8 +267,8 @@ footer {
   </select>
   <button id="reload" type="button">↻ Actualiser</button>
 </div>
-
-<p id="pmuStatus" class="notice" role="status">
+<p id="pmuStatus" class="notice"
+   role="status" aria-live="polite">
   Chargement du programme PMU…
 </p>
 <div id="coursesList" class="grid"></div>
@@ -273,11 +277,12 @@ footer {
 <section id="analyses">
 <h2>🧠 Analyses automatiques factuelles</h2>
 <p>
-  Observations publiées cheval par cheval, sans classement
-  ni pronostic fictif. Une évaluation absente reste
-  « Non évalué ».
+  Observations publiées cheval par cheval,
+  sans classement ni pronostic fictif.
+  Une évaluation absente reste « Non évalué ».
 </p>
-<p id="analysisStatus" class="notice" role="status">
+<p id="analysisStatus" class="notice"
+   role="status" aria-live="polite">
   Chargement des analyses…
 </p>
 <div id="analysesList" class="grid"></div>
@@ -287,7 +292,8 @@ footer {
 <h2>🔐 Résultats et archives</h2>
 <p>
   Les résultats ne sont affichés que lorsqu'ils proviennent
-  de sources officielles attestées. Aucun FIGÉ rétroactif.
+  de sources officielles attestées.
+  Aucun FIGÉ rétroactif.
 </p>
 <p id="archivesStatus" class="notice" role="status">
   Index public des archives non configuré.
@@ -320,8 +326,8 @@ footer {
 <p>
   Un favori doit démontrer sa valeur sportive ;
   un outsider ne doit pas être écarté sans raison.
-  Les erreurs servent à apprendre, non à dissimuler
-  les faiblesses.
+  Les erreurs servent à apprendre,
+  non à dissimuler les faiblesses.
 </p>
 <p class="quote">
   « Étudier largement. Observer profondément.
@@ -330,7 +336,6 @@ footer {
   Apprendre continuellement. »
 </p>
 </section>
-
 </main>
 
 <footer>
@@ -344,9 +349,7 @@ footer {
 <script>
 "use strict";
 
-/* =========================================
-   X1000 — OUTILS SÉCURISÉS
-========================================= */
+/* OUTILS ET VALIDATION */
 
 const $ = id => document.getElementById(id);
 
@@ -358,6 +361,23 @@ const norm = value =>
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+
+const record = value =>
+  value !== null &&
+  typeof value === "object" &&
+  !Array.isArray(value);
+
+const hexSHA256 = value =>
+  typeof value === "string" &&
+  /^[a-f\d]{64}$/i.test(value);
+
+const courseID =
+  /^\d{4}-\d{2}-\d{2}-R[1-9]\d*-C[1-9]\d*$/;
+
+let courses = [];
+let analyses = [];
+let currentController = null;
+let refreshSequence = 0;
 
 function validDate(value) {
   return typeof value === "string" &&
@@ -388,9 +408,7 @@ function parisDay(value) {
   const get = type =>
     parts.find(p => p.type === type)?.value || "";
 
-  return get("year") + "-" +
-         get("month") + "-" +
-         get("day");
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 function element(tag, value) {
@@ -399,51 +417,78 @@ function element(tag, value) {
   return node;
 }
 
-function setStatus(id, message, ok = false) {
+function setStatus(id, message, kind = "") {
   const node = $(id);
   node.textContent = message;
-  node.className = "notice " + (ok ? "ok" : "error");
+  node.className = "notice" + (kind ? " " + kind : "");
 }
 
-async function fetchJSON(path) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 15000);
+async function fetchJSON(path, signal) {
+  const url = new URL(path, document.baseURI);
+  url.searchParams.set("v", String(Date.now()));
 
-  try {
-    const url = new URL(path, document.baseURI);
-    url.searchParams.set("v", String(Date.now()));
+  const response = await fetch(url.href, {
+    cache: "no-store",
+    signal
+  });
 
-    const response = await fetch(url.href, {
-      cache: "no-store",
-      signal: controller.signal
-    });
-
-    if (!response.ok) {
-      throw new Error("HTTP " + response.status);
-    }
-
-    return await response.json();
-  } finally {
-    clearTimeout(timer);
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
   }
+
+  return response.json();
 }
 
-/* =========================================
-   X1000 — VALIDATION DES COURSES
-========================================= */
+async function sha256Text(text) {
+  if (!globalThis.crypto?.subtle) {
+    throw new Error(
+      "SHA256 indisponible : HTTPS requis"
+    );
+  }
 
-let courses = [];
-let analyses = [];
+  const bytes = new TextEncoder().encode(text);
+  const hash = await crypto.subtle.digest(
+    "SHA-256",
+    bytes
+  );
+
+  return Array.from(
+    new Uint8Array(hash),
+    b => b.toString(16).padStart(2, "0")
+  ).join("");
+}
+
+async function fetchCourses(signal) {
+  const url = new URL(
+    "data/publication_courses.json",
+    document.baseURI
+  );
+
+  url.searchParams.set("v", String(Date.now()));
+
+  const response = await fetch(url.href, {
+    cache: "no-store",
+    signal
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  const raw = await response.text();
+
+  return {
+    data: JSON.parse(raw),
+    hash: await sha256Text(raw)
+  };
+}
+
+/* VALIDATION DES COURSES */
 
 function validCourse(course) {
   if (
-    !course ||
-    typeof course !== "object" ||
-    Array.isArray(course)
-  ) return false;
-
-  if (
-    !/^\d{4}-\d{2}-\d{2}-R[1-9]\d*-C[1-9]\d*$/.test(txt(course.id)) ||
+    !record(course) ||
+    !courseID.test(txt(course.id)) ||
     course.localisation_france_verifiee !== true ||
     course.depart_verifie !== true ||
     !validDate(course.depart) ||
@@ -452,18 +497,17 @@ function validCourse(course) {
     !Array.isArray(course.non_partants)
   ) return false;
 
-  if (course.id.slice(0, 10) !== parisDay(course.depart)) {
-    return false;
-  }
+  if (
+    course.id.slice(0, 10) !== parisDay(course.depart)
+  ) return false;
 
   const numbers = new Set();
   const nonPartants = new Set();
 
   for (const p of course.partants) {
     if (
-      !p ||
-      typeof p !== "object" ||
-      !Number.isInteger(p.numero) ||
+      !record(p) ||
+      !Number.isSafeInteger(p.numero) ||
       p.numero <= 0 ||
       !txt(p.nom) ||
       typeof p.non_partant !== "boolean" ||
@@ -477,12 +521,21 @@ function validCourse(course) {
     }
   }
 
-  if (
-    course.non_partants.length !== nonPartants.size ||
-    !course.non_partants.every(n =>
-      Number.isInteger(n) && nonPartants.has(n)
-    )
-  ) return false;
+  const declared = new Set();
+
+  for (const n of course.non_partants) {
+    if (
+      !Number.isSafeInteger(n) ||
+      declared.has(n) ||
+      !nonPartants.has(n)
+    ) return false;
+
+    declared.add(n);
+  }
+
+  if (declared.size !== nonPartants.size) {
+    return false;
+  }
 
   if (
     course.nombre_partants !== undefined &&
@@ -492,9 +545,52 @@ function validCourse(course) {
   return true;
 }
 
-/* =========================================
-   X1000 — AFFICHAGE DES COURSES
-========================================= */
+/* VALIDATION DES ANALYSES */
+
+function validAnalysis(analysis, course) {
+  if (
+    !record(analysis) ||
+    analysis.id !== course.id ||
+    !Array.isArray(analysis.chevaux)
+  ) return false;
+
+  if (
+    analysis.depart !== undefined &&
+    analysis.depart !== course.depart
+  ) return false;
+
+  if (
+    analysis.discipline !== undefined &&
+    analysis.discipline !== course.discipline
+  ) return false;
+
+  const expected = new Map(
+    course.partants.map(p => [p.numero, p])
+  );
+
+  const seen = new Set();
+
+  for (const p of analysis.chevaux) {
+    if (
+      !record(p) ||
+      !Number.isSafeInteger(p.numero) ||
+      seen.has(p.numero) ||
+      !expected.has(p.numero) ||
+      txt(p.nom) !== txt(expected.get(p.numero).nom)
+    ) return false;
+
+    if (
+      p.evaluation_sportive !== undefined &&
+      p.evaluation_sportive !== "NON_EVALUE"
+    ) return false;
+
+    seen.add(p.numero);
+  }
+
+  return seen.size === expected.size;
+}
+
+/* AFFICHAGE DES COURSES */
 
 function renderCourses() {
   const query = norm($("pmuSearch").value);
@@ -531,20 +627,20 @@ function renderCourses() {
     card.append(
       element(
         "h3",
-        course.id + " — " +
-        (txt(course.nom) || "Course")
+        `${course.id} — ${txt(course.nom) || "Course"}`
       ),
       element(
         "p",
-        (txt(course.hippodrome) ||
-          "Hippodrome non renseigné") +
-        " · " + course.discipline +
-        " · " + formatParis(course.depart)
+        `${txt(course.hippodrome) ||
+          "Hippodrome non renseigné"} · ` +
+        `${course.discipline} · ` +
+        formatParis(course.depart)
       ),
       element(
         "p",
-        course.partants.filter(p => !p.non_partant).length +
-        " partants actifs"
+        course.partants.filter(
+          p => !p.non_partant
+        ).length + " partants actifs"
       )
     );
 
@@ -556,7 +652,7 @@ function renderCourses() {
     for (const p of course.partants) {
       const line = element(
         "div",
-        p.numero + " — " + p.nom +
+        `${p.numero} — ${p.nom}` +
         (p.non_partant ? " — NON-PARTANT" : "") +
         " · Musique : " +
         (txt(p.musique) || "Non renseignée") +
@@ -586,9 +682,7 @@ function renderCourses() {
   }
 }
 
-/* =========================================
-   X1000 — AFFICHAGE DES ANALYSES
-========================================= */
+/* AFFICHAGE DES ANALYSES */
 
 function renderAnalyses() {
   const container = $("analysesList");
@@ -601,44 +695,42 @@ function renderAnalyses() {
     card.append(
       element(
         "h3",
-        analysis.id + " — " +
-        (txt(analysis.nom) || "Analyse")
+        `${analysis.id} — ${txt(analysis.nom) || "Analyse"}`
       ),
       element(
         "p",
-        (txt(analysis.discipline) ||
-          "Discipline inconnue") +
-        " · " + formatParis(analysis.depart)
+        `${txt(analysis.discipline) ||
+          "Discipline inconnue"} · ` +
+        formatParis(analysis.depart)
       ),
       element(
         "p",
-        "Statut : " +
-        (txt(analysis.statut) || "Non renseigné")
+        "Statut : DESCRIPTIF_SANS_PRONOSTIC"
       )
     );
 
     const details = element("details", "");
+
     details.append(
-      element("summary", "Étude cheval par cheval")
+      element(
+        "summary",
+        "Étude cheval par cheval"
+      )
     );
 
     for (const p of analysis.chevaux) {
-      const facts =
-        p.faits_disponibles &&
-        typeof p.faits_disponibles === "object" &&
-        !Array.isArray(p.faits_disponibles)
-          ? p.faits_disponibles
-          : {};
+      const facts = record(p.faits_disponibles)
+        ? p.faits_disponibles
+        : {};
 
       const line = element(
         "div",
-        p.numero + " — " + p.nom +
+        `${p.numero} — ${p.nom}` +
         " · Musique : " +
         (txt(facts.musique) || "Inconnue") +
         " · Jockey/driver : " +
         (txt(facts.jockey_driver) || "Inconnu") +
-        " · Évaluation : " +
-        (txt(p.evaluation_sportive) || "Non évalué")
+        " · Évaluation : Non évalué"
       );
 
       line.className = "horse";
@@ -651,18 +743,36 @@ function renderAnalyses() {
 
   if (!analyses.length) {
     container.append(
-      element("p", "Aucune analyse publiée.")
+      element(
+        "p",
+        "Aucune analyse descriptive vérifiée publiée."
+      )
     );
   }
 }
 
-/* =========================================
-   X1000 — COLLECTE ET ACTUALISATION
-========================================= */
+/* CHARGEMENT SÉCURISÉ */
 
 async function refresh() {
-  const button = $("reload");
-  button.disabled = true;
+  const sequence = ++refreshSequence;
+
+  if (currentController) {
+    currentController.abort();
+  }
+
+  const controller = new AbortController();
+  currentController = controller;
+
+  const timeout = setTimeout(
+    () => controller.abort(),
+    15000
+  );
+
+  const isCurrent = () =>
+    sequence === refreshSequence &&
+    !controller.signal.aborted;
+
+  $("reload").disabled = true;
 
   courses = [];
   analyses = [];
@@ -684,34 +794,55 @@ async function refresh() {
     "Chargement des analyses…"
   );
 
+  let publicationHash = "";
+
   try {
-    const payload = await fetchJSON(
-      "data/publication_courses.json"
-    );
+    const {data: payload, hash} =
+      await fetchCourses(controller.signal);
+
+    if (!isCurrent()) return;
+
+    publicationHash = hash;
 
     if (
-      !payload ||
+      !record(payload) ||
       !["OK", "PARTIEL"].includes(payload.statut) ||
       !Array.isArray(payload.courses)
     ) {
       throw new Error("Publication PMU invalide");
     }
 
-    courses = payload.courses.filter(validCourse);
+    const ids = new Set();
+    let rejected = 0;
+
+    courses = payload.courses.filter(course => {
+      if (
+        !validCourse(course) ||
+        ids.has(course.id)
+      ) {
+        rejected++;
+        return false;
+      }
+
+      ids.add(course.id);
+      return true;
+    });
 
     $("countCourses").textContent =
-      courses.length + " courses";
+      `${courses.length} courses`;
 
     $("countHorses").textContent =
       courses.reduce(
-        (total, c) =>
-          total +
-          c.partants.filter(p => !p.non_partant).length,
+        (total, course) =>
+          total + course.partants.filter(
+            p => !p.non_partant
+          ).length,
         0
       ) + " partants";
 
     $("updated").textContent =
-      "Collecte : " + formatParis(payload.collecte_a);
+      "Collecte : " +
+      formatParis(payload.collecte_a);
 
     const select = $("pmuDiscipline");
     const previous = select.value;
@@ -721,7 +852,9 @@ async function refresh() {
     );
 
     const disciplines = [
-      ...new Set(courses.map(c => c.discipline))
+      ...new Set(
+        courses.map(c => c.discipline)
+      )
     ].sort();
 
     for (const discipline of disciplines) {
@@ -731,22 +864,47 @@ async function refresh() {
     }
 
     select.value =
-      disciplines.includes(previous) ? previous : "";
+      disciplines.includes(previous)
+        ? previous
+        : "";
 
     renderCourses();
 
+    const collectionDate =
+      validDate(payload.collecte_a)
+        ? Date.parse(payload.collecte_a)
+        : NaN;
+
+    const age = Date.now() - collectionDate;
+
+    const stale =
+      !Number.isFinite(age) ||
+      age < -5 * 60 * 1000 ||
+      age > 24 * 60 * 60 * 1000;
+
+    const message =
+      `${courses.length} courses françaises ` +
+      `vérifiées chargées. Statut : ${payload.statut}. ` +
+      `Collecte : ${formatParis(payload.collecte_a)}.` +
+      (rejected
+        ? ` ${rejected} course(s) rejetée(s).`
+        : "") +
+      (stale
+        ? " Attention : collecte absente, " +
+          "future ou ancienne (plus de 24 h)."
+        : "");
+
     setStatus(
       "pmuStatus",
-      courses.length +
-      " courses françaises vérifiées chargées. " +
-      "Statut : " + payload.statut +
-      ". Collecte : " +
-      formatParis(payload.collecte_a),
-      true
+      message,
+      stale || rejected ? "error" : "ok"
     );
 
   } catch (error) {
+    if (sequence !== refreshSequence) return;
+
     courses = [];
+    publicationHash = "";
 
     $("coursesList").replaceChildren();
     $("countCourses").textContent = "— courses";
@@ -761,7 +919,8 @@ async function refresh() {
     setStatus(
       "pmuStatus",
       "Données PMU indisponibles : " +
-      error.message
+      error.message,
+      "error"
     );
   }
 
@@ -773,64 +932,95 @@ async function refresh() {
     }
 
     const payload = await fetchJSON(
-      "data/publication_analyses.json"
+      "data/publication_analyses.json",
+      controller.signal
     );
+
+    if (!isCurrent()) return;
 
     if (
-      !payload ||
+      !record(payload) ||
+      payload.statut !==
+        "DESCRIPTIF_SANS_PRONOSTIC" ||
       !Array.isArray(payload.courses)
     ) {
-      throw new Error("Format d'analyses invalide");
+      throw new Error(
+        "Publication descriptive invalide"
+      );
     }
 
-    const ids = new Set(
-      courses.map(c => c.id)
+    if (
+      !hexSHA256(payload.source_sha256) ||
+      payload.source_sha256.toLowerCase() !==
+        publicationHash
+    ) {
+      throw new Error(
+        "Empreinte SHA256 des analyses " +
+        "différente de la publication PMU"
+      );
+    }
+
+    const courseMap = new Map(
+      courses.map(c => [c.id, c])
     );
 
-    analyses = payload.courses.filter(c =>
-      c &&
-      typeof c === "object" &&
-      !Array.isArray(c) &&
-      ids.has(c.id) &&
-      Array.isArray(c.chevaux) &&
-      c.chevaux.every(p =>
-        p &&
-        typeof p === "object" &&
-        !Array.isArray(p) &&
-        Number.isInteger(p.numero) &&
-        p.numero > 0 &&
-        txt(p.nom)
-      )
-    );
+    const seen = new Set();
+    let rejected = 0;
+
+    analyses = payload.courses.filter(analysis => {
+      if (
+        !record(analysis) ||
+        !courseMap.has(analysis.id) ||
+        seen.has(analysis.id) ||
+        !validAnalysis(
+          analysis,
+          courseMap.get(analysis.id)
+        )
+      ) {
+        rejected++;
+        return false;
+      }
+
+      seen.add(analysis.id);
+      return true;
+    });
 
     renderAnalyses();
 
     setStatus(
       "analysisStatus",
-      analyses.length +
-      " analyses descriptives associées " +
-      "aux courses vérifiées.",
-      true
+      `${analyses.length} analyses descriptives ` +
+      "vérifiées. Aucune prévision sportive publiée." +
+      (rejected
+        ? ` ${rejected} analyse(s) rejetée(s).`
+        : ""),
+      rejected ? "error" : "ok"
     );
 
   } catch (error) {
-    analyses = [];
+    if (sequence !== refreshSequence) return;
 
+    analyses = [];
     $("analysesList").replaceChildren();
 
     setStatus(
       "analysisStatus",
       "Analyses indisponibles : " +
-      error.message
+      error.message,
+      "error"
     );
+
   } finally {
-    button.disabled = false;
+    clearTimeout(timeout);
+
+    if (sequence === refreshSequence) {
+      $("reload").disabled = false;
+      currentController = null;
+    }
   }
 }
 
-/* =========================================
-   X1000 — LES 16 PRINCIPES FONDATEURS
-========================================= */
+/* LES 16 PRINCIPES FONDATEURS */
 
 const principles = [
   [
@@ -899,9 +1089,7 @@ const principles = [
   ]
 ];
 
-/* =========================================
-   X1000 — AFFICHAGE DES PRINCIPES
-========================================= */
+/* AFFICHAGE DES PRINCIPES */
 
 function renderPrinciples() {
   const query = norm(
@@ -927,7 +1115,7 @@ function renderPrinciples() {
       details.append(
         element(
           "summary",
-          (index + 1) + ". " + title
+          `${index + 1}. ${title}`
         ),
         element("p", description)
       );
@@ -939,9 +1127,7 @@ function renderPrinciples() {
   $("noPrinciple").hidden = count > 0;
 }
 
-/* =========================================
-   X1000 — INITIALISATION
-========================================= */
+/* INITIALISATION */
 
 $("pmuSearch").addEventListener(
   "input",
@@ -976,7 +1162,6 @@ $("year").textContent =
 
 renderPrinciples();
 refresh();
-
 </script>
 </body>
 </html>
