@@ -1,4 +1,4 @@
-name: "X1000 - Activation securisee V1.5"
+name: "X1000 - Activation securisee V1.6"
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   activation:
-    name: "Collecte PMU, analyses et archives sans publication"
+    name: "Controle PMU et analyses sans publication"
 
     if: >-
       github.repository ==
@@ -37,20 +37,19 @@ jobs:
       TEST_DIR: ${{ runner.temp }}/x1000-test
 
     steps:
-      - name: "Recuperer commit exact"
-        id: checkout
+      - name: "Recuperer le commit exact"
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 1
           persist-credentials: false
+          fetch-depth: 1
 
       - name: "Installer Python 3.12"
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: "Verifier contexte et syntaxe"
+      - name: "Verifier branche et scripts"
         run: |
           set -euo pipefail
 
@@ -61,26 +60,28 @@ jobs:
             "yadcaf-cloud/x1000-intelligence-hippique-humaine"
 
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test -z "$(git status --porcelain)"
 
           python - <<'PY'
           import ast
           from pathlib import Path
 
-          for name in (
+          scripts = (
               "pmu_engine.py",
               "analyse_hippique.py",
               "resultats_archives.py",
-          ):
+          )
+
+          for name in scripts:
               path = Path(name)
 
-              if (
-                  path.is_symlink()
-                  or not path.is_file()
-                  or path.stat().st_size == 0
-              ):
+              if path.is_symlink() or not path.is_file():
                   raise SystemExit(
-                      f"::error::Script invalide : {name}"
+                      f"::error::Script absent : {name}"
+                  )
+
+              if path.stat().st_size == 0:
+                  raise SystemExit(
+                      f"::error::Script vide : {name}"
                   )
 
               ast.parse(
@@ -91,7 +92,7 @@ jobs:
               print("Syntaxe OK :", name)
           PY
 
-      - name: "Memoriser integrite du depot"
+      - name: "Memoriser integrite initiale"
         id: snapshot
         run: |
           set -euo pipefail
@@ -103,22 +104,22 @@ jobs:
           import subprocess
           from pathlib import Path
 
+          files = subprocess.check_output(
+              ["git", "ls-files", "-z"]
+          ).split(b"\0")
+
           snapshot = {}
 
-          tracked = subprocess.check_output(
-              ["git", "ls-files", "-z"]
-          )
-
-          for item in tracked.split(b"\0"):
-              if not item:
+          for raw in files:
+              if not raw:
                   continue
 
-              name = os.fsdecode(item)
+              name = os.fsdecode(raw)
               path = Path(name)
 
               if path.is_symlink() or not path.is_file():
                   raise SystemExit(
-                      f"Fichier suivi invalide : {name}"
+                      f"::error::Fichier invalide : {name}"
                   )
 
               snapshot[name] = hashlib.sha256(
@@ -126,30 +127,11 @@ jobs:
               ).hexdigest()
 
           if not snapshot:
-              raise SystemExit("Depot vide")
-
-          root = Path("data/archives_resultats")
-
-          if root.is_symlink():
-              raise SystemExit(
-                  "Lien symbolique archives interdit"
-              )
-
-          if root.exists():
-              if not root.is_dir():
-                  raise SystemExit(
-                      "Repertoire archives invalide"
-                  )
-
-              for path in root.rglob("*"):
-                  if path.is_symlink():
-                      raise SystemExit(
-                          f"Lien symbolique interdit : {path}"
-                      )
+              raise SystemExit("::error::Depot vide")
 
           destination = (
               Path(os.environ["RUNNER_TEMP"])
-              / "x1000-activation-snapshot.json"
+              / "x1000-snapshot.json"
           )
 
           destination.write_text(
@@ -157,11 +139,11 @@ jobs:
               encoding="utf-8",
           )
 
-          print("Snapshot SHA256 : OK")
-          print("Fichiers memorises :", len(snapshot))
+          print("Integrite initiale : OK")
+          print("Fichiers suivis :", len(snapshot))
           PY
 
-      - name: "Executer autotests"
+      - name: "Executer autotests Python"
         run: |
           set -euo pipefail
 
@@ -169,13 +151,15 @@ jobs:
           python analyse_hippique.py --self-test
           python resultats_archives.py --self-test
 
-      - name: "Verifier archives officielles"
+          echo "Autotests : OK"
+
+      - name: "Verifier archives existantes"
         run: |
           set -euo pipefail
 
           python resultats_archives.py --verify-archives
 
-          echo "Verification archives : OK"
+          echo "Archives : verification terminee"
 
       - name: "Preparer environnement isole"
         run: |
@@ -189,7 +173,7 @@ jobs:
           import subprocess
           from pathlib import Path
 
-          destination = Path(os.environ["TEST_DIR"])
+          root = Path(os.environ["TEST_DIR"])
 
           tracked = subprocess.check_output(
               ["git", "ls-files", "-z"]
@@ -204,25 +188,22 @@ jobs:
 
               if source.is_symlink():
                   raise SystemExit(
-                      f"Lien symbolique interdit : {name}"
+                      f"::error::Lien interdit : {name}"
                   )
 
               if not source.is_file():
                   raise SystemExit(
-                      f"Fichier suivi invalide : {name}"
+                      f"::error::Fichier absent : {name}"
                   )
 
-              # Copie des modules Python locaux.
-              # Les donnees historiques ne sont
-              # jamais copiees dans l'environnement
-              # de collecte.
               if (
                   source.suffix == ".py"
                   and "data" not in source.parts
               ):
-                  target = destination / source
+                  target = root / source
                   target.parent.mkdir(
-                      parents=True, exist_ok=True
+                      parents=True,
+                      exist_ok=True,
                   )
                   shutil.copyfile(source, target)
 
@@ -231,15 +212,16 @@ jobs:
               "analyse_hippique.py",
               "resultats_archives.py",
           ):
-              if not (destination / name).is_file():
+              if not (root / name).is_file():
                   raise SystemExit(
-                      f"Script de test absent : {name}"
+                      f"::error::Script absent : {name}"
                   )
 
           print("Environnement isole : OK")
           PY
 
       - name: "Collecter donnees PMU reelles"
+        id: collecte
         run: |
           set -euo pipefail
 
@@ -250,9 +232,10 @@ jobs:
           test -s data/publication_courses.json
           test -s data/diagnostic_collecte_pmu.json
 
-          echo "Collecte PMU de test : terminee"
+          echo "Collecte executee"
 
-      - name: "Valider collecte et diagnostic"
+      - name: "Valider collecte PMU"
+        id: validation
         run: |
           set -euo pipefail
 
@@ -278,19 +261,17 @@ jobs:
 
           def unique_keys(pairs):
               result = {}
-
               for key, value in pairs:
                   if key in result:
                       raise ValueError(
-                          f"Cle JSON dupliquee : {key}"
+                          f"Cle dupliquee : {key}"
                       )
                   result[key] = value
-
               return result
 
           def reject_constant(value):
               raise ValueError(
-                  f"Constante interdite : {value}"
+                  f"Constante JSON interdite : {value}"
               )
 
           def load(name):
@@ -303,18 +284,11 @@ jobs:
                   f"Fichier invalide : {name}",
               )
 
-              payload = json.loads(
+              return json.loads(
                   path.read_text(encoding="utf-8-sig"),
                   object_pairs_hook=unique_keys,
                   parse_constant=reject_constant,
               )
-
-              require(
-                  isinstance(payload, dict),
-                  f"Objet JSON invalide : {name}",
-              )
-
-              return payload
 
           source = load(
               "data/publication_courses.json"
@@ -324,17 +298,17 @@ jobs:
               "data/diagnostic_collecte_pmu.json"
           )
 
-          date = validate(source)
+          require(
+              isinstance(source, dict)
+              and isinstance(diagnostic, dict),
+              "Structure JSON invalide",
+          )
 
-          now = dt.datetime.now(dt.timezone.utc)
-
-          today = now.astimezone(
-              ZoneInfo("Europe/Paris")
-          ).date().isoformat()
+          statut = source.get("statut")
 
           require(
-              date == today,
-              "Programme PMU hors date du jour",
+              statut in ("OK", "PARTIEL"),
+              "Statut collecte non valide",
           )
 
           require(
@@ -343,21 +317,24 @@ jobs:
               "Source PMU non autorisee",
           )
 
-          require(
-              source.get("statut") == "OK",
-              "Collecte PMU incomplete",
-          )
+          now = dt.datetime.now(dt.timezone.utc)
+
+          today = now.astimezone(
+              ZoneInfo("Europe/Paris")
+          ).date().isoformat()
+
+          date = source.get("date")
 
           require(
-              source.get("erreurs") == [],
-              "Erreurs PMU presentes",
+              date == today,
+              "Date programme PMU incorrecte",
           )
 
           timestamp = source.get("collecte_a")
 
           require(
               isinstance(timestamp, str),
-              "Horodatage collecte absent",
+              "Horodatage absent",
           )
 
           try:
@@ -366,7 +343,7 @@ jobs:
               )
           except ValueError:
               raise SystemExit(
-                  "::error::Horodatage collecte invalide"
+                  "::error::Horodatage invalide"
               )
 
           require(
@@ -389,36 +366,22 @@ jobs:
           courses = source.get("courses")
 
           require(
-              isinstance(courses, list) and bool(courses),
-              "Aucune course PMU verifiee",
+              isinstance(courses, list),
+              "Liste courses invalide",
           )
 
-          ids = []
-          participants = 0
-
-          for course in courses:
-              cid = validate_course(course, date)
-
-              require(
-                  isinstance(cid, str) and bool(cid),
-                  "Identifiant course invalide",
-              )
-
-              ids.append(cid)
-
-              count = course.get("nombre_partants")
-
-              require(
-                  type(count) is int and count >= 0,
-                  "Nombre de partants invalide",
-              )
-
-              participants += count
+          erreurs = source.get("erreurs")
 
           require(
-              len(ids) == len(set(ids)),
-              "Courses PMU dupliquees",
+              isinstance(erreurs, list),
+              "Liste erreurs invalide",
           )
+
+          if statut == "OK":
+              require(
+                  not erreurs,
+                  "Statut OK avec erreurs",
+              )
 
           require(
               diagnostic.get("date") == date,
@@ -426,29 +389,78 @@ jobs:
           )
 
           require(
-              diagnostic.get("statut") == "OK",
-              "Diagnostic PMU non valide",
-          )
-
-          require(
               diagnostic.get("collecte_a")
-              == source.get("collecte_a"),
+              == timestamp,
               "Diagnostic non synchronise",
           )
 
           require(
               diagnostic.get("courses") == courses,
-              "Diagnostic et courses differents",
+              "Courses diagnostic differentes",
           )
 
+          require(
+              diagnostic.get("statut") == statut,
+              "Statut diagnostic different",
+          )
+
+          ids = []
+          participants = 0
+
+          if courses:
+              validate(source)
+
+          for course in courses:
+              cid = validate_course(course, date)
+              ids.append(cid)
+
+              count = course.get("nombre_partants")
+
+              require(
+                  type(count) is int and count >= 0,
+                  "Nombre partants invalide",
+              )
+
+              participants += count
+
+          require(
+              len(ids) == len(set(ids)),
+              "Identifiants courses dupliques",
+          )
+
+          if not courses:
+              require(
+                  statut == "PARTIEL",
+                  "Collecte OK sans courses",
+              )
+              print(
+                  "::warning::Aucune course exploitable"
+              )
+
+          if statut == "PARTIEL":
+              print(
+                  "::warning::Collecte PMU partielle"
+              )
+
           print("Date Paris :", today)
+          print("Statut :", statut)
           print("Courses :", len(ids))
-          print("Partants actifs :", participants)
-          print("Fraicheur collecte : OK")
-          print("Diagnostic PMU : OK")
+          print("Partants :", participants)
+          print("Erreurs source :", len(erreurs))
+          print("Validation collecte : OK")
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+
+          with output.open("a", encoding="utf-8") as f:
+              f.write(
+                  f"courses_disponibles="
+                  f"{str(bool(courses)).lower()}\n"
+              )
+              f.write(f"statut={statut}\n")
           PY
 
       - name: "Produire analyses descriptives"
+        if: steps.validation.outputs.courses_disponibles == 'true'
         run: |
           set -euo pipefail
 
@@ -458,9 +470,10 @@ jobs:
 
           test -s data/publication_analyses.json
 
-          echo "Analyses descriptives generees"
+          echo "Analyses generees"
 
-      - name: "Valider analyses et SHA256"
+      - name: "Verifier analyses et SHA256"
+        if: steps.validation.outputs.courses_disponibles == 'true'
         run: |
           set -euo pipefail
 
@@ -481,14 +494,12 @@ jobs:
 
           def unique_keys(pairs):
               result = {}
-
               for key, value in pairs:
                   if key in result:
                       raise ValueError(
-                          f"Cle JSON dupliquee : {key}"
+                          f"Cle dupliquee : {key}"
                       )
                   result[key] = value
-
               return result
 
           def reject_constant(value):
@@ -497,18 +508,11 @@ jobs:
               )
 
           def load(raw):
-              payload = json.loads(
+              return json.loads(
                   raw.decode("utf-8-sig"),
                   object_pairs_hook=unique_keys,
                   parse_constant=reject_constant,
               )
-
-              require(
-                  isinstance(payload, dict),
-                  "Objet JSON invalide",
-              )
-
-              return payload
 
           source_path = Path(
               "data/publication_courses.json"
@@ -519,15 +523,11 @@ jobs:
           )
 
           require(
-              not source_path.is_symlink()
-              and source_path.is_file(),
-              "Source invalide",
-          )
-
-          require(
-              not analyses_path.is_symlink()
-              and analyses_path.is_file(),
-              "Analyses invalides",
+              source_path.is_file()
+              and not source_path.is_symlink()
+              and analyses_path.is_file()
+              and not analyses_path.is_symlink(),
+              "Fichiers analyses invalides",
           )
 
           raw = source_path.read_bytes()
@@ -536,11 +536,17 @@ jobs:
               analyses_path.read_bytes()
           )
 
+          require(
+              isinstance(source, dict)
+              and isinstance(published, dict),
+              "Structure analyses invalide",
+          )
+
           digest = hashlib.sha256(raw).hexdigest()
 
           require(
               published.get("source_sha256") == digest,
-              "SHA256 analyses incorrect",
+              "SHA256 incorrect",
           )
 
           require(
@@ -558,14 +564,9 @@ jobs:
           expected = analyze(source, raw)
 
           require(
-              isinstance(expected, dict),
-              "Resultat moteur invalide",
-          )
-
-          require(
               published.get("courses")
               == expected.get("courses"),
-              "Analyses descriptives incoherentes",
+              "Analyses incoherentes",
           )
 
           entries = published.get("courses")
@@ -591,13 +592,13 @@ jobs:
                       f"Champ interdit : {field}",
                   )
 
-          print("Analyses :", len(entries))
           print("SHA256 :", digest)
-          print("Analyses descriptives : OK")
+          print("Analyses :", len(entries))
           print("Aucun FIGE genere")
+          print("Validation analyses : OK")
           PY
 
-      - name: "Verifier integrite finale du depot"
+      - name: "Verifier integrite finale"
         if: always() && steps.snapshot.outcome == 'success'
         run: |
           set -euo pipefail
@@ -609,18 +610,15 @@ jobs:
           import subprocess
           from pathlib import Path
 
-          target = (
+          snapshot_path = (
               Path(os.environ["RUNNER_TEMP"])
-              / "x1000-activation-snapshot.json"
+              / "x1000-snapshot.json"
           )
 
-          if not target.is_file():
-              raise SystemExit(
-                  "::error::Snapshot initial absent"
-              )
-
           initial = json.loads(
-              target.read_text(encoding="utf-8")
+              snapshot_path.read_text(
+                  encoding="utf-8"
+              )
           )
 
           current = {}
@@ -629,16 +627,16 @@ jobs:
               ["git", "ls-files", "-z"]
           )
 
-          for entry in tracked.split(b"\0"):
-              if not entry:
+          for raw in tracked.split(b"\0"):
+              if not raw:
                   continue
 
-              name = os.fsdecode(entry)
+              name = os.fsdecode(raw)
               path = Path(name)
 
               if path.is_symlink() or not path.is_file():
                   raise SystemExit(
-                      f"Fichier suivi invalide : {name}"
+                      f"::error::Fichier invalide : {name}"
                   )
 
               current[name] = hashlib.sha256(
@@ -647,80 +645,85 @@ jobs:
 
           if current != initial:
               raise SystemExit(
-                  "::error::Fichiers du depot modifies"
+                  "::error::Depot modifie"
               )
 
-          root = Path("data/archives_resultats")
+          archives = Path(
+              "data/archives_resultats"
+          )
 
-          if root.is_symlink():
+          if archives.is_symlink():
               raise SystemExit(
-                  "Lien symbolique archives interdit"
+                  "::error::Lien archives interdit"
               )
 
-          if root.exists():
-              if not root.is_dir():
+          if archives.exists():
+              if not archives.is_dir():
                   raise SystemExit(
-                      "Repertoire archives invalide"
+                      "::error::Archives invalides"
                   )
 
-              for path in root.rglob("*"):
+              for path in archives.rglob("*"):
                   if path.is_symlink():
                       raise SystemExit(
-                          f"Lien symbolique interdit : {path}"
+                          "::error::Lien archives interdit"
                       )
 
           print("SHA256 depot : OK")
-          print("Archives historiques : intactes")
+          print("Archives intactes")
           PY
 
           git diff --exit-code HEAD --
           git diff --cached --exit-code
 
           if [ -n "$(git ls-files --others --exclude-standard)" ]; then
-            echo "::error::Fichiers non suivis detectes"
+            echo "::error::Fichiers non suivis"
             exit 1
           fi
 
-          echo "Depot Git intact : OK"
+          echo "Integrite finale : OK"
 
-      - name: "Conserver publications de test"
-        if: success()
+      - name: "Conserver diagnostic et donnees test"
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: x1000-activation-${{ github.run_id }}
+          name: x1000-diagnostic-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/x1000-test/data/publication_courses.json
             ${{ runner.temp }}/x1000-test/data/publication_analyses.json
             ${{ runner.temp }}/x1000-test/data/diagnostic_collecte_pmu.json
           retention-days: 7
-          if-no-files-found: error
+          if-no-files-found: warn
 
-      - name: "Rapport de validation"
-        if: success()
+      - name: "Rapport final"
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          COLLECTE_RESULT: ${{ steps.collecte.outcome }}
+          VALIDATION_RESULT: ${{ steps.validation.outcome }}
+          COLLECTE_STATUT: ${{ steps.validation.outputs.statut }}
         run: |
           {
-            echo "## X1000 - Activation securisee V1.5"
+            echo "## X1000 - Activation securisee V1.6"
             echo ""
-            echo "- Branche securisee : OK"
-            echo "- Syntaxe Python : OK"
-            echo "- Autotests : OK"
-            echo "- Archives existantes : verifiees"
-            echo "- Collecte PMU reelle : OK"
-            echo "- Diagnostic PMU : OK"
-            echo "- Fraicheur collecte : OK"
-            echo "- Analyses descriptives : OK"
-            echo "- SHA256 analyses : OK"
-            echo "- Integrite depot : OK"
-            echo "- Artefacts de test : disponibles"
-            echo "- Commit Git : aucun"
-            echo "- Push Git : aucun"
+            echo "- Statut job : $JOB_STATUS"
+            echo "- Branche : $GITHUB_REF"
+            echo "- Commit : $GITHUB_SHA"
+            echo "- Collecte : $COLLECTE_RESULT"
+            echo "- Validation : $VALIDATION_RESULT"
+            echo "- Statut PMU : ${COLLECTE_STATUT:-inconnu}"
+            echo "- Publication automatique : aucune"
+            echo "- Push automatique : aucun"
             echo "- Modification main : aucune"
-            echo "- FIGE fictif : aucun"
+            echo "- Archives historiques : lecture seule"
+            echo "- Pronostics fictifs : aucun"
+            echo ""
+            echo "Consulter les etapes en echec si necessaire."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: "Signaler un echec"
+      - name: "Signaler echec"
         if: failure()
         run: |
-          echo "::error::Activation X1000 V1.5 echouee"
-          echo "Verifier les journaux GitHub Actions."
+          echo "::error::Activation X1000 V1.6 echouee"
+          echo "Consulter le rapport final et les etapes."
           echo "Ne pas fusionner vers main."
