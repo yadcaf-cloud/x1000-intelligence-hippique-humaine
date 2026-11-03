@@ -1,4 +1,4 @@
-name: "X1000 - Deploiement Pages securise V1.1"
+name: "X1000 - Deploiement Pages securise V1.2"
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   verifier:
-    name: "Verifier le portail et les JSON"
+    name: "Verifier portail et publications"
 
     if: >-
       github.repository ==
@@ -27,6 +27,12 @@ jobs:
       run:
         shell: bash
 
+    env:
+      TZ: Europe/Paris
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONNOUSERSITE: "1"
+
     steps:
       - name: "Recuperer le commit exact"
         uses: actions/checkout@v4
@@ -39,7 +45,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: "Verifier la branche et les fichiers"
+      - name: "Verifier branche et fichiers"
         run: |
           set -euo pipefail
 
@@ -52,23 +58,28 @@ jobs:
             data/publication_courses.json \
             data/publication_analyses.json
           do
-            test -s "$file"
-            test ! -L "$file"
+            if [ ! -s "$file" ] || [ -L "$file" ]; then
+              echo "::error::Fichier invalide : $file"
+              exit 1
+            fi
           done
 
+          test -d data
           test ! -L data
 
-          echo "Branche et fichiers : OK"
+          echo "Branche main : OK"
+          echo "Commit exact : OK"
+          echo "Fichiers obligatoires : OK"
 
-      - name: "Valider les donnees reelles"
+      - name: "Valider publications PMU reelles"
         run: |
           set -euo pipefail
 
           python - <<'PY'
           import hashlib
           import json
-
           from pathlib import Path
+
           from analyse_hippique import (
               validate,
               validate_course,
@@ -77,57 +88,80 @@ jobs:
 
           def unique_keys(pairs):
               result = {}
-
               for key, value in pairs:
                   if key in result:
                       raise ValueError(
-                          "Cle JSON dupliquee : " + key
+                          f"Cle JSON dupliquee : {key}"
                       )
                   result[key] = value
-
               return result
 
           def reject_constant(value):
               raise ValueError(
-                  "Constante interdite : " + value
+                  f"Constante interdite : {value}"
               )
 
           def load(path):
-              return json.loads(
-                  path.read_bytes(),
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit(
+                      f"Fichier JSON invalide : {path}"
+                  )
+
+              raw = path.read_bytes()
+
+              payload = json.loads(
+                  raw.decode("utf-8-sig"),
                   object_pairs_hook=unique_keys,
                   parse_constant=reject_constant,
               )
 
-          source_path = Path(
-              "data/publication_courses.json"
+              if not isinstance(payload, dict):
+                  raise SystemExit(
+                      f"Objet JSON attendu : {path}"
+                  )
+
+              return payload, raw
+
+          courses, raw = load(
+              Path("data/publication_courses.json")
           )
 
-          analyses_path = Path(
-              "data/publication_analyses.json"
+          analyses, _ = load(
+              Path("data/publication_analyses.json")
           )
-
-          raw = source_path.read_bytes()
-
-          courses = load(source_path)
-          analyses = load(analyses_path)
 
           date = validate(courses)
 
-          ids = [
-              validate_course(course, date)
-              for course in courses["courses"]
-          ]
+          items = courses.get("courses")
 
-          if len(ids) != len(set(ids)):
+          if not isinstance(items, list) or not items:
               raise SystemExit(
-                  "Courses PMU dupliquees"
+                  "Aucune course PMU verifiee"
               )
 
-          if courses.get("source") != (
+          ids = set()
+
+          for course in items:
+              cid = validate_course(course, date)
+
+              if not isinstance(cid, str) or not cid:
+                  raise SystemExit(
+                      "Identifiant course invalide"
+                  )
+
+              if cid in ids:
+                  raise SystemExit(
+                      f"Course dupliquee : {cid}"
+                  )
+
+              ids.add(cid)
+
+          expected_source = (
               "https://online.turfinfo.api.pmu.fr"
               "/rest/client/7"
-          ):
+          )
+
+          if courses.get("source") != expected_source:
               raise SystemExit(
                   "Source PMU non autorisee"
               )
@@ -146,7 +180,7 @@ jobs:
 
           if analyses.get("source_sha256") != digest:
               raise SystemExit(
-                  "SHA256 analyses incorrect"
+                  "SHA256 analyses incompatible"
               )
 
           if analyses.get("statut") != (
@@ -158,56 +192,141 @@ jobs:
 
           if analyses.get("date") != date:
               raise SystemExit(
-                  "Date analyses incorrecte"
+                  "Date analyses incoherente"
               )
 
           expected = analyze(courses, raw)
 
           if analyses.get("courses") != expected["courses"]:
               raise SystemExit(
-                  "Contenu des analyses incoherent"
+                  "Analyses descriptives incoherentes"
               )
 
-          print("Courses PMU :", len(ids))
+          print("Date PMU :", date)
+          print("Courses verifiees :", len(ids))
+          print("SHA256 source :", digest)
           print("Analyses descriptives : OK")
-          print("SHA256 :", digest)
-          print("Validation complete : OK")
+          print("Aucune donnee inventee")
           PY
 
-      - name: "Verifier la structure du portail"
+      - name: "Verifier portail et moteurs"
         run: |
           set -euo pipefail
 
           python - <<'PY'
+          import hashlib
+          import json
           from pathlib import Path
 
           html = Path("index.html").read_text(
-              encoding="utf-8"
+              encoding="utf-8-sig"
           )
 
-          required = (
+          for source in (
               "data/publication_courses.json",
               "data/publication_analyses.json",
-              "data/publication_moteurs.json",
-          )
-
-          for item in required:
-              if item not in html:
+          ):
+              if source not in html:
                   raise SystemExit(
-                      "Reference absente : " + item
+                      f"Reference HTML absente : {source}"
                   )
 
-          print("References JSON du portail : OK")
+          motors_path = Path(
+              "data/publication_moteurs.json"
+          )
+
+          if not motors_path.exists():
+              print(
+                  "INFO - Moteurs non publies"
+              )
+          else:
+              if (
+                  motors_path.is_symlink()
+                  or not motors_path.is_file()
+              ):
+                  raise SystemExit(
+                      "Publication moteurs invalide"
+                  )
+
+              def unique_keys(pairs):
+                  result = {}
+                  for key, value in pairs:
+                      if key in result:
+                          raise ValueError(
+                              f"Cle dupliquee : {key}"
+                          )
+                      result[key] = value
+                  return result
+
+              def reject_constant(value):
+                  raise ValueError(
+                      f"Constante interdite : {value}"
+                  )
+
+              motors = json.loads(
+                  motors_path.read_text(
+                      encoding="utf-8-sig"
+                  ),
+                  object_pairs_hook=unique_keys,
+                  parse_constant=reject_constant,
+              )
+
+              digest = hashlib.sha256(
+                  Path(
+                      "data/publication_courses.json"
+                  ).read_bytes()
+              ).hexdigest()
+
+              if not isinstance(motors, dict):
+                  raise SystemExit(
+                      "Objet moteurs invalide"
+                  )
+
+              if (
+                  motors.get("statut")
+                  != "PUBLICATION_MOTEURS"
+                  or motors.get("source_sha256")
+                  != digest
+                  or motors.get("courses") != []
+                  or type(motors.get("courses")) is not list
+              ):
+                  print(
+                      "INFO - Moteurs non admissibles "
+                      "a la publication automatique"
+                  )
+              else:
+                  print(
+                      "Publication moteurs vide : OK"
+                  )
+
+          print("References portail : OK")
           PY
 
+      - name: "Rapport de verification"
+        if: success()
+        run: |
+          {
+            echo "## X1000 - Verification Pages V1.2"
+            echo ""
+            echo "- Branche main : OK"
+            echo "- Commit exact : OK"
+            echo "- Source PMU : OK"
+            echo "- Courses verifiees : OK"
+            echo "- Analyses descriptives : OK"
+            echo "- Portail : OK"
+            echo "- FIGEs non audites : exclus"
+            echo "- Deploiement autorise pour ce commit"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   deployer:
-    name: "Deploiement public apres autorisation"
+    name: "Deploiement public apres validation"
 
     needs: verifier
 
     if: >-
       github.repository ==
       'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
+      github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main'
 
     runs-on: ubuntu-24.04
@@ -240,7 +359,13 @@ jobs:
         run: |
           set -euo pipefail
 
+          test "$GITHUB_REF" = "refs/heads/main"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+          test ! -L index.html
+          test ! -L data
+          test ! -L data/publication_courses.json
+          test ! -L data/publication_analyses.json
 
           mkdir -p _site/data
 
@@ -256,66 +381,122 @@ jobs:
           import hashlib
           import json
           import shutil
-
           from pathlib import Path
 
-          source = Path(
-              "data/publication_courses.json"
-          ).read_bytes()
+          def digest(path):
+              return hashlib.sha256(
+                  Path(path).read_bytes()
+              ).hexdigest()
+
+          pairs = (
+              (
+                  "index.html",
+                  "_site/index.html",
+              ),
+              (
+                  "data/publication_courses.json",
+                  "_site/data/publication_courses.json",
+              ),
+              (
+                  "data/publication_analyses.json",
+                  "_site/data/publication_analyses.json",
+              ),
+          )
+
+          for source, target in pairs:
+              if digest(source) != digest(target):
+                  raise SystemExit(
+                      f"Copie incoherente : {source}"
+                  )
 
           motors_path = Path(
               "data/publication_moteurs.json"
           )
 
-          if not motors_path.exists():
-              print("Moteurs absents : non publies")
-          elif motors_path.is_symlink():
-              raise SystemExit(
-                  "Lien symbolique moteurs interdit"
-              )
-          else:
+          if motors_path.exists():
+              if (
+                  motors_path.is_symlink()
+                  or not motors_path.is_file()
+              ):
+                  raise SystemExit(
+                      "Fichier moteurs non regulier"
+                  )
+
+              def unique_keys(pairs):
+                  result = {}
+                  for key, value in pairs:
+                      if key in result:
+                          raise ValueError(
+                              f"Cle JSON dupliquee : {key}"
+                          )
+                      result[key] = value
+                  return result
+
+              def reject_constant(value):
+                  raise ValueError(
+                      f"Constante interdite : {value}"
+                  )
+
               motors = json.loads(
                   motors_path.read_text(
-                      encoding="utf-8"
-                  )
+                      encoding="utf-8-sig"
+                  ),
+                  object_pairs_hook=unique_keys,
+                  parse_constant=reject_constant,
               )
 
-              digest = hashlib.sha256(
-                  source
-              ).hexdigest()
+              source_hash = digest(
+                  "data/publication_courses.json"
+              )
 
-              if (
+              allowed = (
                   isinstance(motors, dict)
-                  and motors.get("source_sha256") == digest
-                  and motors.get("statut") ==
-                  "PUBLICATION_MOTEURS"
-                  and isinstance(
-                      motors.get("courses"), list
-                  )
+                  and motors.get("statut")
+                  == "PUBLICATION_MOTEURS"
+                  and motors.get("source_sha256")
+                  == source_hash
+                  and type(motors.get("courses")) is list
                   and motors["courses"] == []
-              ):
-                  shutil.copy2(
-                      motors_path,
+              )
+
+              if allowed:
+                  target = Path(
                       "_site/data/publication_moteurs.json"
                   )
 
+                  shutil.copyfile(
+                      motors_path, target
+                  )
+
+                  if digest(motors_path) != digest(target):
+                      raise SystemExit(
+                          "Copie moteurs incoherente"
+                      )
+
                   print(
-                      "Initialisation moteurs vide : OK"
+                      "Moteurs vides publies"
                   )
               else:
                   print(
-                      "Moteurs non valides ou FIGEs "
-                      "non audites : exclus"
+                      "Moteurs exclus : "
+                      "FIGEs non audites"
                   )
+          else:
+              print(
+                  "Aucune publication moteurs"
+              )
+
+          print("Fichiers publics verifies : OK")
+          print("Archives non copiees")
           PY
 
           test -s _site/index.html
           test -s _site/data/publication_courses.json
           test -s _site/data/publication_analyses.json
 
-          echo "Artefact public prepare"
+          echo "Artefact Pages : OK"
 
-      - name: "Envoyer les fichiers GitHub Pages"
+      - name: "Envoyer artefact GitHub Pages"
         uses: actions/upload-pages-artifact@v3
         with:
           path: _site
@@ -325,14 +506,22 @@ jobs:
         uses: actions/deploy-pages@v4
 
       - name: "Rapport de deploiement"
+        if: success()
         run: |
           {
-            echo "## X1000 - Pages V1.1"
+            echo "## X1000 - Pages V1.2"
             echo ""
             echo "- Branche : main"
             echo "- Validation PMU : OK"
             echo "- Analyses descriptives : OK"
+            echo "- Integrite des copies : OK"
             echo "- FIGEs non audites : exclus"
             echo "- Archives : non publiees"
             echo "- Deploiement Pages : termine"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Signaler un echec"
+        if: failure()
+        run: |
+          echo "::error::Deploiement Pages V1.2 echoue"
+          echo "Consulter les journaux GitHub Actions."
