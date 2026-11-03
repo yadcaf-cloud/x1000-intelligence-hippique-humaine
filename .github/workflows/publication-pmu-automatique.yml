@@ -1,0 +1,464 @@
+name: "X1000 - Publication PMU securisee V3.1"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-publication-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publier:
+    name: "Collecte validation et publication PMU"
+
+    if: >-
+      github.repository ==
+      'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref ==
+      'refs/heads/feature/activation-pmu-analyses-archives'
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    permissions:
+      contents: write
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      TZ: Europe/Paris
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONNOUSERSITE: "1"
+      PMU_API_BASE: "https://online.turfinfo.api.pmu.fr/rest/client/7"
+      BRANCHE: feature/activation-pmu-analyses-archives
+
+    steps:
+      - name: "Recuperer la branche securisee"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: "Installer Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: "Verifier le depot et les scripts"
+        run: |
+          set -euo pipefail
+
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
+
+          test "$GITHUB_REF" = \
+            "refs/heads/$BRANCHE"
+
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+
+          for file in \
+            pmu_engine.py \
+            analyse_hippique.py
+          do
+            test -s "$file"
+            test ! -L "$file"
+          done
+
+          test -d data
+          test ! -L data
+
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          for name in (
+              "pmu_engine.py",
+              "analyse_hippique.py",
+          ):
+              path = Path(name)
+              ast.parse(
+                  path.read_text(encoding="utf-8-sig"),
+                  filename=name
+              )
+              print("Syntaxe OK :", name)
+          PY
+
+      - name: "Executer les autotests"
+        run: |
+          set -euo pipefail
+
+          python pmu_engine.py --self-test
+          python analyse_hippique.py --self-test
+
+      - name: "Tester la collecte reelle sans ecriture"
+        run: |
+          set -euo pipefail
+
+          python pmu_engine.py --dry-run
+
+          echo "Dry-run PMU : OK"
+
+      - name: "Effectuer la collecte reelle"
+        run: |
+          set -euo pipefail
+
+          python pmu_engine.py
+
+          test -s data/publication_courses.json
+          test -s data/diagnostic_collecte_pmu.json
+
+      - name: "Generer les analyses descriptives"
+        run: |
+          set -euo pipefail
+
+          python analyse_hippique.py
+
+          test -s data/publication_analyses.json
+
+      - name: "Valider les trois publications JSON"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          from analyse_hippique import (
+              validate,
+              validate_course,
+              analyze,
+          )
+
+          API = (
+              "https://online.turfinfo.api.pmu.fr"
+              "/rest/client/7"
+          )
+
+          def require(condition, message):
+              if not condition:
+                  raise SystemExit(
+                      "::error::" + message
+                  )
+
+          def unique_keys(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(
+                          "Cle JSON dupliquee : " + key
+                      )
+                  result[key] = value
+              return result
+
+          def reject_constant(value):
+              raise ValueError(
+                  "Constante JSON interdite : " + value
+              )
+
+          def load(path):
+              require(
+                  path.is_file() and
+                  not path.is_symlink(),
+                  "Fichier JSON absent ou symbolique"
+              )
+
+              raw = path.read_bytes()
+
+              payload = json.loads(
+                  raw,
+                  object_pairs_hook=unique_keys,
+                  parse_constant=reject_constant,
+              )
+
+              return payload, raw
+
+          source, raw = load(
+              Path("data/publication_courses.json")
+          )
+
+          analyses, _ = load(
+              Path("data/publication_analyses.json")
+          )
+
+          diagnostic, _ = load(
+              Path("data/diagnostic_collecte_pmu.json")
+          )
+
+          date = validate(source)
+
+          today = datetime.now(
+              ZoneInfo("Europe/Paris")
+          ).date().isoformat()
+
+          require(
+              date == today,
+              "Programme PMU hors date du jour"
+          )
+
+          require(
+              source.get("statut") == "OK",
+              "Collecte PMU incomplete"
+          )
+
+          require(
+              source.get("erreurs") == [],
+              "Erreurs PMU presentes"
+          )
+
+          require(
+              source.get("source") == API,
+              "Source PMU non autorisee"
+          )
+
+          collected = datetime.fromisoformat(
+              source["collecte_a"].replace(
+                  "Z", "+00:00"
+              )
+          )
+
+          age = (
+              datetime.now(timezone.utc) -
+              collected
+          ).total_seconds()
+
+          require(
+              -60 <= age <= 10800,
+              "Collecte ancienne ou future"
+          )
+
+          ids = [
+              validate_course(course, date)
+              for course in source["courses"]
+          ]
+
+          require(
+              len(ids) == len(set(ids)),
+              "Courses dupliquees"
+          )
+
+          digest = hashlib.sha256(raw).hexdigest()
+
+          require(
+              analyses.get("source_sha256") == digest,
+              "SHA256 des analyses incorrect"
+          )
+
+          require(
+              analyses.get("statut") ==
+              "DESCRIPTIF_SANS_PRONOSTIC",
+              "Statut analyses invalide"
+          )
+
+          require(
+              analyses.get("date") == date,
+              "Date analyses incorrecte"
+          )
+
+          expected = analyze(source, raw)
+
+          require(
+              analyses.get("courses") ==
+              expected["courses"],
+              "Analyses descriptives incoherentes"
+          )
+
+          require(
+              isinstance(diagnostic, dict),
+              "Diagnostic invalide"
+          )
+
+          require(
+              diagnostic.get("date") == date,
+              "Date diagnostic incorrecte"
+          )
+
+          require(
+              diagnostic.get("statut") == "OK",
+              "Diagnostic non valide"
+          )
+
+          require(
+              diagnostic.get("collecte_a") ==
+              source["collecte_a"],
+              "Diagnostic non synchronise"
+          )
+
+          require(
+              diagnostic.get("courses") ==
+              source["courses"],
+              "Diagnostic et collecte differents"
+          )
+
+          print("Validation PMU : OK")
+          print("Date :", date)
+          print("Courses :", len(ids))
+          print("SHA256 :", digest)
+          print("Analyses descriptives : OK")
+          print("Diagnostic : OK")
+          PY
+
+      - name: "Verifier les fichiers modifies"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import subprocess
+          from pathlib import Path
+
+          allowed = {
+              "data/publication_courses.json",
+              "data/publication_analyses.json",
+              "data/diagnostic_collecte_pmu.json",
+          }
+
+          def names(*args):
+              raw = subprocess.check_output(
+                  ["git", *args, "-z"]
+              )
+              return {
+                  item.decode("utf-8")
+                  for item in raw.split(b"\0")
+                  if item
+              }
+
+          changed = (
+              names("diff", "--name-only") |
+              names("diff", "--cached", "--name-only") |
+              names(
+                  "ls-files",
+                  "--others",
+                  "--exclude-standard"
+              )
+          )
+
+          require_set = changed - allowed
+
+          if require_set:
+              raise SystemExit(
+                  "Modification interdite : " +
+                  ", ".join(sorted(require_set))
+              )
+
+          for name in allowed:
+              path = Path(name)
+              if not path.is_file() or path.is_symlink():
+                  raise SystemExit(
+                      "Fichier de publication invalide : " +
+                      name
+                  )
+
+          print("Fichiers modifies :", sorted(changed))
+          print("Protection des archives : OK")
+          PY
+
+      - name: "Indexer uniquement les JSON autorises"
+        run: |
+          set -euo pipefail
+
+          git add -- \
+            data/publication_courses.json \
+            data/publication_analyses.json \
+            data/diagnostic_collecte_pmu.json
+
+          python - <<'PY'
+          import subprocess
+
+          allowed = {
+              "data/publication_courses.json",
+              "data/publication_analyses.json",
+              "data/diagnostic_collecte_pmu.json",
+          }
+
+          raw = subprocess.check_output([
+              "git", "diff", "--cached",
+              "--name-only", "-z"
+          ])
+
+          staged = {
+              x.decode("utf-8")
+              for x in raw.split(b"\0")
+              if x
+          }
+
+          if not staged <= allowed:
+              raise SystemExit(
+                  "Fichier indexe non autorise"
+              )
+
+          print("Index Git verifie :", sorted(staged))
+          PY
+
+      - name: "Verifier la branche distante"
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin \
+            "refs/heads/$BRANCHE"
+
+          test "$(git rev-parse FETCH_HEAD)" = \
+            "$(git rev-parse HEAD)"
+
+          echo "Branche distante inchangee : OK"
+
+      - name: "Publier les JSON sur la branche securisee"
+        run: |
+          set -euo pipefail
+
+          if git diff --cached --quiet; then
+            echo "Aucun changement JSON"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git commit \
+            -m "X1000: publication PMU reelle securisee"
+
+          git fetch --no-tags origin \
+            "refs/heads/$BRANCHE"
+
+          test "$(git rev-parse FETCH_HEAD)" = \
+            "$(git rev-parse HEAD^)"
+
+          git push origin \
+            "HEAD:refs/heads/$BRANCHE"
+
+          echo "Publication branche securisee : OK"
+
+      - name: "Rapport de validation"
+        if: success()
+        run: |
+          {
+            echo "## X1000 - Publication PMU V3.1"
+            echo ""
+            echo "- Collecte PMU reelle : OK"
+            echo "- Analyses descriptives : OK"
+            echo "- Validation JSON : OK"
+            echo "- Controle de la branche : OK"
+            echo "- Publication : branche securisee"
+            echo "- Main : non modifiee"
+            echo "- Archives : non modifiees"
+            echo "- FIGE fictif : aucun"
+            echo "- Deploiement public : aucun"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Signaler un echec"
+        if: failure()
+        run: |
+          echo "::error::Publication PMU V3.1 echouee"
+          echo "Verifier les journaux avant toute relance."
