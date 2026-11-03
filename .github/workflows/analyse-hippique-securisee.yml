@@ -1,4 +1,4 @@
-name: "X1000 - Analyse hippique securisee V1.2"
+name: "X1000 - Analyse hippique securisee V1.3"
 
 on:
   workflow_dispatch:
@@ -27,6 +27,8 @@ jobs:
     name: "Validation analyses sans publication"
 
     if: >-
+      github.repository ==
+      'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
       github.ref ==
       'refs/heads/feature/activation-pmu-analyses-archives'
 
@@ -56,7 +58,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: "Verifier la branche et les fichiers"
+      - name: "Verifier branche et fichiers"
         run: |
           set -euo pipefail
 
@@ -78,7 +80,7 @@ jobs:
           echo "Branche securisee : OK"
           echo "Fichiers obligatoires : OK"
 
-      - name: "Memoriser les fichiers suivis"
+      - name: "Memoriser integrite initiale"
         run: |
           set -euo pipefail
 
@@ -89,9 +91,9 @@ jobs:
           import subprocess
           from pathlib import Path
 
-          raw = subprocess.check_output([
-              "git", "ls-files", "-z"
-          ])
+          raw = subprocess.check_output(
+              ["git", "ls-files", "-z"]
+          )
 
           snapshot = {}
 
@@ -127,9 +129,10 @@ jobs:
           )
 
           print("Fichiers suivis :", len(snapshot))
+          print("Snapshot SHA256 : OK")
           PY
 
-      - name: "Verifier la syntaxe Python"
+      - name: "Verifier syntaxe Python"
         run: |
           set -euo pipefail
 
@@ -137,11 +140,13 @@ jobs:
           import ast
           from pathlib import Path
 
-          for name in (
+          files = (
               "pmu_engine.py",
               "analyse_hippique.py",
               "resultats_archives.py",
-          ):
+          )
+
+          for name in files:
               path = Path(name)
 
               ast.parse(
@@ -160,7 +165,9 @@ jobs:
           python analyse_hippique.py --self-test
           python resultats_archives.py --self-test
 
-      - name: "Verifier la structure des donnees PMU"
+          echo "Trois autotests : OK"
+
+      - name: "Verifier donnees PMU reelles"
         run: |
           set -euo pipefail
 
@@ -199,7 +206,6 @@ jobs:
           )
 
           date = validate(payload)
-
           courses = payload.get("courses")
 
           if not isinstance(courses, list):
@@ -232,12 +238,12 @@ jobs:
               )
 
           print("Date PMU :", date)
-          print("Courses :", len(ids))
+          print("Courses verifiees :", len(ids))
           print("Partants actifs :", total)
           print("Structure PMU : OK")
           PY
 
-      - name: "Tester les analyses sans publication"
+      - name: "Tester analyses sans publication"
         run: |
           set -euo pipefail
 
@@ -246,7 +252,7 @@ jobs:
           echo "Analyse factuelle : OK"
           echo "Aucune publication effectuee"
 
-      - name: "Verifier les archives historiques"
+      - name: "Verifier archives historiques"
         run: |
           set -euo pipefail
 
@@ -254,7 +260,7 @@ jobs:
 
           echo "Archives historiques : OK"
 
-      - name: "Verifier integrite apres execution"
+      - name: "Verifier integrite finale SHA256"
         if: always() && steps.checkout.outcome == 'success'
         run: |
           set -euo pipefail
@@ -272,85 +278,88 @@ jobs:
           )
 
           if not target.is_file():
-              print(
-                  "::warning::Snapshot initial absent"
-              )
-          else:
-              initial = json.loads(
-                  target.read_text(encoding="utf-8")
+              raise SystemExit(
+                  "::error::Snapshot SHA256 initial absent"
               )
 
-              raw = subprocess.check_output([
-                  "git", "ls-files", "-z"
-              ])
+          initial = json.loads(
+              target.read_text(encoding="utf-8")
+          )
 
-              current = {}
+          raw = subprocess.check_output(
+              ["git", "ls-files", "-z"]
+          )
 
-              for item in raw.split(b"\0"):
-                  if not item:
-                      continue
+          current = {}
 
-                  name = os.fsdecode(item)
-                  path = Path(name)
+          for item in raw.split(b"\0"):
+              if not item:
+                  continue
 
-                  if path.is_symlink():
-                      raise SystemExit(
-                          f"Lien symbolique interdit : {name}"
-                      )
+              name = os.fsdecode(item)
+              path = Path(name)
 
-                  if not path.is_file():
-                      raise SystemExit(
-                          f"Fichier suivi absent : {name}"
-                      )
-
-                  current[name] = hashlib.sha256(
-                      path.read_bytes()
-                  ).hexdigest()
-
-              if current != initial:
-                  changed = sorted(
-                      name
-                      for name in set(initial) | set(current)
-                      if initial.get(name) != current.get(name)
-                  )
-
-                  for name in changed:
-                      print(
-                          f"::error::Fichier modifie : {name}"
-                      )
-
+              if path.is_symlink():
                   raise SystemExit(
-                      "Integrite SHA256 non respectee"
+                      f"Lien symbolique interdit : {name}"
                   )
 
-              print("SHA256 des fichiers suivis : OK")
+              if not path.is_file():
+                  raise SystemExit(
+                      f"Fichier suivi absent : {name}"
+                  )
+
+              current[name] = hashlib.sha256(
+                  path.read_bytes()
+              ).hexdigest()
+
+          if current != initial:
+              changed = sorted(
+                  name
+                  for name
+                  in set(initial) | set(current)
+                  if initial.get(name) != current.get(name)
+              )
+
+              for name in changed:
+                  print(
+                      f"::error::Fichier modifie : {name}"
+                  )
+
+              raise SystemExit(
+                  "Integrite SHA256 non respectee"
+              )
+
+          print("SHA256 des fichiers suivis : OK")
           PY
 
           git diff --exit-code HEAD --
           git diff --cached --exit-code
 
-          if [ -n "$(
-            git ls-files --others --exclude-standard
-          )" ]; then
+          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
             echo "::error::Fichiers non suivis detectes"
             exit 1
           fi
 
+          if [ -n "$(git ls-files --others --ignored --exclude-standard)" ]; then
+            echo "::warning::Fichiers ignores presents"
+          fi
+
           echo "Integrite Git : OK"
 
-      - name: "Rapport de validation"
+      - name: "Rapport final de validation"
         if: success()
         run: |
           {
-            echo "## X1000 - Analyse hippique V1.2"
+            echo "## X1000 - Analyse hippique V1.3"
             echo ""
             echo "- Branche securisee : OK"
             echo "- Syntaxe Python : OK"
             echo "- Trois autotests : OK"
             echo "- Structure PMU : OK"
-            echo "- Analyse factuelle dry-run : OK"
+            echo "- Analyses dry-run : OK"
             echo "- Archives historiques : OK"
-            echo "- Integrite Git et SHA256 : OK"
+            echo "- Integrite SHA256 : OK"
             echo "- Publication : aucune"
             echo "- FIGE automatique : aucun"
             echo "- Modification main : aucune"
@@ -359,6 +368,6 @@ jobs:
       - name: "Signaler un echec"
         if: failure()
         run: |
-          echo "::error::Analyse hippique V1.2 echouee"
+          echo "::error::Analyse hippique V1.3 echouee"
           echo "Ne pas fusionner vers main."
           echo "Consulter les journaux GitHub Actions."
