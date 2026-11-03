@@ -1,4 +1,4 @@
-name: "X1000 - Initialisation moteurs M1-M5 securisee V1.3"
+name: "X1000 - Initialisation moteurs M1-M5 securisee V1.4"
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   initialiser-moteurs:
-    name: "Initialisation securisee M1-M5 sans FIGE"
+    name: "Initialisation M1-M5 sans FIGE fictif"
 
     if: >-
       github.event_name == 'workflow_dispatch' &&
@@ -40,13 +40,18 @@ jobs:
 
     steps:
       - name: "Recuperer le commit securise"
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: true
 
-      - name: "Verifier le contexte"
+      - name: "Installer Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: "Verifier le contexte securise"
         run: |
           set -euo pipefail
 
@@ -55,67 +60,152 @@ jobs:
             "yadcaf-cloud/x1000-intelligence-hippique-humaine"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 
-          test -f initialiser_publication_moteurs.py
+          test -s initialiser_publication_moteurs.py
           test ! -L initialiser_publication_moteurs.py
 
-          test -f "$SOURCE"
+          test -s "$SOURCE"
           test ! -L "$SOURCE"
+          test -d data
+          test ! -L data
 
-          if test -e "$DESTINATION" || test -L "$DESTINATION"; then
+          if [ -e "$DESTINATION" ] || [ -L "$DESTINATION" ]; then
             echo "::error::Publication moteurs deja existante"
             exit 1
           fi
 
-          if test -n "$(git status --porcelain)"; then
+          if [ -n "$(git status --porcelain)" ]; then
             echo "::error::Arbre Git non propre"
             exit 1
           fi
 
-          echo "OK - Contexte securise"
+          echo "Contexte securise : OK"
 
-      - name: "Installer Python"
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
-      - name: "Verifier la syntaxe Python"
+      - name: "Verifier syntaxe Python"
         run: |
           set -euo pipefail
 
           python - <<'PY'
+          import ast
           from pathlib import Path
 
           path = Path("initialiser_publication_moteurs.py")
-          compile(
-              path.read_text(encoding="utf-8"),
-              str(path),
-              "exec"
+
+          ast.parse(
+              path.read_text(encoding="utf-8-sig"),
+              filename=str(path),
           )
-          print("OK - Syntaxe Python")
+
+          print("Syntaxe Python : OK")
           PY
 
-      - name: "Memoriser la source PMU"
+      - name: "Memoriser source et depot"
         id: source
         run: |
           set -euo pipefail
 
-          HASH="$(sha256sum "$SOURCE" | cut -d ' ' -f 1)"
-          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
 
-          echo "OK - Empreinte SHA256 memorisee"
+          def unique_keys(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(
+                          f"Cle JSON dupliquee : {key}"
+                      )
+                  result[key] = value
+              return result
 
-      - name: "Initialiser la publication"
+          def reject_constant(value):
+              raise ValueError(
+                  f"Constante JSON interdite : {value}"
+              )
+
+          source = Path(os.environ["SOURCE"])
+          raw = source.read_bytes()
+
+          payload = json.loads(
+              raw.decode("utf-8-sig"),
+              object_pairs_hook=unique_keys,
+              parse_constant=reject_constant,
+          )
+
+          if not isinstance(payload, dict):
+              raise SystemExit("Source PMU invalide")
+
+          if payload.get("statut") not in ("OK", "PARTIEL"):
+              raise SystemExit("Statut PMU invalide")
+
+          if not isinstance(payload.get("courses"), list):
+              raise SystemExit("Liste courses invalide")
+
+          if not isinstance(payload.get("date"), str):
+              raise SystemExit("Date PMU invalide")
+
+          digest = hashlib.sha256(raw).hexdigest()
+
+          snapshot = {}
+          tracked = subprocess.check_output(
+              ["git", "ls-files", "-z"]
+          )
+
+          for entry in tracked.split(b"\0"):
+              if not entry:
+                  continue
+
+              name = os.fsdecode(entry)
+              path = Path(name)
+
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit(
+                      f"Fichier suivi invalide : {name}"
+                  )
+
+              snapshot[name] = hashlib.sha256(
+                  path.read_bytes()
+              ).hexdigest()
+
+          if not snapshot:
+              raise SystemExit("Depot vide")
+
+          target = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-moteurs-snapshot.json"
+          )
+
+          target.write_text(
+              json.dumps(snapshot, sort_keys=True),
+              encoding="utf-8",
+          )
+
+          with open(
+              os.environ["GITHUB_OUTPUT"],
+              "a",
+              encoding="utf-8",
+          ) as output:
+              output.write(f"hash={digest}\n")
+
+          print("Source PMU : OK")
+          print("SHA256 initial : OK")
+          print("Fichiers suivis :", len(snapshot))
+          PY
+
+      - name: "Initialiser publication moteurs"
         run: |
           set -euo pipefail
 
           python initialiser_publication_moteurs.py
 
-          test -f "$DESTINATION"
+          test -s "$DESTINATION"
           test ! -L "$DESTINATION"
 
-          echo "OK - Publication initiale creee"
+          echo "Fichier moteurs cree : OK"
 
-      - name: "Valider strictement le JSON"
+      - name: "Valider strictement publication"
         env:
           EXPECTED_HASH: ${{ steps.source.outputs.hash }}
         run: |
@@ -125,24 +215,47 @@ jobs:
           import hashlib
           import json
           import os
-
           from datetime import datetime, timezone
           from pathlib import Path
 
-          source = Path("data/publication_courses.json")
-          dest = Path("data/publication_moteurs.json")
-
           def require(condition, message):
               if not condition:
-                  raise SystemExit("ERREUR - " + message)
+                  raise SystemExit(
+                      f"::error::{message}"
+                  )
+
+          def unique_keys(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(
+                          f"Cle dupliquee : {key}"
+                      )
+                  result[key] = value
+              return result
+
+          def reject_constant(value):
+              raise ValueError(
+                  f"Constante interdite : {value}"
+              )
+
+          def load(raw):
+              return json.loads(
+                  raw.decode("utf-8-sig"),
+                  object_pairs_hook=unique_keys,
+                  parse_constant=reject_constant,
+              )
+
+          source = Path(os.environ["SOURCE"])
+          dest = Path(os.environ["DESTINATION"])
 
           require(
               source.is_file() and not source.is_symlink(),
-              "Source invalide"
+              "Source invalide",
           )
           require(
               dest.is_file() and not dest.is_symlink(),
-              "Destination invalide"
+              "Destination invalide",
           )
 
           raw = source.read_bytes()
@@ -150,89 +263,158 @@ jobs:
 
           require(
               digest == os.environ["EXPECTED_HASH"],
-              "Empreinte source modifiee"
+              "Source PMU modifiee",
           )
 
-          courses = json.loads(raw.decode("utf-8"))
-          publication = json.loads(dest.read_text("utf-8"))
+          courses = load(raw)
+          publication = load(dest.read_bytes())
 
-          require(isinstance(courses, dict), "Source invalide")
-          require(isinstance(publication, dict), "JSON invalide")
+          require(
+              isinstance(courses, dict),
+              "Source PMU invalide",
+          )
+          require(
+              isinstance(publication, dict),
+              "Publication invalide",
+          )
+
           require(
               courses.get("statut") in ("OK", "PARTIEL"),
-              "Statut PMU invalide"
+              "Statut PMU invalide",
           )
+
+          expected_keys = {
+              "version",
+              "statut",
+              "date",
+              "source",
+              "source_sha256",
+              "publie_a",
+              "courses",
+          }
 
           require(
-              set(publication) == {
-                  "version",
-                  "statut",
-                  "date",
-                  "source",
-                  "source_sha256",
-                  "publie_a",
-                  "courses"
-              },
-              "Champs de publication invalides"
+              set(publication) == expected_keys,
+              "Champs moteurs invalides",
           )
-
           require(
               publication["version"] == "X1000-MOTEURS-1.0",
-              "Version incorrecte"
+              "Version invalide",
           )
           require(
               publication["statut"] == "PUBLICATION_MOTEURS",
-              "Statut moteurs incorrect"
+              "Statut moteurs invalide",
           )
           require(
               publication["source"] == source.as_posix(),
-              "Chemin source incorrect"
+              "Chemin source invalide",
           )
           require(
               publication["source_sha256"] == digest,
-              "SHA256 incorrect"
+              "SHA256 moteurs incorrect",
           )
           require(
               publication["date"] == courses.get("date"),
-              "Date incorrecte"
+              "Date moteurs incoherente",
           )
           require(
-              publication["courses"] == [],
-              "Decisions FIGEES interdites a l'initialisation"
+              type(publication["courses"]) is list
+              and publication["courses"] == [],
+              "FIGEs interdits pendant initialisation",
           )
 
-          published = datetime.fromisoformat(
-              publication["publie_a"].replace("Z", "+00:00")
-          )
+          try:
+              published = datetime.fromisoformat(
+                  publication["publie_a"].replace(
+                      "Z", "+00:00"
+                  )
+              )
+          except (ValueError, TypeError, AttributeError):
+              raise SystemExit(
+                  "::error::Horodatage moteurs invalide"
+              )
+
           require(
-              published.utcoffset() is not None,
-              "Fuseau horaire absent"
+              published.tzinfo is not None
+              and published.utcoffset() is not None,
+              "Fuseau horaire absent",
           )
 
           age = (
               datetime.now(timezone.utc) - published
           ).total_seconds()
+
           require(
               -60 <= age <= 900,
-              "Horodatage incoherent"
+              "Horodatage incoherent",
           )
 
-          print("OK - JSON conforme")
-          print("OK - SHA256 conforme")
-          print("OK - Zero FIGE fictif")
+          print("Publication JSON : OK")
+          print("SHA256 : OK")
+          print("FIGEs fictifs : aucun")
           PY
 
-      - name: "Verifier les modifications exclusives"
+      - name: "Verifier modifications exclusives"
         run: |
           set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          target = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-moteurs-snapshot.json"
+          )
+
+          if not target.is_file():
+              raise SystemExit("Snapshot initial absent")
+
+          initial = json.loads(
+              target.read_text(encoding="utf-8")
+          )
+
+          raw = subprocess.check_output(
+              ["git", "ls-files", "-z"]
+          )
+
+          current = {}
+
+          for entry in raw.split(b"\0"):
+              if not entry:
+                  continue
+
+              name = os.fsdecode(entry)
+              path = Path(name)
+
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit(
+                      f"Fichier suivi invalide : {name}"
+                  )
+
+              current[name] = hashlib.sha256(
+                  path.read_bytes()
+              ).hexdigest()
+
+          if current != initial:
+              raise SystemExit(
+                  "::error::Fichier suivi modifie"
+              )
+
+          print("Fichiers suivis intacts : OK")
+          PY
 
           git diff --exit-code
           git diff --cached --exit-code
 
           UNTRACKED="$(git ls-files --others --exclude-standard)"
 
-          if test "$UNTRACKED" != "$DESTINATION"; then
+          if [ "$UNTRACKED" != "$DESTINATION" ]; then
             echo "::error::Fichiers non autorises"
+            printf '%s\n' "$UNTRACKED"
             exit 1
           fi
 
@@ -241,30 +423,31 @@ jobs:
           STATUS="$(git diff --cached --name-status)"
           EXPECTED="$(printf 'A\t%s' "$DESTINATION")"
 
-          if test "$STATUS" != "$EXPECTED"; then
+          if [ "$STATUS" != "$EXPECTED" ]; then
             echo "::error::Modification non autorisee"
             exit 1
           fi
 
-          echo "OK - Creation exclusive du JSON"
+          echo "Creation exclusive du JSON : OK"
 
-      - name: "Verifier la branche distante"
+      - name: "Verifier branche distante"
         run: |
           set -euo pipefail
 
-          git fetch --no-tags origin "refs/heads/$BRANCHE"
+          git fetch --no-tags origin \
+            "refs/heads/$BRANCHE"
 
           LOCAL="$(git rev-parse HEAD)"
           REMOTE="$(git rev-parse FETCH_HEAD)"
 
-          if test "$LOCAL" != "$REMOTE"; then
+          if [ "$LOCAL" != "$REMOTE" ]; then
             echo "::error::Branche distante modifiee"
             exit 1
           fi
 
-          echo "OK - Branche distante inchangee"
+          echo "Branche distante : OK"
 
-      - name: "Creer le commit"
+      - name: "Creer commit securise"
         run: |
           set -euo pipefail
 
@@ -275,34 +458,51 @@ jobs:
           git commit \
             -m "X1000: initialiser M1-M5 sans FIGE fictif"
 
-      - name: "Publier uniquement sur branche securisee"
+          test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = \
+            "$DESTINATION"
+
+          echo "Commit securise : OK"
+
+      - name: "Publier sur branche securisee uniquement"
         run: |
           set -euo pipefail
 
-          git fetch --no-tags origin "refs/heads/$BRANCHE"
+          git fetch --no-tags origin \
+            "refs/heads/$BRANCHE"
 
           REMOTE="$(git rev-parse FETCH_HEAD)"
           PARENT="$(git rev-parse HEAD^)"
 
-          if test "$REMOTE" != "$PARENT"; then
+          if [ "$REMOTE" != "$PARENT" ]; then
             echo "::error::Branche distante modifiee"
             exit 1
           fi
 
-          git push origin "HEAD:refs/heads/$BRANCHE"
+          git push origin \
+            "HEAD:refs/heads/$BRANCHE"
 
-          echo "OK - Publication branche securisee"
-          echo "OK - Aucune fusion vers main"
+          echo "Publication branche securisee : OK"
+          echo "Aucune fusion vers main"
 
       - name: "Bilan final"
         if: success()
         run: |
-          echo "=================================="
-          echo "X1000 - INITIALISATION M1-M5 V1.3"
-          echo "=================================="
-          echo "Source PMU : validee"
-          echo "Publication moteurs : initialisee"
-          echo "Decisions FIGEES : aucune"
-          echo "Archives : inchangees"
-          echo "Branche main : inchangee"
-          echo "=================================="
+          {
+            echo "## X1000 - Initialisation M1-M5 V1.4"
+            echo ""
+            echo "- Source PMU : validee"
+            echo "- Publication moteurs : creee"
+            echo "- SHA256 : controle"
+            echo "- FIGEs fictifs : aucun"
+            echo "- Modifications : JSON moteurs uniquement"
+            echo "- Branche securisee : publication effectuee"
+            echo "- Archives : inchangees"
+            echo "- Branche main : inchangee"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Signaler echec"
+        if: failure()
+        run: |
+          echo "::error::Initialisation M1-M5 V1.4 echouee"
+          echo "Verifier les journaux GitHub Actions."
+          echo "Aucune fusion vers main autorisee."
