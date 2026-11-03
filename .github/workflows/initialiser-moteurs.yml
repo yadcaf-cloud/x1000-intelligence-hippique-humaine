@@ -1,0 +1,381 @@
+name: "X1000 - Initialisation moteurs M1-M5 securisee V1.1"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-initialisation-moteurs-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  initialiser-moteurs:
+    name: "Validation et publication initiale M1-M5"
+
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/feature/activation-pmu-analyses-archives' &&
+      github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine'
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    permissions:
+      contents: write
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      TZ: Europe/Paris
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONNOUSERSITE: "1"
+      BRANCHE: feature/activation-pmu-analyses-archives
+      SOURCE: data/publication_courses.json
+      DESTINATION: data/publication_moteurs.json
+
+    steps:
+      - name: "Recuperer la branche securisee"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: "Verifier le contexte et les fichiers"
+        run: |
+          set -euo pipefail
+
+          test "$GITHUB_REF" = "refs/heads/$BRANCHE"
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
+
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+          test -f initialiser_publication_moteurs.py
+          test ! -L initialiser_publication_moteurs.py
+
+          test -f "$SOURCE"
+          test ! -L "$SOURCE"
+
+          if test -e "$DESTINATION" || test -L "$DESTINATION"; then
+            echo "::error::Publication moteurs deja existante."
+            exit 1
+          fi
+
+          if ! git diff --quiet || \
+             ! git diff --cached --quiet; then
+            echo "::error::Arbre Git non propre."
+            exit 1
+          fi
+
+          echo "OK - Depot et branche verifies"
+          echo "OK - Source et script presents"
+          echo "OK - Aucune publication a ecraser"
+
+      - name: "Configurer Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: "Verifier la syntaxe du script"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path(
+              "initialiser_publication_moteurs.py"
+          )
+
+          compile(
+              path.read_text(encoding="utf-8"),
+              str(path),
+              "exec"
+          )
+
+          print("OK - Syntaxe Python valide")
+          PY
+
+      - name: "Memoriser la source PMU"
+        id: source
+        run: |
+          set -euo pipefail
+
+          HASH="$(sha256sum "$SOURCE" | cut -d ' ' -f 1)"
+
+          echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+
+          echo "OK - Empreinte source memorisee"
+
+      - name: "Executer l'initialisation"
+        run: |
+          set -euo pipefail
+
+          python initialiser_publication_moteurs.py
+
+          test -f "$DESTINATION"
+          test ! -L "$DESTINATION"
+
+          echo "OK - JSON genere"
+
+      - name: "Valider strictement le JSON"
+        env:
+          EXPECTED_SOURCE_HASH: ${{ steps.source.outputs.hash }}
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+
+          from datetime import datetime, timezone
+          from pathlib import Path
+
+          source = Path(
+              "data/publication_courses.json"
+          )
+
+          destination = Path(
+              "data/publication_moteurs.json"
+          )
+
+          def require(condition, message):
+              if not condition:
+                  raise SystemExit(
+                      "ERREUR - " + message
+                  )
+
+          require(
+              source.is_file() and not source.is_symlink(),
+              "Source invalide"
+          )
+
+          require(
+              destination.is_file()
+              and not destination.is_symlink(),
+              "Destination invalide"
+          )
+
+          raw = source.read_bytes()
+
+          source_hash = hashlib.sha256(
+              raw
+          ).hexdigest()
+
+          require(
+              source_hash == os.environ[
+                  "EXPECTED_SOURCE_HASH"
+              ],
+              "Source PMU modifiee pendant le workflow"
+          )
+
+          courses = json.loads(
+              raw.decode("utf-8")
+          )
+
+          publication = json.loads(
+              destination.read_text(
+                  encoding="utf-8"
+              )
+          )
+
+          require(
+              isinstance(courses, dict),
+              "Source PMU non conforme"
+          )
+
+          require(
+              courses.get("statut") in ("OK", "PARTIEL"),
+              "Statut PMU invalide"
+          )
+
+          require(
+              isinstance(courses.get("courses"), list),
+              "Courses PMU invalides"
+          )
+
+          require(
+              isinstance(publication, dict),
+              "Publication moteurs invalide"
+          )
+
+          expected_keys = {
+              "version",
+              "statut",
+              "date",
+              "source",
+              "source_sha256",
+              "publie_a",
+              "courses"
+          }
+
+          require(
+              set(publication) == expected_keys,
+              "Champs de publication non conformes"
+          )
+
+          require(
+              publication["version"]
+              == "X1000-MOTEURS-1.0",
+              "Version invalide"
+          )
+
+          require(
+              publication["statut"]
+              == "PUBLICATION_MOTEURS",
+              "Statut moteurs invalide"
+          )
+
+          require(
+              publication["source"]
+              == "data/publication_courses.json",
+              "Chemin source incorrect"
+          )
+
+          require(
+              publication["date"] == courses.get("date"),
+              "Date source incompatible"
+          )
+
+          require(
+              publication["source_sha256"] == source_hash,
+              "SHA256 incompatible"
+          )
+
+          require(
+              publication["courses"] == [],
+              "Aucune decision FIGEE n'est autorisee"
+          )
+
+          published_at = publication["publie_a"]
+
+          require(
+              isinstance(published_at, str),
+              "Horodatage absent"
+          )
+
+          published = datetime.fromisoformat(
+              published_at.replace("Z", "+00:00")
+          )
+
+          require(
+              published.utcoffset() is not None,
+              "Fuseau horaire absent"
+          )
+
+          age = (
+              datetime.now(timezone.utc) - published
+          ).total_seconds()
+
+          require(
+              -60 <= age <= 900,
+              "Horodatage de publication incoherent"
+          )
+
+          print("OK - JSON valide")
+          print("OK - Source PMU inchangee")
+          print("OK - SHA256 conforme")
+          print("OK - Zero decision FIGEE fictive")
+          PY
+
+      - name: "Controler exclusivement le nouveau fichier"
+        run: |
+          set -euo pipefail
+
+          if ! git diff --quiet || \
+             ! git diff --cached --quiet; then
+            echo "::error::Modification de fichier suivi detectee."
+            exit 1
+          fi
+
+          UNTRACKED="$(git ls-files --others --exclude-standard)"
+
+          if test "$UNTRACKED" != "$DESTINATION"; then
+            echo "::error::Fichiers non autorises detectes."
+            exit 1
+          fi
+
+          git add -- "$DESTINATION"
+
+          STATUS="$(git diff --cached --name-status)"
+
+          EXPECTED="$(printf 'A\t%s' "$DESTINATION")"
+
+          if test "$STATUS" != "$EXPECTED"; then
+            echo "::error::Creation exclusive non respectee."
+            exit 1
+          fi
+
+          echo "OK - Un seul nouveau fichier autorise"
+
+      - name: "Verifier la branche distante avant commit"
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin \
+            "refs/heads/$BRANCHE"
+
+          LOCAL="$(git rev-parse HEAD)"
+          REMOTE="$(git rev-parse FETCH_HEAD)"
+
+          if test "$LOCAL" != "$REMOTE"; then
+            echo "::error::Branche distante modifiee."
+            exit 1
+          fi
+
+          echo "OK - Branche distante coherente"
+
+      - name: "Creer le commit securise"
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git commit \
+            -m "X1000: initialiser moteurs sans FIGE fictif"
+
+          echo "OK - Commit local cree"
+
+      - name: "Publier sur la branche securisee uniquement"
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin \
+            "refs/heads/$BRANCHE"
+
+          REMOTE="$(git rev-parse FETCH_HEAD)"
+          PARENT="$(git rev-parse HEAD^)"
+
+          if test "$REMOTE" != "$PARENT"; then
+            echo "::error::Branche distante modifiee."
+            echo "Publication annulee."
+            exit 1
+          fi
+
+          git push origin \
+            "HEAD:refs/heads/$BRANCHE"
+
+          echo "OK - Push sur branche securisee"
+          echo "OK - Aucune fusion vers main"
+
+      - name: "Bilan final"
+        if: success()
+        run: |
+          echo "======================================"
+          echo "X1000 - INITIALISATION M1-M5 V1.1"
+          echo "======================================"
+          echo "JSON : cree et valide"
+          echo "SHA256 : conforme"
+          echo "FIGEs fictifs : aucun"
+          echo "Archives : non modifiees"
+          echo "Branche main : non modifiee"
+          echo "======================================"
