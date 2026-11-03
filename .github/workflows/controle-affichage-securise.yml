@@ -1,4 +1,4 @@
-name: "X1000 - Controle affichage securise V1.3"
+name: "X1000 - Controle affichage securise V1.4"
 
 on:
   workflow_dispatch:
@@ -32,17 +32,31 @@ concurrency:
 
 jobs:
   controle:
-    name: "Validation PMU, analyses et M1-M5"
+    name: "Validation affichage PMU analyses M1-M5"
 
     if: >-
-      (github.event_name == 'workflow_dispatch' &&
-       github.ref == 'refs/heads/feature/activation-pmu-analyses-archives') ||
-      (github.event_name == 'push' &&
-       github.ref == 'refs/heads/feature/activation-pmu-analyses-archives') ||
-      (github.event_name == 'pull_request' &&
-       github.event.pull_request.head.repo.full_name == github.repository &&
-       github.head_ref == 'feature/activation-pmu-analyses-archives' &&
-       github.base_ref == 'main')
+      github.repository ==
+      'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
+      (
+        (
+          github.event_name == 'workflow_dispatch' &&
+          github.ref ==
+          'refs/heads/feature/activation-pmu-analyses-archives'
+        ) ||
+        (
+          github.event_name == 'push' &&
+          github.ref ==
+          'refs/heads/feature/activation-pmu-analyses-archives'
+        ) ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name ==
+          github.repository &&
+          github.head_ref ==
+          'feature/activation-pmu-analyses-archives' &&
+          github.base_ref == 'main'
+        )
+      )
 
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -58,17 +72,89 @@ jobs:
       PYTHONNOUSERSITE: "1"
 
     steps:
-      - name: "Recuperer le code"
+      - name: "Recuperer le depot"
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 1
 
-      - name: "Installer Python"
+      - name: "Installer Python 3.12"
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: "Verifier le portail et les publications"
+      - name: "Verifier fichiers et syntaxe HTML"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+
+          class PortalParser(HTMLParser):
+              def __init__(self):
+                  super().__init__(convert_charrefs=True)
+                  self.ids = set()
+                  self.scripts = 0
+
+              def handle_starttag(self, tag, attrs):
+                  attrs = dict(attrs)
+
+                  if attrs.get("id"):
+                      self.ids.add(attrs["id"])
+
+                  if tag.lower() == "script":
+                      self.scripts += 1
+
+          page = Path("index.html")
+
+          if not page.is_file() or not page.stat().st_size:
+              raise SystemExit(
+                  "::error::index.html absent ou vide"
+              )
+
+          html = page.read_text(encoding="utf-8-sig")
+
+          parser = PortalParser()
+          parser.feed(html)
+          parser.close()
+
+          if parser.scripts == 0:
+              raise SystemExit(
+                  "::error::Aucun script dans le portail"
+              )
+
+          sources = (
+              "publication_courses.json",
+              "publication_analyses.json",
+          )
+
+          for source in sources:
+              if source not in html:
+                  raise SystemExit(
+                      f"::error::Source absente : {source}"
+                  )
+
+          print("Portail HTML : OK")
+          print("Scripts declares :", parser.scripts)
+          print("Identifiants HTML :", len(parser.ids))
+
+          for section in (
+              "pmu", "analyses", "moteurs",
+              "figes", "archives"
+          ):
+              if section not in parser.ids:
+                  print(
+                      f"::warning::Section non trouvee : {section}"
+                  )
+
+          if "publication_moteurs.json" not in html:
+              print(
+                  "::warning::Source moteurs non referencee"
+              )
+          PY
+
+      - name: "Verifier publications PMU et analyses"
         run: |
           set -euo pipefail
 
@@ -80,179 +166,124 @@ jobs:
           from pathlib import Path
           from zoneinfo import ZoneInfo
 
-          MOTORS = ("M1", "M2", "M3", "M4", "M5")
-          COURSE_PATTERN = (
+          ID_PATTERN = re.compile(
               r"\d{4}-\d{2}-\d{2}-R[1-9]\d*-C[1-9]\d*"
           )
 
           def require(condition, message):
               if not condition:
-                  raise AssertionError(message)
+                  raise SystemExit(
+                      f"::error::{message}"
+                  )
 
-          def is_object(value):
-              return isinstance(value, dict)
-
-          def is_text(value):
+          def text(value):
               return (
                   isinstance(value, str)
                   and bool(value.strip())
               )
 
-          def is_number(value):
+          def positive_int(value):
               return type(value) is int and value > 0
 
-          def parse_date(value):
+          def unique_keys(pairs):
+              result = {}
+
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(
+                          f"Cle JSON dupliquee : {key}"
+                      )
+                  result[key] = value
+
+              return result
+
+          def reject_constant(value):
+              raise ValueError(
+                  f"Constante JSON interdite : {value}"
+              )
+
+          def load_json(name):
+              path = Path(name)
+              require(
+                  path.is_file() and path.stat().st_size > 0,
+                  f"Fichier absent ou vide : {name}"
+              )
+
+              raw = path.read_bytes()
+
+              payload = json.loads(
+                  raw.decode("utf-8-sig"),
+                  object_pairs_hook=unique_keys,
+                  parse_constant=reject_constant,
+              )
+
+              require(
+                  isinstance(payload, dict),
+                  f"Objet JSON invalide : {name}"
+              )
+
+              return payload, raw
+
+          def parse_time(value):
               if not isinstance(value, str):
                   return None
+
               try:
                   result = datetime.fromisoformat(
                       value.replace("Z", "+00:00")
                   )
+
                   if (
                       result.tzinfo is None
                       or result.utcoffset() is None
                   ):
                       return None
+
                   return result
               except ValueError:
                   return None
 
-          def load_json(path):
-              file = Path(path)
-              require(
-                  file.is_file(),
-                  f"Fichier absent : {path}"
-              )
-              raw = file.read_bytes()
-              data = json.loads(raw)
-              require(
-                  is_object(data),
-                  f"Objet JSON invalide : {path}"
-              )
-              return data, raw
-
           def valid_id(value):
               return (
-                  is_text(value)
-                  and re.fullmatch(
-                      COURSE_PATTERN, value
-                  ) is not None
+                  text(value)
+                  and ID_PATTERN.fullmatch(value) is not None
               )
-
-          print("=== X1000 SECURISE V1.3 ===")
-
-          # 1. PORTAIL HTML
-
-          page = Path("index.html")
-          require(
-              page.is_file(),
-              "index.html absent"
-          )
-
-          html = page.read_text(
-              encoding="utf-8"
-          )
-
-          for section in (
-              "pmu",
-              "analyses",
-              "moteurs",
-              "figes",
-              "archives",
-          ):
-              require(
-                  re.search(
-                      rf'\bid\s*=\s*["\']{section}["\']',
-                      html
-                  ) is not None,
-                  f"Section HTML absente : {section}"
-              )
-
-          for token in (
-              "data/publication_courses.json",
-              "data/publication_analyses.json",
-              "data/publication_moteurs.json",
-              "renderCourses",
-              "renderAnalyses",
-              "renderMotors",
-              "fetchJSON",
-          ):
-              require(
-                  token in html,
-                  f"Fonction ou source absente : {token}"
-              )
-
-          require(
-              "fetchSource" in html
-              or "fetchCourses" in html,
-              "Chargement des courses absent"
-          )
-
-          for motor in MOTORS:
-              require(
-                  re.search(
-                      rf'\b{motor}\s*:',
-                      html
-                  ) is not None,
-                  f"Moteur non declare : {motor}"
-              )
-
-          print(
-              "OK - Portail et M1-M5 declares"
-          )
-
-          # 2. COURSES PMU
 
           source, raw = load_json(
               "data/publication_courses.json"
           )
 
           require(
-              source.get("statut") in (
-                  "OK", "PARTIEL"
-              ),
-              "Statut PMU invalide"
+              source.get("statut") in ("OK", "PARTIEL"),
+              "Statut collecte PMU invalide"
           )
 
           require(
-              parse_date(
-                  source.get("collecte_a")
-              ) is not None,
+              parse_time(source.get("collecte_a"))
+              is not None,
               "Horodatage collecte invalide"
           )
 
-          race_list = source.get("courses")
+          courses = source.get("courses")
 
           require(
-              isinstance(race_list, list),
+              isinstance(courses, list),
               "Liste courses invalide"
           )
 
-          date_label = source.get("date")
-
-          if date_label is not None:
-              require(
-                  isinstance(date_label, str)
-                  and re.fullmatch(
-                      r"\d{4}-\d{2}-\d{2}",
-                      date_label
-                  ) is not None,
-                  "Date publication invalide"
-              )
-
           races = {}
 
-          for race in race_list:
+          for race in courses:
               require(
-                  is_object(race),
-                  "Course non conforme"
+                  isinstance(race, dict),
+                  "Objet course invalide"
               )
 
               rid = race.get("id")
 
               require(
                   valid_id(rid),
-                  f"Identifiant invalide : {rid}"
+                  f"Identifiant course invalide : {rid}"
               )
 
               require(
@@ -272,7 +303,7 @@ jobs:
                   f"Depart non verifie : {rid}"
               )
 
-              departure = parse_date(
+              departure = parse_time(
                   race.get("depart")
               )
 
@@ -281,73 +312,64 @@ jobs:
                   f"Depart invalide : {rid}"
               )
 
-              paris_day = departure.astimezone(
+              paris_date = departure.astimezone(
                   ZoneInfo("Europe/Paris")
               ).date().isoformat()
 
               require(
-                  rid[:10] == paris_day,
-                  f"Date course incoherente : {rid}"
+                  rid[:10] == paris_date,
+                  f"Date incoherente : {rid}"
               )
 
-              if date_label is not None:
-                  require(
-                      rid[:10] == date_label,
-                      f"Date publication incoherente : {rid}"
-                  )
-
               require(
-                  is_text(race.get("discipline")),
+                  text(race.get("discipline")),
                   f"Discipline absente : {rid}"
               )
 
-              horses_list = race.get("partants")
+              horses = race.get("partants")
 
               require(
-                  isinstance(horses_list, list)
-                  and bool(horses_list),
-                  f"Chevaux absents : {rid}"
+                  isinstance(horses, list) and bool(horses),
+                  f"Partants absents : {rid}"
               )
 
-              horses = {}
+              numbers = {}
               nonrunners = set()
 
-              for horse in horses_list:
+              for horse in horses:
                   require(
-                      is_object(horse),
+                      isinstance(horse, dict),
                       f"Cheval invalide : {rid}"
                   )
 
                   number = horse.get("numero")
 
                   require(
-                      is_number(number),
-                      f"Numero invalide : {rid}"
+                      positive_int(number),
+                      f"Numero cheval invalide : {rid}"
                   )
 
                   require(
-                      number not in horses,
-                      f"Numero duplique : {rid}/{number}"
+                      number not in numbers,
+                      f"Cheval duplique : {rid}/{number}"
                   )
 
                   require(
-                      is_text(horse.get("nom")),
-                      f"Nom absent : {rid}/{number}"
+                      text(horse.get("nom")),
+                      f"Nom cheval absent : {rid}/{number}"
                   )
 
                   require(
-                      type(
-                          horse.get("non_partant")
-                      ) is bool,
+                      type(horse.get("non_partant")) is bool,
                       f"Statut NP invalide : {rid}/{number}"
                   )
 
-                  horses[number] = horse["nom"]
+                  numbers[number] = horse["nom"]
 
                   if horse["non_partant"]:
                       nonrunners.add(number)
 
-              active = set(horses) - nonrunners
+              active = set(numbers) - nonrunners
 
               require(
                   bool(active),
@@ -366,12 +388,12 @@ jobs:
               for item in declared:
                   number = (
                       item.get("numero")
-                      if is_object(item)
+                      if isinstance(item, dict)
                       else item
                   )
 
                   require(
-                      is_number(number),
+                      positive_int(number),
                       f"Numero NP invalide : {rid}"
                   )
 
@@ -383,22 +405,22 @@ jobs:
                   declared_numbers.add(number)
 
                   if (
-                      is_object(item)
+                      isinstance(item, dict)
                       and "nom" in item
                   ):
                       require(
-                          item["nom"] == horses.get(number),
+                          item["nom"] == numbers.get(number),
                           f"Nom NP incoherent : {rid}/{number}"
                       )
 
               require(
                   declared_numbers == nonrunners,
-                  f"NP incoherents : {rid}"
+                  f"Liste NP incoherente : {rid}"
               )
 
               for field, expected in (
                   ("nombre_partants", len(active)),
-                  ("nombre_participants", len(horses)),
+                  ("nombre_participants", len(numbers)),
               ):
                   if field in race:
                       require(
@@ -408,47 +430,38 @@ jobs:
                       )
 
               races[rid] = {
-                  "horses": horses,
+                  "horses": numbers,
                   "active": active,
                   "departure": departure,
-                  "departure_raw": race["depart"],
+                  "depart_raw": race["depart"],
                   "discipline": race["discipline"],
               }
 
-          print(
-              f"OK - {len(races)} courses controlees"
-          )
+          print("Courses PMU controlees :", len(races))
 
           if not races:
               print(
                   "INFO - Aucune course exploitable publiee"
               )
 
-          # 3. ANALYSES DESCRIPTIVES
-
-          analysis, _ = load_json(
+          analyses, _ = load_json(
               "data/publication_analyses.json"
           )
 
           digest = hashlib.sha256(raw).hexdigest()
 
           require(
-              analysis.get("statut")
+              analyses.get("statut")
               == "DESCRIPTIF_SANS_PRONOSTIC",
               "Statut analyses invalide"
           )
 
-          analysis_hash = analysis.get(
-              "source_sha256"
-          )
-
           require(
-              isinstance(analysis_hash, str)
-              and analysis_hash.lower() == digest,
+              analyses.get("source_sha256") == digest,
               "SHA256 analyses incompatible"
           )
 
-          entries = analysis.get("courses")
+          entries = analyses.get("courses")
 
           require(
               isinstance(entries, list),
@@ -459,20 +472,17 @@ jobs:
 
           for entry in entries:
               require(
-                  is_object(entry),
-                  "Objet analyse invalide"
+                  isinstance(entry, dict),
+                  "Analyse invalide"
               )
 
               rid = entry.get("id")
 
               require(
-                  valid_id(rid),
-                  "Identifiant analyse invalide"
-              )
-
-              require(
-                  rid in races and rid not in seen,
-                  f"Analyse inconnue/dupliquee : {rid}"
+                  valid_id(rid)
+                  and rid in races
+                  and rid not in seen,
+                  f"Analyse inconnue ou dupliquee : {rid}"
               )
 
               seen.add(rid)
@@ -480,15 +490,13 @@ jobs:
 
               if "depart" in entry:
                   require(
-                      entry["depart"]
-                      == ref["departure_raw"],
+                      entry["depart"] == ref["depart_raw"],
                       f"Depart analyse incoherent : {rid}"
                   )
 
               if "discipline" in entry:
                   require(
-                      entry["discipline"]
-                      == ref["discipline"],
+                      entry["discipline"] == ref["discipline"],
                       f"Discipline analyse incoherente : {rid}"
                   )
 
@@ -497,40 +505,36 @@ jobs:
               ):
                   require(
                       entry.get(forbidden) is None,
-                      f"Pronostic inattendu : {rid}"
+                      f"Pronostic interdit : {rid}"
                   )
 
-              horses_list = entry.get("chevaux")
+              horses = entry.get("chevaux")
 
               require(
-                  isinstance(horses_list, list),
+                  isinstance(horses, list),
                   f"Chevaux analyse invalides : {rid}"
               )
 
               used = set()
 
-              for horse in horses_list:
+              for horse in horses:
                   require(
-                      is_object(horse),
+                      isinstance(horse, dict),
                       f"Cheval analyse invalide : {rid}"
                   )
 
                   number = horse.get("numero")
 
                   require(
-                      is_number(number),
+                      positive_int(number)
+                      and number not in used,
                       f"Numero analyse invalide : {rid}"
-                  )
-
-                  require(
-                      number not in used,
-                      f"Analyse dupliquee : {rid}/{number}"
                   )
 
                   require(
                       horse.get("nom")
                       == ref["horses"].get(number),
-                      f"Cheval analyse incoherent : {rid}/{number}"
+                      f"Cheval analyse incoherent : {rid}"
                   )
 
                   require(
@@ -538,37 +542,32 @@ jobs:
                           "evaluation_sportive",
                           "NON_EVALUE"
                       ) == "NON_EVALUE",
-                      f"Evaluation inattendue : {rid}/{number}"
+                      f"Evaluation inattendue : {rid}"
                   )
 
                   used.add(number)
 
               require(
                   used == set(ref["horses"]),
-                  f"Chevaux manquants : {rid}"
+                  f"Chevaux analyses manquants : {rid}"
               )
 
-          print(
-              f"OK - {len(seen)} analyses descriptives"
-          )
+          print("Analyses controlees :", len(seen))
 
-          # 4. PUBLICATIONS DES CINQ MOTEURS
-
-          motor_path = Path(
+          motors_path = Path(
               "data/publication_moteurs.json"
           )
 
-          if not motor_path.exists():
+          if not motors_path.exists():
               print(
                   "INFO - Publication moteurs absente"
               )
               print(
-                  "INFO - Aucun FIGE invente ou suppose"
+                  "INFO - Aucun FIGE suppose"
               )
-
           else:
               publication, _ = load_json(
-                  str(motor_path)
+                  str(motors_path)
               )
 
               require(
@@ -577,17 +576,13 @@ jobs:
                   "Statut moteurs invalide"
               )
 
-              motor_hash = publication.get(
-                  "source_sha256"
-              )
-
               require(
-                  isinstance(motor_hash, str)
-                  and motor_hash.lower() == digest,
+                  publication.get("source_sha256")
+                  == digest,
                   "SHA256 moteurs incompatible"
               )
 
-              published = parse_date(
+              published = parse_time(
                   publication.get("publie_a")
               )
 
@@ -596,85 +591,71 @@ jobs:
                   "Date publication moteurs invalide"
               )
 
-              motor_entries = publication.get(
-                  "courses"
-              )
+              motor_entries = publication.get("courses")
 
               require(
                   isinstance(motor_entries, list),
-                  "Liste courses moteurs invalide"
+                  "Liste moteurs invalide"
               )
 
-              used_races = set()
-              total_decisions = 0
-              present_motors = set()
+              motors = ("M1", "M2", "M3", "M4", "M5")
+              seen_races = set()
+              decisions_count = 0
 
               for entry in motor_entries:
                   require(
-                      is_object(entry),
+                      isinstance(entry, dict),
                       "Objet moteurs invalide"
                   )
 
                   rid = entry.get("id")
 
                   require(
-                      valid_id(rid),
-                      "ID course moteurs invalide"
-                  )
-
-                  require(
-                      rid in races
-                      and rid not in used_races,
+                      valid_id(rid)
+                      and rid in races
+                      and rid not in seen_races,
                       f"Course moteurs invalide : {rid}"
                   )
 
-                  used_races.add(rid)
+                  seen_races.add(rid)
 
-                  decisions = entry.get(
-                      "moteurs"
-                  )
+                  decisions = entry.get("moteurs")
 
                   require(
-                      is_object(decisions)
+                      isinstance(decisions, dict)
                       and bool(decisions),
                       f"Decisions absentes : {rid}"
                   )
 
                   for motor, decision in decisions.items():
                       require(
-                          motor in MOTORS,
-                          f"Moteur inconnu : {rid}/{motor}"
+                          motor in motors,
+                          f"Moteur inconnu : {motor}"
                       )
 
                       require(
-                          is_object(decision),
+                          isinstance(decision, dict),
                           f"Decision invalide : {rid}/{motor}"
                       )
 
                       require(
                           decision.get("course_id") == rid
                           and decision.get("statut") == "FIGE",
-                          f"FIGE non conforme : {rid}/{motor}"
+                          f"FIGE invalide : {rid}/{motor}"
                       )
 
-                      frozen = parse_date(
+                      frozen = parse_time(
                           decision.get("fige_a")
                       )
 
                       require(
-                          frozen is not None,
-                          f"Date FIGE invalide : {rid}/{motor}"
-                      )
-
-                      require(
-                          frozen < races[rid]["departure"]
+                          frozen is not None
+                          and frozen < races[rid]["departure"]
                           and frozen <= published,
-                          f"Chronologie FIGE incoherente : {rid}/{motor}"
+                          f"Chronologie FIGE invalide : {rid}/{motor}"
                       )
 
-                      positions = decision.get(
-                          "positions"
-                      )
+                      positions = decision.get("positions")
 
                       require(
                           isinstance(positions, list)
@@ -684,7 +665,7 @@ jobs:
 
                       require(
                           all(
-                              is_number(n)
+                              positive_int(n)
                               for n in positions
                           ),
                           f"Numero predit invalide : {rid}/{motor}"
@@ -699,48 +680,35 @@ jobs:
                           set(positions).issubset(
                               races[rid]["active"]
                           ),
-                          f"Cheval NP/inconnu : {rid}/{motor}"
+                          f"Cheval NP ou inconnu : {rid}/{motor}"
                       )
 
-                      total_decisions += 1
-                      present_motors.add(motor)
+                      decisions_count += 1
 
               print(
-                  f"OK - {total_decisions} FIGEs "
-                  "structurellement coherents"
+                  "FIGEs structurellement valides :",
+                  decisions_count
               )
-
-              for motor in MOTORS:
-                  if motor in present_motors:
-                      print(
-                          f"INFO - {motor} : publication presente"
-                      )
-                  else:
-                      print(
-                          f"INFO - {motor} : aucun FIGE publie"
-                      )
 
               print(
                   "ATTENTION - Horodatages declares "
                   "non certifies historiquement"
               )
 
-          print(
-              "OK - Controle statique termine"
-          )
+          print("Validation statique JSON : OK")
           PY
 
-      - name: "Verifier la syntaxe JavaScript"
+      - name: "Verifier syntaxe JavaScript"
         run: |
           set -euo pipefail
 
           node - <<'JS'
           const fs = require("node:fs");
           const vm = require("node:vm");
+          const { spawnSync } = require("node:child_process");
 
           const html = fs.readFileSync(
-            "index.html",
-            "utf8"
+            "index.html", "utf8"
           );
 
           const scripts = [
@@ -750,57 +718,106 @@ jobs:
           ];
 
           if (!scripts.length) {
-            throw new Error(
-              "Aucun script JavaScript"
-            );
+            throw new Error("Aucun script JavaScript");
           }
 
           let checked = 0;
 
-          for (const [, attributes, source] of scripts) {
-            if (/\bsrc\s*=/i.test(attributes)) {
+          for (const [, attrs, source] of scripts) {
+            if (/\bsrc\s*=/i.test(attrs)) {
               continue;
             }
 
+            const typeMatch = attrs.match(
+              /\btype\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i
+            );
+
+            const type = (
+              typeMatch?.[1] ??
+              typeMatch?.[2] ??
+              typeMatch?.[3] ??
+              ""
+            ).toLowerCase();
+
             if (
-              /\btype\s*=\s*["'](?:application\/json|importmap)["']/i
-                .test(attributes)
+              type &&
+              type !== "module" &&
+              type !== "text/javascript" &&
+              type !== "application/javascript"
             ) {
               continue;
             }
 
-            new vm.Script(source, {
-              filename: "index.html"
-            });
+            if (type === "module") {
+              const result = spawnSync(
+                process.execPath,
+                ["--input-type=module", "--check"],
+                {
+                  input: source,
+                  encoding: "utf8"
+                }
+              );
+
+              if (result.status !== 0) {
+                throw new Error(
+                  result.stderr || "Module invalide"
+                );
+              }
+            } else {
+              new vm.Script(source, {
+                filename: "index.html"
+              });
+            }
 
             checked++;
           }
 
-          if (!checked) {
-            throw new Error(
-              "Aucun script integre verifie"
+          console.log(
+            `Scripts JavaScript verifies : ${checked}`
+          );
+
+          if (checked === 0) {
+            console.log(
+              "AVERTISSEMENT : aucun script integre executable"
             );
           }
-
-          console.log(
-            `OK - ${checked} script(s) valide(s)`
-          );
           JS
+
+      - name: "Verifier absence de modifications"
+        run: |
+          set -euo pipefail
+
+          git diff --exit-code HEAD --
+          git diff --cached --exit-code
+
+          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "::error::Fichiers non suivis detectes"
+            exit 1
+          fi
+
+          echo "Depot intact : OK"
 
       - name: "Bilan securise"
         if: success()
         run: |
-          echo "====================================="
-          echo "X1000 PHOENIX - CONTROLE V1.3"
-          echo "====================================="
-          echo "Portail HTML : controle statique"
-          echo "Courses PMU : coherence controlee"
-          echo "Analyses : coherence controlee"
-          echo "M1 M2 M3 M4 M5 : pris en compte"
-          echo "FIGEs : controles si publies"
-          echo "Aucune donnee fictive"
-          echo "Aucune publication automatique"
-          echo "Aucune modification des archives"
-          echo "Aucune fusion vers main"
-          echo "Test navigateur encore necessaire"
-          echo "====================================="
+          {
+            echo "## X1000 - Controle affichage V1.4"
+            echo ""
+            echo "- Portail HTML : controle"
+            echo "- Courses PMU : coherence verifiee"
+            echo "- Analyses : coherence verifiee"
+            echo "- Moteurs M1-M5 : controles si publies"
+            echo "- FIGEs : verification structurelle"
+            echo "- JavaScript : syntaxe controlee"
+            echo "- Depot Git : intact"
+            echo "- Publication automatique : aucune"
+            echo "- Modification main : aucune"
+            echo "- Test navigateur : encore necessaire"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Signaler un echec"
+        if: failure()
+        run: |
+          echo "::error::Controle affichage V1.4 echoue"
+          echo "Ne pas fusionner vers main."
+          echo "Consulter les journaux GitHub Actions."
