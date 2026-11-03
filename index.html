@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#071521">
-<meta name="description" content="X1000 PHOENIX — Intelligence Hippique Humaine, courses PMU françaises, analyses et moteurs M1 à M5.">
-<title>🇸🇳🧠🔥 X1000 PHOENIX</title>
+<meta name="description" content="X1000 — Intelligence Hippique Humaine. Courses PMU françaises, analyses factuelles et cinq moteurs M1 à M5.">
+<title>🇸🇳🧠🔥 X1000 — Intelligence Hippique Humaine</title>
 
 <style>
 :root {
@@ -147,23 +147,40 @@ summary { cursor: pointer; font-weight: 700; }
 .subheading { margin-top: 30px; }
 footer { text-align: center; color: var(--muted); }
 [hidden] { display: none !important; }
-@media(max-width:600px) {
-  header { position: relative; }
-  section { scroll-margin-top: 15px; }
-  .hero { padding: 35px 0; }
-  input, select, button { width: 100%; }
+
+@media (max-width: 600px) {
+  header { position: relative; padding: 12px 4%; }
+  nav { gap: 10px; }
+  nav strong { flex-basis: 100%; margin-right: 0; }
+  nav a { font-size: .88rem; padding: 5px 3px; }
+  main, footer { padding: 16px 4%; }
+  section { padding: 26px 0; scroll-margin-top: 15px; }
+  .hero { padding: 30px 0; }
+  h1 {
+    font-size: clamp(1.8rem, 8vw, 2.5rem);
+    overflow-wrap: anywhere;
+  }
+  .card, .notice, details { padding: 14px; }
+  .grid { grid-template-columns: minmax(0, 1fr); }
+  .controls > input,
+  .controls > select,
+  .controls > button {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+  }
+  .stats span { flex: 1 1 100%; }
 }
-@media(prefers-reduced-motion:reduce) {
+@media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
 }
 </style>
 </head>
 
 <body>
-
 <header>
 <nav aria-label="Navigation principale">
-  <strong>🇸🇳🧠🔥 X1000 PHOENIX</strong>
+  <strong>🇸🇳🧠🔥 X1000</strong>
   <a href="#accueil">Accueil</a>
   <a href="#mission">Mission</a>
   <a href="#pmu">PMU réel</a>
@@ -180,7 +197,7 @@ footer { text-align: center; color: var(--muted); }
 
 <section id="accueil" class="hero">
   <p>OBSERVATION • DISCERNEMENT • AUTONOMIE • APPRENTISSAGE</p>
-  <h1>🇸🇳🧠🔥 X1000 PHOENIX<br>Intelligence Hippique Humaine</h1>
+  <h1>🇸🇳🧠🔥 X1000<br>Intelligence Hippique Humaine</h1>
   <p class="lead">
     Comprendre avant de prédire. Étudier chaque cheval.
     Déjouer les apparences. Décider indépendamment.
@@ -201,7 +218,7 @@ footer { text-align: center; color: var(--muted); }
 <section id="mission">
 <h2>🧠 Notre mission</h2>
 <p>
-  X1000 PHOENIX est un projet d'intelligence hippique
+  X1000 — Intelligence Hippique Humaine est un projet
   consacré aux courses PMU physiquement disputées en France.
   Il transforme les informations disponibles et vérifiées
   en analyses structurées et en décisions traçables.
@@ -293,96 +310,65 @@ footer { text-align: center; color: var(--muted); }
   ou de reproduire le classement d'un autre moteur.
   Les divergences sont conservées et expliquées.
 </p>
-
 <div class="grid">
-
-<article class="card motor">
-<h3><span class="motor-code">M1</span> Statistiques et performances</h3>
-<p>
-  M1 étudie la régularité, les performances historiques,
-  les classements, les chronos et les aptitudes
-  documentées aux distances et disciplines.
-</p>
-<p>
-  Il recherche les chevaux présentant les arguments
-  statistiques les plus solides.
-</p>
-<p><strong>Question :</strong>
-« Quels chevaux ont les performances les plus solides ? »</p>
-</article>
-
-<article class="card motor">
-<h3><span class="motor-code">M2</span> Forme et dynamique actuelle</h3>
-<p>
-  M2 étudie la progression, les baisses de forme,
-  les retours en condition et la cohérence
-  des dernières sorties.
-</p>
-<p>
-  Il ne condamne pas un cheval sur un seul échec
-  et ne surestime pas une victoire isolée.
-</p>
-<p><strong>Question :</strong>
-« Qui arrive dans la meilleure dynamique ? »</p>
-</article>
-
-<article class="card motor">
-<h3><span class="motor-code">M3</span> Aptitude et scénario de course</h3>
-<p>
-  M3 examine la distance, la discipline,
-  le terrain, le parcours, l'hippodrome
-  et les circonstances tactiques,
-  lorsque ces informations sont vérifiées.
-</p>
-<p>
-  Il recherche les chevaux les mieux adaptés
-  aux conditions précises de l'épreuve.
-</p>
-<p><strong>Question :</strong>
-« Qui est le mieux adapté à cette course ? »</p>
-</article>
-
-<article class="card motor">
-<h3><span class="motor-code">M4</span> Chevaux cachés et faux favoris</h3>
-<p>
-  M4 recherche les chevaux sous-estimés,
-  les progrès discrets et les outsiders
-  disposant d'arguments sportifs vérifiables.
-</p>
-<p>
-  Il questionne les favoris insuffisamment justifiés.
-  Une cote élevée ne prouve jamais, à elle seule,
-  la qualité d'un cheval.
-</p>
-<p><strong>Question :</strong>
-« Qui pourrait surprendre et quel favori pourrait décevoir ? »</p>
-</article>
-
-<article class="card motor">
-<h3><span class="motor-code">M5</span> Robustesse et contre-analyse</h3>
-<p>
-  M5 examine les contradictions, les risques,
-  les informations manquantes, les performances
-  irrégulières et les scénarios défavorables.
-</p>
-<p>
-  Il privilégie les décisions explicables
-  et résiste aux conclusions hâtives.
-</p>
-<p><strong>Question :</strong>
-« Qui reste crédible après examen des faiblesses ? »</p>
-</article>
-
+  <article class="card motor">
+    <h3><span class="motor-code">M1</span> Statistiques et performances</h3>
+    <p>
+      M1 étudie la régularité, les performances historiques,
+      les classements, les chronos et les aptitudes
+      documentées aux distances et disciplines.
+    </p>
+    <p><strong>Question :</strong>
+    « Quels chevaux ont les performances les plus solides ? »</p>
+  </article>
+  <article class="card motor">
+    <h3><span class="motor-code">M2</span> Forme et dynamique actuelle</h3>
+    <p>
+      M2 étudie la progression, les baisses de forme,
+      les retours en condition et la cohérence
+      des dernières sorties.
+    </p>
+    <p><strong>Question :</strong>
+    « Qui arrive dans la meilleure dynamique ? »</p>
+  </article>
+  <article class="card motor">
+    <h3><span class="motor-code">M3</span> Aptitude et scénario</h3>
+    <p>
+      M3 examine la distance, la discipline,
+      le terrain, le parcours, l'hippodrome
+      et les circonstances tactiques vérifiées.
+    </p>
+    <p><strong>Question :</strong>
+    « Qui est le mieux adapté à cette course ? »</p>
+  </article>
+  <article class="card motor">
+    <h3><span class="motor-code">M4</span> Chevaux cachés et faux favoris</h3>
+    <p>
+      M4 recherche les chevaux sous-estimés,
+      les progrès discrets et les outsiders
+      disposant d'arguments sportifs vérifiables.
+    </p>
+    <p><strong>Question :</strong>
+    « Qui pourrait surprendre et quel favori pourrait décevoir ? »</p>
+  </article>
+  <article class="card motor">
+    <h3><span class="motor-code">M5</span> Robustesse et contre-analyse</h3>
+    <p>
+      M5 examine les contradictions, les risques,
+      les informations manquantes et les scénarios
+      défavorables avant de conclure.
+    </p>
+    <p><strong>Question :</strong>
+    « Qui reste crédible après examen des faiblesses ? »</p>
+  </article>
 </div>
 
 <h3 class="subheading">⚖️ Décisions indépendantes</h3>
 <p>
-  Chaque moteur vise son propre classement
-  des cinq premières positions espérées.
-  X1000 PHOENIX rassemble les décisions
-  sans modifier les choix individuels.
+  Chaque moteur vise son propre classement des cinq
+  premières positions espérées. X1000 rassemble
+  les décisions sans modifier les choix individuels.
 </p>
-
 <h3 class="subheading">🏇 Étude cheval par cheval</h3>
 <p>
   Chaque partant actif mérite une étude.
@@ -390,32 +376,26 @@ footer { text-align: center; color: var(--muted); }
   Aucune information absente n'est inventée.
   Un moteur peut s'abstenir.
 </p>
-
 <h3 class="subheading">🔐 FIGÉ avant le départ</h3>
 <p>
   Une décision officielle doit être enregistrée
   et horodatée avant le départ.
-  Une révision doit être justifiée,
-  effectuée avant le départ
-  et conserver l'historique intégral.
+  Une révision doit être justifiée, effectuée avant
+  le départ et conserver l'historique intégral.
   Aucun FIGÉ rétroactif.
 </p>
-
 <h3 class="subheading">📚 Apprentissage</h3>
 <p>
   Les décisions historiques sont comparées
   uniquement aux résultats officiels vérifiés.
-  Les erreurs servent à améliorer les méthodes
-  sans modifier les anciennes prévisions.
+  Les anciennes prévisions ne sont jamais réécrites.
 </p>
-
 <div class="notice">
   <strong>État technique :</strong>
   ces rôles définissent les missions visées.
   Leur réalisation complète dépend des moteurs Python,
   des données disponibles et des validations techniques.
 </div>
-
 <p class="quote">
   « Cinq moteurs, cinq regards, cinq décisions indépendantes.
   Comprendre avant de prédire. »
@@ -431,11 +411,10 @@ footer { text-align: center; color: var(--muted); }
 </p>
 <p class="muted">
   Source : data/publication_moteurs.json.
-  Les contrôles du navigateur ne remplacent pas
-  la vérification des archives historiques.
+  Les contrôles du navigateur ne prouvent pas
+  l'authenticité historique des FIGÉs.
 </p>
-<p id="motorsStatus" class="notice"
-  role="status" aria-live="polite">
+<p id="motorsStatus" class="notice" role="status" aria-live="polite">
   Vérification des publications…
 </p>
 <div id="motorsList" class="grid"></div>
@@ -492,11 +471,10 @@ footer { text-align: center; color: var(--muted); }
   Apprendre continuellement. »
 </p>
 </section>
-
 </main>
 
 <footer>
-🇸🇳🧠🔥 X1000 PHOENIX — Intelligence Hippique Humaine<br>
+🇸🇳🧠🔥 X1000 — Intelligence Hippique Humaine<br>
 Document fondateur — 1er novembre 2026<br>
 Aucune prévision ne garantit un gain.<br>
 Aucune donnée hippique fictive.<br>
@@ -507,7 +485,7 @@ Aucune donnée hippique fictive.<br>
 "use strict";
 
 /*
- X1000 PHOENIX — PORTAIL SECURISE V2.2
+ X1000 — PORTAIL SECURISE V2.4
 
  Lecture seule des JSON publiés.
  Aucun cheval inventé.
@@ -531,6 +509,9 @@ const isObject = value =>
   value !== null &&
   typeof value === "object" &&
   !Array.isArray(value);
+
+const hasOwn = (obj, key) =>
+  Object.prototype.hasOwnProperty.call(obj, key);
 
 const validHash = value =>
   typeof value === "string" &&
@@ -613,8 +594,8 @@ function httpMessage(path, code) {
   if (code === 404) {
     return (
       "Fichier " + path +
-      " introuvable sur le site publié (HTTP 404). " +
-      "Vérifier la branche et les fichiers de GitHub Pages."
+      " introuvable (HTTP 404). Vérifier les fichiers " +
+      "et la configuration GitHub Pages."
     );
   }
 
@@ -642,12 +623,12 @@ async function fetchJSON(path, signal) {
   }
 }
 
-async function sha256(raw) {
+async function sha256(bytes) {
   if (!globalThis.crypto?.subtle) {
-    throw new Error("SHA256 indisponible : HTTPS requis");
+    throw new Error(
+      "SHA256 indisponible : contexte sécurisé requis."
+    );
   }
-
-  const bytes = new TextEncoder().encode(raw);
 
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -672,21 +653,25 @@ async function fetchSource(signal) {
     throw new Error(httpMessage(path, response.status));
   }
 
-  const raw = await response.text();
-
+  const bytes = await response.arrayBuffer();
   let data;
 
   try {
+    const raw = new TextDecoder(
+      "utf-8",
+      { fatal: true }
+    ).decode(bytes);
+
     data = JSON.parse(raw);
   } catch {
     throw new Error(
-      "Fichier PMU invalide : JSON impossible à lire."
+      "Publication PMU : JSON ou encodage invalide."
     );
   }
 
   return {
     data,
-    hash: await sha256(raw)
+    hash: await sha256(bytes)
   };
 }
 
@@ -696,7 +681,7 @@ function activeCount(course) {
   ).length;
 }
 
-/* VALIDATION DES COURSES PMU */
+/* VALIDATION DES COURSES */
 
 function validCourse(course) {
   if (
@@ -740,28 +725,33 @@ function validCourse(course) {
   const declaredNP = new Set();
 
   for (const item of course.non_partants) {
+    const number = isObject(item)
+      ? item.numero
+      : item;
+
     if (
-      !isObject(item) ||
-      !Number.isSafeInteger(item.numero) ||
-      !actualNP.has(item.numero) ||
-      declaredNP.has(item.numero)
+      !Number.isSafeInteger(number) ||
+      number <= 0 ||
+      !actualNP.has(number) ||
+      declaredNP.has(number)
     ) {
       return false;
     }
 
-    const original = horses.get(item.numero);
+    const original = horses.get(number);
 
     if (
       !original ||
       (
-        typeof item.nom === "string" &&
+        isObject(item) &&
+        item.nom !== undefined &&
         txt(item.nom) !== txt(original.nom)
       )
     ) {
       return false;
     }
 
-    declaredNP.add(item.numero);
+    declaredNP.add(number);
   }
 
   if (declaredNP.size !== actualNP.size) {
@@ -798,7 +788,19 @@ function validSource(payload) {
     );
   }
 
-  const ids = new Set();
+  const counts = new Map();
+
+  for (const course of payload.courses) {
+    if (!isObject(course) || typeof course.id !== "string") {
+      continue;
+    }
+
+    counts.set(
+      course.id,
+      (counts.get(course.id) || 0) + 1
+    );
+  }
+
   const accepted = [];
   let rejected = 0;
 
@@ -806,13 +808,12 @@ function validSource(payload) {
     if (
       !validCourse(course) ||
       course.id.slice(0, 10) !== payload.date ||
-      ids.has(course.id)
+      counts.get(course.id) !== 1
     ) {
       rejected++;
       continue;
     }
 
-    ids.add(course.id);
     accepted.push(course);
   }
 
@@ -845,10 +846,7 @@ function renderCourses() {
       ...course.partants.map(h => h.nom)
     ].join(" ");
 
-    if (
-      query &&
-      !norm(searchText).includes(query)
-    ) {
+    if (query && !norm(searchText).includes(query)) {
       continue;
     }
 
@@ -874,7 +872,6 @@ function renderCourses() {
     );
 
     const details = node("details");
-
     details.append(
       node("summary", "Voir les chevaux")
     );
@@ -901,10 +898,7 @@ function renderCourses() {
 
   if (!count) {
     container.append(
-      node(
-        "p",
-        "Aucune course correspondant aux filtres."
-      )
+      node("p", "Aucune course correspondant aux filtres.")
     );
   }
 }
@@ -1005,15 +999,12 @@ function renderAnalyses() {
 
   if (!analyses.length) {
     container.append(
-      node(
-        "p",
-        "Aucune analyse descriptive disponible."
-      )
+      node("p", "Aucune analyse descriptive disponible.")
     );
   }
 }
 
-/* FIGES M1 A M5 */
+/* DECISIONS FIGEES */
 
 function validMotorDecision(
   decision,
@@ -1022,7 +1013,7 @@ function validMotorDecision(
   publishedAt
 ) {
   if (
-    !Object.prototype.hasOwnProperty.call(MOTOR_NAMES, key) ||
+    !hasOwn(MOTOR_NAMES, key) ||
     !isObject(decision) ||
     decision.course_id !== course.id ||
     decision.statut !== "FIGE" ||
@@ -1142,10 +1133,7 @@ function renderMotors() {
 
   if (!moteurs.length) {
     container.append(
-      node(
-        "p",
-        "Aucune décision FIGÉE cohérente disponible."
-      )
+      node("p", "Aucune décision FIGÉE cohérente disponible.")
     );
   }
 }
@@ -1206,8 +1194,6 @@ async function loadData(id, activeController) {
       formatParis(source.data.collecte_a);
 
     const select = $("pmuDiscipline");
-    const previous = select.value;
-
     select.replaceChildren(
       new Option("Toutes les disciplines", "")
     );
@@ -1220,14 +1206,10 @@ async function loadData(id, activeController) {
       select.add(new Option(d, d));
     }
 
-    select.value =
-      disciplines.includes(previous) ? previous : "";
-
     renderCourses();
 
     const age =
-      Date.now() -
-      Date.parse(source.data.collecte_a);
+      Date.now() - Date.parse(source.data.collecte_a);
 
     const stale =
       !Number.isFinite(age) ||
@@ -1251,7 +1233,6 @@ async function loadData(id, activeController) {
 
     courses = [];
     sourceHash = "";
-
     $("coursesList").replaceChildren();
 
     status(
@@ -1269,13 +1250,11 @@ async function loadData(id, activeController) {
       "Analyses indisponibles : aucune course validée.",
       "error"
     );
-
     status(
       "motorsStatus",
       "FIGÉs indisponibles : aucune course validée.",
       "error"
     );
-
     return;
   }
 
@@ -1399,7 +1378,8 @@ async function loadData(id, activeController) {
       "motorsStatus",
       `${count} décisions FIGÉES structurellement cohérentes ` +
       `sur ${moteurs.length} courses. ` +
-      "Authenticité historique à contrôler dans les archives.",
+      "Horodatages déclarés : authenticité et " +
+      "historique à vérifier dans les archives.",
       "ok"
     );
 
@@ -1420,9 +1400,7 @@ async function loadData(id, activeController) {
 async function refresh() {
   const id = ++refreshId;
 
-  if (controller) {
-    controller.abort();
-  }
+  if (controller) controller.abort();
 
   const activeController = new AbortController();
   controller = activeController;
@@ -1437,44 +1415,41 @@ async function refresh() {
 
   try {
     await loadData(id, activeController);
-
   } catch (error) {
-    if (id === refreshId) {
+    if (
+      id === refreshId &&
+      !activeController.signal.aborted
+    ) {
       status(
         "pmuStatus",
         "Erreur inattendue : " + error.message,
         "error"
       );
     }
-
   } finally {
     clearTimeout(timeout);
 
     if (id === refreshId) {
       if (activeController.signal.aborted) {
-        // Conserver les données déjà validées.
+        const message =
+          "Chargement interrompu ou délai dépassé. Réessayez.";
+
         if (!courses.length) {
-          status(
-            "pmuStatus",
-            "Chargement interrompu ou délai dépassé. Réessayez.",
-            "error"
-          );
+          status("pmuStatus", message, "error");
         }
 
-        if (!analyses.length) {
-          status(
-            "analysisStatus",
-            "Analyses non chargées : délai dépassé ou interruption.",
-            "error"
-          );
+        if (
+          !analyses.length &&
+          $("analysisStatus").textContent.startsWith("En attente")
+        ) {
+          status("analysisStatus", message, "error");
         }
 
-        if (!moteurs.length) {
-          status(
-            "motorsStatus",
-            "FIGÉs non chargés : délai dépassé ou interruption.",
-            "error"
-          );
+        if (
+          !moteurs.length &&
+          $("motorsStatus").textContent.startsWith("En attente")
+        ) {
+          status("motorsStatus", message, "error");
         }
       }
 
