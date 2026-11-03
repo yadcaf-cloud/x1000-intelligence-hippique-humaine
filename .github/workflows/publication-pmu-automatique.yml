@@ -1,0 +1,602 @@
+name: "X1000 - Publication PMU securisee V3.2"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-publication-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publier:
+    name: "Collecte validation et publication PMU"
+
+    if: >-
+      github.repository ==
+      'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref ==
+      'refs/heads/feature/activation-pmu-analyses-archives'
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    permissions:
+      contents: write
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      TZ: Europe/Paris
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONNOUSERSITE: "1"
+      PMU_API_BASE: "https://online.turfinfo.api.pmu.fr/rest/client/7"
+      BRANCHE: feature/activation-pmu-analyses-archives
+
+    steps:
+      - name: "Recuperer la branche securisee"
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: "Installer Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: "Verifier depot et scripts"
+        run: |
+          set -euo pipefail
+
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
+
+          test "$GITHUB_REF" = "refs/heads/$BRANCHE"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
+
+          test -d data
+          test ! -L data
+
+          for file in pmu_engine.py analyse_hippique.py; do
+            test -s "$file"
+            test ! -L "$file"
+          done
+
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          for name in ("pmu_engine.py", "analyse_hippique.py"):
+              path = Path(name)
+              ast.parse(
+                  path.read_text(encoding="utf-8-sig"),
+                  filename=name,
+              )
+              print("Syntaxe OK :", name)
+          PY
+
+      - name: "Memoriser integrite initiale"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          allowed = {
+              "data/publication_courses.json",
+              "data/publication_analyses.json",
+              "data/diagnostic_collecte_pmu.json",
+          }
+
+          snapshot = {}
+
+          raw = subprocess.check_output(
+              ["git", "ls-files", "-z"]
+          )
+
+          for entry in raw.split(b"\0"):
+              if not entry:
+                  continue
+
+              name = os.fsdecode(entry)
+              path = Path(name)
+
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit(
+                      f"Fichier suivi invalide : {name}"
+                  )
+
+              if name not in allowed:
+                  snapshot[name] = hashlib.sha256(
+                      path.read_bytes()
+                  ).hexdigest()
+
+          target = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-publication-snapshot.json"
+          )
+
+          target.write_text(
+              json.dumps(snapshot, sort_keys=True),
+              encoding="utf-8",
+          )
+
+          print("Snapshot initial : OK")
+          PY
+
+      - name: "Executer les autotests"
+        run: |
+          set -euo pipefail
+
+          python pmu_engine.py --self-test
+          python analyse_hippique.py --self-test
+
+      - name: "Tester collecte sans publication"
+        run: |
+          set -euo pipefail
+
+          python pmu_engine.py --dry-run
+
+          echo "Dry-run PMU termine"
+
+      - name: "Effectuer collecte reelle"
+        run: |
+          set -euo pipefail
+
+          python pmu_engine.py
+
+          test -s data/publication_courses.json
+          test -s data/diagnostic_collecte_pmu.json
+
+      - name: "Generer analyses descriptives"
+        run: |
+          set -euo pipefail
+
+          python analyse_hippique.py
+
+          test -s data/publication_analyses.json
+
+      - name: "Valider publications JSON"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          from analyse_hippique import (
+              validate,
+              validate_course,
+              analyze,
+          )
+
+          API = (
+              "https://online.turfinfo.api.pmu.fr"
+              "/rest/client/7"
+          )
+
+          def require(condition, message):
+              if not condition:
+                  raise SystemExit(f"::error::{message}")
+
+          def unique_keys(pairs):
+              result = {}
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(
+                          f"Cle JSON dupliquee : {key}"
+                      )
+                  result[key] = value
+              return result
+
+          def reject_constant(value):
+              raise ValueError(
+                  f"Constante interdite : {value}"
+              )
+
+          def load(name):
+              path = Path(name)
+
+              require(
+                  path.is_file()
+                  and not path.is_symlink()
+                  and path.stat().st_size > 0,
+                  f"Fichier JSON invalide : {name}",
+              )
+
+              raw = path.read_bytes()
+
+              payload = json.loads(
+                  raw.decode("utf-8-sig"),
+                  object_pairs_hook=unique_keys,
+                  parse_constant=reject_constant,
+              )
+
+              require(
+                  isinstance(payload, dict),
+                  f"Objet JSON invalide : {name}",
+              )
+
+              return payload, raw
+
+          source, raw = load(
+              "data/publication_courses.json"
+          )
+          analyses, _ = load(
+              "data/publication_analyses.json"
+          )
+          diagnostic, _ = load(
+              "data/diagnostic_collecte_pmu.json"
+          )
+
+          date = validate(source)
+
+          today = datetime.now(
+              ZoneInfo("Europe/Paris")
+          ).date().isoformat()
+
+          require(
+              date == today,
+              "Programme PMU hors date du jour",
+          )
+          require(
+              source.get("statut") == "OK",
+              "Collecte incomplete",
+          )
+          require(
+              source.get("erreurs") == [],
+              "Erreurs PMU presentes",
+          )
+          require(
+              source.get("source") == API,
+              "Source PMU non autorisee",
+          )
+
+          try:
+              collected = datetime.fromisoformat(
+                  source["collecte_a"].replace(
+                      "Z", "+00:00"
+                  )
+              )
+          except (KeyError, ValueError, TypeError, AttributeError):
+              raise SystemExit(
+                  "::error::Horodatage collecte invalide"
+              )
+
+          require(
+              collected.tzinfo is not None
+              and collected.utcoffset() is not None,
+              "Fuseau horaire collecte absent",
+          )
+
+          age = (
+              datetime.now(timezone.utc) - collected
+          ).total_seconds()
+
+          require(
+              -60 <= age <= 10800,
+              "Collecte trop ancienne ou future",
+          )
+
+          items = source.get("courses")
+
+          require(
+              isinstance(items, list),
+              "Liste courses invalide",
+          )
+
+          ids = []
+
+          for course in items:
+              cid = validate_course(course, date)
+              require(
+                  isinstance(cid, str) and bool(cid),
+                  "Identifiant course invalide",
+              )
+              ids.append(cid)
+
+          require(
+              len(ids) == len(set(ids)),
+              "Courses dupliquees",
+          )
+
+          digest = hashlib.sha256(raw).hexdigest()
+
+          require(
+              analyses.get("source_sha256") == digest,
+              "SHA256 analyses incorrect",
+          )
+          require(
+              analyses.get("statut")
+              == "DESCRIPTIF_SANS_PRONOSTIC",
+              "Statut analyses invalide",
+          )
+          require(
+              analyses.get("date") == date,
+              "Date analyses incorrecte",
+          )
+
+          expected = analyze(source, raw)
+
+          require(
+              analyses.get("courses")
+              == expected["courses"],
+              "Analyses descriptives incoherentes",
+          )
+
+          require(
+              diagnostic.get("date") == date,
+              "Date diagnostic incorrecte",
+          )
+          require(
+              diagnostic.get("statut") == "OK",
+              "Diagnostic non valide",
+          )
+          require(
+              diagnostic.get("collecte_a")
+              == source["collecte_a"],
+              "Diagnostic non synchronise",
+          )
+          require(
+              diagnostic.get("courses")
+              == source["courses"],
+              "Diagnostic et collecte differents",
+          )
+
+          print("Validation PMU : OK")
+          print("Date :", date)
+          print("Courses :", len(ids))
+          print("SHA256 :", digest)
+          print("Analyses : OK")
+          print("Diagnostic : OK")
+          PY
+
+      - name: "Verifier modifications et archives"
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          allowed = {
+              "data/publication_courses.json",
+              "data/publication_analyses.json",
+              "data/diagnostic_collecte_pmu.json",
+          }
+
+          def git(*args):
+              return subprocess.check_output(
+                  ["git", *args]
+              )
+
+          snapshot_path = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-publication-snapshot.json"
+          )
+
+          if not snapshot_path.is_file():
+              raise SystemExit(
+                  "::error::Snapshot initial absent"
+              )
+
+          initial = json.loads(
+              snapshot_path.read_text(encoding="utf-8")
+          )
+
+          current = {}
+
+          tracked = git("ls-files", "-z")
+
+          for entry in tracked.split(b"\0"):
+              if not entry:
+                  continue
+
+              name = os.fsdecode(entry)
+              path = Path(name)
+
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit(
+                      f"Fichier suivi invalide : {name}"
+                  )
+
+              if name not in allowed:
+                  current[name] = hashlib.sha256(
+                      path.read_bytes()
+                  ).hexdigest()
+
+          if current != initial:
+              raise SystemExit(
+                  "::error::Fichier non autorise modifie"
+              )
+
+          def names(*args):
+              raw = git(*args, "-z")
+              return {
+                  os.fsdecode(item)
+                  for item in raw.split(b"\0")
+                  if item
+              }
+
+          changed = (
+              names("diff", "--name-only")
+              | names("diff", "--cached", "--name-only")
+              | names(
+                  "ls-files", "--others",
+                  "--exclude-standard"
+              )
+          )
+
+          forbidden = changed - allowed
+
+          if forbidden:
+              raise SystemExit(
+                  "::error::Modifications interdites : "
+                  + ", ".join(sorted(forbidden))
+              )
+
+          for name in allowed:
+              path = Path(name)
+              if (
+                  not path.is_file()
+                  or path.is_symlink()
+                  or path.stat().st_size == 0
+              ):
+                  raise SystemExit(
+                      f"Fichier publication invalide : {name}"
+                  )
+
+          print("Fichiers modifies :", sorted(changed))
+          print("Archives et scripts inchanges : OK")
+          PY
+
+      - name: "Indexer JSON autorises"
+        run: |
+          set -euo pipefail
+
+          git add -- \
+            data/publication_courses.json \
+            data/publication_analyses.json \
+            data/diagnostic_collecte_pmu.json
+
+          python - <<'PY'
+          import os
+          import subprocess
+
+          allowed = {
+              "data/publication_courses.json",
+              "data/publication_analyses.json",
+              "data/diagnostic_collecte_pmu.json",
+          }
+
+          raw = subprocess.check_output([
+              "git", "diff", "--cached",
+              "--name-only", "-z"
+          ])
+
+          staged = {
+              os.fsdecode(item)
+              for item in raw.split(b"\0")
+              if item
+          }
+
+          if not staged <= allowed:
+              raise SystemExit(
+                  "::error::Index Git non autorise"
+              )
+
+          raw = subprocess.check_output([
+              "git", "diff", "--cached",
+              "--raw", "-z"
+          ])
+
+          # Le contenu et les types sont controles
+          # avant l'indexation. Les trois chemins
+          # sont les seuls autorises.
+
+          print("Index Git :", sorted(staged))
+          PY
+
+      - name: "Verifier branche distante"
+        run: |
+          set -euo pipefail
+
+          git fetch --no-tags origin \
+            "refs/heads/$BRANCHE"
+
+          LOCAL="$(git rev-parse HEAD)"
+          REMOTE="$(git rev-parse FETCH_HEAD)"
+
+          if [ "$LOCAL" != "$REMOTE" ]; then
+            echo "::error::Branche distante modifiee"
+            exit 1
+          fi
+
+          echo "Branche distante : OK"
+
+      - name: "Publier uniquement sur branche securisee"
+        id: publication
+        run: |
+          set -euo pipefail
+
+          if git diff --cached --quiet; then
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "Aucun changement JSON a publier"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git commit \
+            -m "X1000: publication PMU reelle securisee"
+
+          git fetch --no-tags origin \
+            "refs/heads/$BRANCHE"
+
+          REMOTE="$(git rev-parse FETCH_HEAD)"
+          PARENT="$(git rev-parse HEAD^)"
+
+          if [ "$REMOTE" != "$PARENT" ]; then
+            echo "::error::Branche distante modifiee"
+            exit 1
+          fi
+
+          git push origin \
+            "HEAD:refs/heads/$BRANCHE"
+
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
+          echo "Publication securisee : OK"
+          echo "Aucune modification de main"
+
+      - name: "Rapport de validation"
+        if: success()
+        env:
+          PUBLISHED: ${{ steps.publication.outputs.published }}
+        run: |
+          {
+            echo "## X1000 - Publication PMU V3.2"
+            echo ""
+            echo "- Collecte PMU reelle : OK"
+            echo "- Analyses descriptives : OK"
+            echo "- Validation JSON : OK"
+            echo "- Integrite du depot : OK"
+            echo "- Archives : inchangees"
+            echo "- FIGE fictif : aucun genere par ce workflow"
+            echo "- Main : non modifiee"
+            echo "- Deploiement public : aucun"
+            echo ""
+            if [ "$PUBLISHED" = "true" ]; then
+              echo "- Commit publie : oui"
+            else
+              echo "- Commit publie : non, aucun changement"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Signaler un echec"
+        if: failure()
+        run: |
+          echo "::error::Publication PMU V3.2 echouee"
+          echo "Verifier les journaux avant toute relance."
+          echo "Aucune fusion vers main autorisee."
