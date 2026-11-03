@@ -1,4 +1,4 @@
-name: "X1000 - Resultats et archives securises V1.2"
+name: "X1000 - Resultats et archives securises V1.3"
 
 on:
   workflow_dispatch:
@@ -23,8 +23,14 @@ jobs:
     name: "Protection historique des archives"
 
     if: >-
+      github.repository ==
+      'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
       github.ref ==
-      'refs/heads/feature/activation-pmu-analyses-archives'
+      'refs/heads/feature/activation-pmu-analyses-archives' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        github.event_name == 'push'
+      )
 
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -38,12 +44,14 @@ jobs:
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONUNBUFFERED: "1"
       PYTHONNOUSERSITE: "1"
+      BRANCHE: feature/activation-pmu-analyses-archives
 
     steps:
-      - name: "Recuperer la branche securisee"
+      - name: "Recuperer commit et historique"
         id: checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
           fetch-depth: 0
 
@@ -52,23 +60,30 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: "Verifier branche et scripts"
+      - name: "Verifier contexte et scripts"
         run: |
           set -euo pipefail
 
-          test "$GITHUB_REF" = \
-            "refs/heads/feature/activation-pmu-analyses-archives"
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
+
+          test "$GITHUB_REF" = "refs/heads/$BRANCHE"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+          test -z "$(git status --porcelain)"
 
           for file in \
             pmu_engine.py \
             analyse_hippique.py \
             resultats_archives.py
           do
-            test -s "$file" || {
-              echo "::error::Script absent : $file"
+            if [ ! -s "$file" ] || [ -L "$file" ]; then
+              echo "::error::Script invalide : $file"
               exit 1
-            }
+            fi
           done
+
+          echo "Contexte securise : OK"
 
       - name: "Verifier syntaxe Python"
         run: |
@@ -78,17 +93,20 @@ jobs:
           import ast
           from pathlib import Path
 
-          for name in (
+          files = (
               "pmu_engine.py",
               "analyse_hippique.py",
               "resultats_archives.py",
-          ):
+          )
+
+          for name in files:
+              path = Path(name)
+
               ast.parse(
-                  Path(name).read_text(
-                      encoding="utf-8-sig"
-                  ),
+                  path.read_text(encoding="utf-8-sig"),
                   filename=name,
               )
+
               print("Syntaxe OK :", name)
           PY
 
@@ -102,21 +120,32 @@ jobs:
           git cat-file -e \
             "refs/remotes/origin/main^{commit}"
 
-      - name: "Proteger historique des archives"
+          BASE="$(git merge-base origin/main HEAD)"
+          test -n "$BASE"
+
+          echo "BASE_SHA=$BASE" >> "$GITHUB_ENV"
+
+          echo "Reference main : OK"
+          echo "Ancetre commun : OK"
+
+      - name: "Proteger historique et valider archives"
         run: |
           set -euo pipefail
 
           python - <<'PY'
+          import json
+          import os
           import subprocess
 
           PREFIX = "data/archives_resultats/"
+          MAX_SIZE = 2_000_000
 
           def git(*args):
               return subprocess.check_output(
                   ["git", *args]
               )
 
-          def tracked(ref):
+          def archives(ref):
               raw = git(
                   "ls-tree", "-r", "-z",
                   ref, "--", PREFIX
@@ -128,22 +157,21 @@ jobs:
                   if not entry:
                       continue
 
-                  metadata, path = entry.split(
-                      b"\t", 1
-                  )
-
+                  meta, path = entry.split(b"\t", 1)
                   mode, kind, sha = (
-                      metadata.decode("ascii").split()
+                      meta.decode("ascii").split()
                   )
 
-                  name = path.decode(
-                      "utf-8",
-                      errors="surrogateescape"
-                  )
+                  name = os.fsdecode(path)
 
-                  if kind != "blob" or mode != "100644":
+                  if mode != "100644" or kind != "blob":
                       raise SystemExit(
                           f"Archive non reguliere : {name}"
+                      )
+
+                  if not name.endswith(".json"):
+                      raise SystemExit(
+                          f"Extension archive interdite : {name}"
                       )
 
                   result[name] = sha
@@ -162,42 +190,126 @@ jobs:
                           f"{label} : archive modifiee : {name}"
                       )
 
-          main_ref = "refs/remotes/origin/main"
+          def unique_keys(pairs):
+              result = {}
 
-          base = git(
-              "merge-base", main_ref, "HEAD"
-          ).decode().strip()
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(
+                          f"Cle JSON dupliquee : {key}"
+                      )
+                  result[key] = value
+
+              return result
+
+          def reject_constant(value):
+              raise ValueError(
+                  f"Constante JSON interdite : {value}"
+              )
+
+          def validate_archive(name, sha):
+              size = int(
+                  git("cat-file", "-s", sha)
+                  .decode().strip()
+              )
+
+              if not 0 < size <= MAX_SIZE:
+                  raise SystemExit(
+                      f"Taille archive invalide : {name}"
+                  )
+
+              raw = git("cat-file", "blob", sha)
+
+              payload = json.loads(
+                  raw.decode("utf-8-sig"),
+                  object_pairs_hook=unique_keys,
+                  parse_constant=reject_constant,
+              )
+
+              if not isinstance(payload, dict):
+                  raise SystemExit(
+                      f"Objet JSON attendu : {name}"
+                  )
+
+              print("Archive JSON OK :", name)
+
+          main_ref = "refs/remotes/origin/main"
+          base = os.environ["BASE_SHA"]
+          head = "HEAD"
+
+          main_archives = archives(main_ref)
+          base_archives = archives(base)
+          head_archives = archives(head)
+
+          preserve(
+              main_archives,
+              head_archives,
+              "Protection main",
+          )
+
+          preserve(
+              base_archives,
+              head_archives,
+              "Protection origine",
+          )
 
           commits = git(
               "rev-list",
               "--reverse",
-              "--first-parent",
-              f"{base}..HEAD",
+              "--topo-order",
+              f"{base}..{head}",
           ).decode().splitlines()
 
-          previous = base
+          checked = set()
 
           for commit in commits:
-              preserve(
-                  tracked(previous),
-                  tracked(commit),
-                  f"Commit {commit[:12]}",
-              )
-              previous = commit
+              current = archives(commit)
 
-          preserve(
-              tracked(main_ref),
-              tracked("HEAD"),
-              "Comparaison avec main",
-          )
+              parents = git(
+                  "rev-list",
+                  "--parents",
+                  "-n", "1",
+                  commit,
+              ).decode().strip().split()[1:]
+
+              if not parents:
+                  raise SystemExit(
+                      f"Commit sans parent : {commit}"
+                  )
+
+              for parent in parents:
+                  previous = archives(parent)
+
+                  preserve(
+                      previous,
+                      current,
+                      f"Commit {commit[:12]}",
+                  )
+
+                  for name, sha in current.items():
+                      if name not in previous:
+                          key = (name, sha)
+
+                          if key not in checked:
+                              validate_archive(name, sha)
+                              checked.add(key)
+
+          for name, sha in head_archives.items():
+              key = (name, sha)
+
+              if key not in checked:
+                  validate_archive(name, sha)
+                  checked.add(key)
 
           print("Commits controles :", len(commits))
-          print("Archives main :", len(tracked(main_ref)))
-          print("Archives branche :", len(tracked("HEAD")))
+          print("Archives main :", len(main_archives))
+          print("Archives branche :", len(head_archives))
+          print("JSON controles :", len(checked))
           print("Protection historique : OK")
           PY
 
-      - name: "Memoriser archives locales"
+      - name: "Memoriser integrite initiale"
+        id: snapshot
         run: |
           set -euo pipefail
 
@@ -205,48 +317,72 @@ jobs:
           import hashlib
           import json
           import os
+          import subprocess
           from pathlib import Path
 
-          root = Path("data/archives_resultats")
           snapshot = {}
+
+          raw = subprocess.check_output(
+              ["git", "ls-files", "-z"]
+          )
+
+          for entry in raw.split(b"\0"):
+              if not entry:
+                  continue
+
+              name = os.fsdecode(entry)
+              path = Path(name)
+
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit(
+                      f"Fichier suivi invalide : {name}"
+                  )
+
+              snapshot[name] = hashlib.sha256(
+                  path.read_bytes()
+              ).hexdigest()
+
+          if not snapshot:
+              raise SystemExit(
+                  "Aucun fichier suivi"
+              )
+
+          root = Path("data/archives_resultats")
 
           if root.is_symlink():
               raise SystemExit(
-                  "Lien symbolique racine interdit"
+                  "Lien symbolique archives interdit"
               )
 
           if root.exists():
               if not root.is_dir():
                   raise SystemExit(
-                      "Repertoire archives invalide"
+                      "Dossier archives invalide"
                   )
 
-              for path in sorted(root.rglob("*")):
+              for path in root.rglob("*"):
                   if path.is_symlink():
                       raise SystemExit(
                           f"Lien symbolique interdit : {path}"
                       )
 
-                  if path.is_file():
-                      key = path.relative_to(
-                          root
-                      ).as_posix()
+                  if not path.is_file() and not path.is_dir():
+                      raise SystemExit(
+                          f"Entree archive invalide : {path}"
+                      )
 
-                      snapshot[key] = hashlib.sha256(
-                          path.read_bytes()
-                      ).hexdigest()
-
-          destination = (
+          target = (
               Path(os.environ["RUNNER_TEMP"])
               / "x1000-archives-snapshot.json"
           )
 
-          destination.write_text(
+          target.write_text(
               json.dumps(snapshot, sort_keys=True),
               encoding="utf-8",
           )
 
-          print("Archives memorisees :", len(snapshot))
+          print("Fichiers memorises :", len(snapshot))
+          print("Snapshot SHA256 : OK")
           PY
 
       - name: "Executer autotests archives"
@@ -255,11 +391,15 @@ jobs:
 
           python resultats_archives.py --self-test
 
+          echo "Autotests archives : OK"
+
       - name: "Verifier archives existantes"
         run: |
           set -euo pipefail
 
           python resultats_archives.py --verify-archives
+
+          echo "Verification archives : OK"
 
       - name: "Verifier integrite finale"
         if: always() && steps.checkout.outcome == 'success'
@@ -270,69 +410,92 @@ jobs:
           import hashlib
           import json
           import os
+          import subprocess
           from pathlib import Path
 
-          root = Path("data/archives_resultats")
-
-          destination = (
+          target = (
               Path(os.environ["RUNNER_TEMP"])
               / "x1000-archives-snapshot.json"
           )
 
-          if not destination.is_file():
-              print(
-                  "::notice::Snapshot non initialise"
-              )
-          else:
-              initial = json.loads(
-                  destination.read_text(encoding="utf-8")
+          if not target.is_file():
+              raise SystemExit(
+                  "::error::Snapshot initial absent"
               )
 
-              current = {}
+          initial = json.loads(
+              target.read_text(encoding="utf-8")
+          )
 
-              if root.is_symlink():
+          if not isinstance(initial, dict) or not initial:
+              raise SystemExit(
+                  "::error::Snapshot initial invalide"
+              )
+
+          current = {}
+
+          raw = subprocess.check_output(
+              ["git", "ls-files", "-z"]
+          )
+
+          for entry in raw.split(b"\0"):
+              if not entry:
+                  continue
+
+              name = os.fsdecode(entry)
+              path = Path(name)
+
+              if path.is_symlink() or not path.is_file():
                   raise SystemExit(
-                      "Lien symbolique racine interdit"
+                      f"Fichier suivi invalide : {name}"
                   )
 
-              if root.exists():
-                  if not root.is_dir():
+              current[name] = hashlib.sha256(
+                  path.read_bytes()
+              ).hexdigest()
+
+          if current != initial:
+              changed = sorted(
+                  name
+                  for name in set(initial) | set(current)
+                  if initial.get(name) != current.get(name)
+              )
+
+              for name in changed:
+                  print(
+                      f"::error::Fichier modifie : {name}"
+                  )
+
+              raise SystemExit(
+                  "Integrite SHA256 non respectee"
+              )
+
+          root = Path("data/archives_resultats")
+
+          if root.is_symlink():
+              raise SystemExit(
+                  "Lien symbolique archives interdit"
+              )
+
+          if root.exists():
+              if not root.is_dir():
+                  raise SystemExit(
+                      "Dossier archives invalide"
+                  )
+
+              for path in root.rglob("*"):
+                  if path.is_symlink():
                       raise SystemExit(
-                          "Repertoire archives invalide"
+                          f"Lien symbolique interdit : {path}"
                       )
 
-                  for path in sorted(root.rglob("*")):
-                      if path.is_symlink():
-                          raise SystemExit(
-                              f"Lien symbolique interdit : {path}"
-                          )
-
-                      if path.is_file():
-                          key = path.relative_to(
-                              root
-                          ).as_posix()
-
-                          current[key] = hashlib.sha256(
-                              path.read_bytes()
-                          ).hexdigest()
-
-              if current != initial:
-                  changed = sorted(
-                      name
-                      for name in set(initial) | set(current)
-                      if initial.get(name) != current.get(name)
-                  )
-
-                  for name in changed:
-                      print(
-                          f"::error::Archive modifiee : {name}"
+                  if not path.is_file() and not path.is_dir():
+                      raise SystemExit(
+                          f"Entree archive invalide : {path}"
                       )
 
-                  raise SystemExit(
-                      "Archives modifiees pendant les tests"
-                  )
-
-              print("SHA256 archives : OK")
+          print("SHA256 du depot : OK")
+          print("Archives locales : OK")
           PY
 
           git diff --exit-code HEAD --
@@ -340,23 +503,26 @@ jobs:
 
           if [ -n "$(git ls-files --others --exclude-standard)" ]; then
             echo "::error::Fichiers non suivis detectes"
+            git ls-files --others --exclude-standard
             exit 1
           fi
 
-          echo "Depot Git intact"
+          echo "Integrite Git : OK"
 
       - name: "Rapport de validation"
         if: success()
         run: |
           {
-            echo "## X1000 - Archives securisees V1.2"
+            echo "## X1000 - Archives securisees V1.3"
             echo ""
             echo "- Branche securisee : OK"
             echo "- Syntaxe Python : OK"
-            echo "- Archives de main preservees : OK"
+            echo "- Archives main preservees : OK"
             echo "- Historique branche controle : OK"
+            echo "- JSON archives : controles"
             echo "- Autotests archives : OK"
-            echo "- Verification SHA256 : OK"
+            echo "- Verification archives : OK"
+            echo "- Integrite SHA256 : OK"
             echo "- Integrite Git : OK"
             echo "- Publication automatique : aucune"
             echo "- Modification main : aucune"
@@ -365,6 +531,6 @@ jobs:
       - name: "Signaler un echec"
         if: failure()
         run: |
-          echo "::error::Validation archives V1.2 echouee"
+          echo "::error::Validation archives V1.3 echouee"
           echo "Ne pas fusionner vers main."
           echo "Consulter les journaux GitHub Actions."
