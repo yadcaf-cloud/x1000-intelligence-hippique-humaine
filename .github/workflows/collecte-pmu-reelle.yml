@@ -1,4 +1,4 @@
-name: "X1000 - Collecte PMU securisee V2.1"
+name: "X1000 - Collecte PMU securisee V2.2"
 
 on:
   workflow_dispatch:
@@ -22,6 +22,8 @@ jobs:
     name: "Validation collecte PMU sans publication"
 
     if: >-
+      github.repository ==
+      'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
       github.ref ==
       'refs/heads/feature/activation-pmu-analyses-archives'
 
@@ -65,17 +67,20 @@ jobs:
           path = Path("pmu_engine.py")
 
           if not path.is_file() or path.stat().st_size == 0:
-              raise SystemExit("Collecteur PMU absent ou vide")
+              raise SystemExit(
+                  "::error::Collecteur PMU absent ou vide"
+              )
 
           ast.parse(
               path.read_text(encoding="utf-8-sig"),
               filename=str(path),
           )
 
-          print("Syntaxe PMU : OK")
+          print("Branche securisee : OK")
+          print("Syntaxe Python : OK")
           PY
 
-      - name: "Memoriser integrite du depot"
+      - name: "Memoriser integrite initiale du depot"
         id: depot_snapshot
         run: |
           set -euo pipefail
@@ -115,7 +120,9 @@ jobs:
               ).hexdigest()
 
           if not snapshot:
-              raise SystemExit("Depot sans fichiers suivis")
+              raise SystemExit(
+                  "::error::Depot sans fichiers suivis"
+              )
 
           target = (
               Path(os.environ["RUNNER_TEMP"])
@@ -128,9 +135,10 @@ jobs:
           )
 
           print("Fichiers suivis :", len(snapshot))
+          print("Snapshot initial : OK")
           PY
 
-      - name: "Executer les autotests"
+      - name: "Executer les autotests PMU"
         run: |
           set -euo pipefail
 
@@ -144,6 +152,11 @@ jobs:
           set -euo pipefail
 
           TEST_DIR="$RUNNER_TEMP/x1000-collecte-pmu"
+
+          if [ -e "$TEST_DIR" ]; then
+            echo "::error::Dossier temporaire deja present"
+            exit 1
+          fi
 
           mkdir -p "$TEST_DIR"
 
@@ -163,7 +176,9 @@ jobs:
           )
 
           if root.is_symlink() or not root.is_dir():
-              raise SystemExit("Environnement isole invalide")
+              raise SystemExit(
+                  "Environnement isole invalide"
+              )
 
           files = {}
 
@@ -174,7 +189,9 @@ jobs:
                   )
 
               if path.is_file():
-                  relative = path.relative_to(root).as_posix()
+                  relative = (
+                      path.relative_to(root).as_posix()
+                  )
 
                   files[relative] = hashlib.sha256(
                       path.read_bytes()
@@ -182,7 +199,7 @@ jobs:
 
           if set(files) != {"pmu_engine.py"}:
               raise SystemExit(
-                  "Copie temporaire inattendue"
+                  "Contenu temporaire inattendu"
               )
 
           snapshot = (
@@ -195,7 +212,8 @@ jobs:
               encoding="utf-8",
           )
 
-          print("Empreinte initiale enregistree")
+          print("Environnement isole : OK")
+          print("Snapshot temporaire : OK")
           PY
 
       - name: "Tester collecte PMU reelle en dry-run"
@@ -207,8 +225,9 @@ jobs:
           python pmu_engine.py --dry-run
 
           echo "Collecte PMU dry-run : OK"
+          echo "Aucune publication demandee"
 
-      - name: "Verifier absence de toute ecriture"
+      - name: "Verifier absence ecriture temporaire"
         if: always() && steps.preparation.outcome == 'success'
         run: |
           set -euo pipefail
@@ -225,7 +244,7 @@ jobs:
 
           if not snapshot.is_file():
               raise SystemExit(
-                  "::error::Snapshot initial obligatoire absent"
+                  "::error::Snapshot temporaire absent"
               )
 
           if root.is_symlink() or not root.is_dir():
@@ -242,7 +261,7 @@ jobs:
               or set(initial) != {"pmu_engine.py"}
           ):
               raise SystemExit(
-                  "Snapshot initial invalide"
+                  "Snapshot temporaire invalide"
               )
 
           current = {}
@@ -254,15 +273,21 @@ jobs:
                   )
 
               if path.is_file():
-                  relative = path.relative_to(root).as_posix()
+                  relative = (
+                      path.relative_to(root).as_posix()
+                  )
 
                   current[relative] = hashlib.sha256(
                       path.read_bytes()
                   ).hexdigest()
 
           if current != initial:
-              added = sorted(set(current) - set(initial))
-              removed = sorted(set(initial) - set(current))
+              added = sorted(
+                  set(current) - set(initial)
+              )
+              removed = sorted(
+                  set(initial) - set(current)
+              )
               changed = sorted(
                   name
                   for name in set(initial) & set(current)
@@ -274,24 +299,21 @@ jobs:
               print("Fichiers modifies :", changed)
 
               raise SystemExit(
-                  "Ecriture inattendue pendant le dry-run"
+                  "::error::Ecriture inattendue pendant dry-run"
               )
 
-          print("Aucune creation ou modification")
-          print("Integrite temporaire : OK")
+          print("Aucune ecriture temporaire : OK")
+          print("Integrite temporaire SHA256 : OK")
           PY
 
-      - name: "Verifier integrite du depot"
-        if: >-
-          always() &&
-          steps.checkout.outcome == 'success'
+      - name: "Verifier integrite finale du depot"
+        if: always() && steps.checkout.outcome == 'success'
         run: |
           set -euo pipefail
 
           test -d .git
 
-          if [ "${{ steps.depot_snapshot.outcome }}" = "success" ]; then
-            python - <<'PY'
+          python - <<'PY'
           import hashlib
           import json
           import os
@@ -305,7 +327,7 @@ jobs:
 
           if not target.is_file():
               raise SystemExit(
-                  "Snapshot depot obligatoire absent"
+                  "::error::Snapshot depot initial absent"
               )
 
           initial = json.loads(
@@ -313,7 +335,9 @@ jobs:
           )
 
           if not isinstance(initial, dict) or not initial:
-              raise SystemExit("Snapshot depot invalide")
+              raise SystemExit(
+                  "::error::Snapshot depot invalide"
+              )
 
           raw = subprocess.check_output(
               ["git", "ls-files", "-z"]
@@ -328,9 +352,14 @@ jobs:
               name = os.fsdecode(item)
               path = Path(name)
 
-              if path.is_symlink() or not path.is_file():
+              if path.is_symlink():
                   raise SystemExit(
-                      f"Fichier suivi invalide : {name}"
+                      f"Lien symbolique interdit : {name}"
+                  )
+
+              if not path.is_file():
+                  raise SystemExit(
+                      f"Fichier suivi absent : {name}"
                   )
 
               current[name] = hashlib.sha256(
@@ -345,7 +374,9 @@ jobs:
               )
 
               for name in changed:
-                  print(f"::error::Fichier modifie : {name}")
+                  print(
+                      f"::error::Fichier modifie : {name}"
+                  )
 
               raise SystemExit(
                   "Integrite SHA256 du depot non respectee"
@@ -353,10 +384,6 @@ jobs:
 
           print("SHA256 du depot : OK")
           PY
-          else
-            echo "::error::Snapshot depot non initialise"
-            exit 1
-          fi
 
           git diff --exit-code HEAD --
           git diff --cached --exit-code
@@ -367,19 +394,20 @@ jobs:
             exit 1
           fi
 
-          echo "Depot Git intact"
+          echo "Depot Git intact : OK"
 
-      - name: "Rapport de validation"
+      - name: "Rapport final de validation"
         if: success()
         run: |
           {
-            echo "## X1000 - Collecte PMU V2.1"
+            echo "## X1000 - Collecte PMU V2.2"
             echo ""
             echo "- Branche securisee : OK"
             echo "- Syntaxe Python : OK"
             echo "- Autotests PMU : OK"
             echo "- Collecte reelle dry-run : OK"
-            echo "- Snapshot temporaire : OK"
+            echo "- Environnement isole : OK"
+            echo "- Aucune ecriture temporaire : OK"
             echo "- SHA256 du depot : OK"
             echo "- Integrite Git : OK"
             echo "- Publication Git : aucune"
@@ -391,6 +419,7 @@ jobs:
       - name: "Signaler un echec"
         if: failure()
         run: |
-          echo "::error::Collecte PMU V2.1 echouee"
+          echo "::error::Collecte PMU V2.2 echouee"
+          echo "Ne pas fusionner vers main."
           echo "Consulter les journaux GitHub Actions."
           echo "Aucune publication autorisee."
