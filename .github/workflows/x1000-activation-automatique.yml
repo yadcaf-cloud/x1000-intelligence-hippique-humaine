@@ -1,4 +1,4 @@
-name: "X1000 - Activation securisee V1.4"
+name: "X1000 - Activation securisee V1.5"
 
 on:
   workflow_dispatch:
@@ -12,11 +12,14 @@ concurrency:
 
 jobs:
   activation:
-    name: "Collecte PMU, analyses et archives"
+    name: "Collecte PMU, analyses et archives sans publication"
 
     if: >-
+      github.repository ==
+      'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
       github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/feature/activation-pmu-analyses-archives'
+      github.ref ==
+      'refs/heads/feature/activation-pmu-analyses-archives'
 
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -30,22 +33,35 @@ jobs:
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONUNBUFFERED: "1"
       PYTHONNOUSERSITE: "1"
+      PMU_API_BASE: "https://online.turfinfo.api.pmu.fr/rest/client/7"
+      TEST_DIR: ${{ runner.temp }}/x1000-test
 
     steps:
-      - name: "Recuperer la branche securisee"
+      - name: "Recuperer commit exact"
+        id: checkout
         uses: actions/checkout@v4
         with:
-          persist-credentials: false
+          ref: ${{ github.sha }}
           fetch-depth: 1
+          persist-credentials: false
 
       - name: "Installer Python 3.12"
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: "Verifier la syntaxe Python"
+      - name: "Verifier contexte et syntaxe"
         run: |
           set -euo pipefail
+
+          test "$GITHUB_REF" = \
+            "refs/heads/feature/activation-pmu-analyses-archives"
+
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
+
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain)"
 
           python - <<'PY'
           import ast
@@ -58,11 +74,14 @@ jobs:
           ):
               path = Path(name)
 
-              if not path.is_file():
-                  raise SystemExit(f"Script absent : {name}")
-
-              if not path.stat().st_size:
-                  raise SystemExit(f"Script vide : {name}")
+              if (
+                  path.is_symlink()
+                  or not path.is_file()
+                  or path.stat().st_size == 0
+              ):
+                  raise SystemExit(
+                      f"::error::Script invalide : {name}"
+                  )
 
               ast.parse(
                   path.read_text(encoding="utf-8-sig"),
@@ -72,7 +91,8 @@ jobs:
               print("Syntaxe OK :", name)
           PY
 
-      - name: "Memoriser les archives historiques"
+      - name: "Memoriser integrite du depot"
+        id: snapshot
         run: |
           set -euo pipefail
 
@@ -80,369 +100,39 @@ jobs:
           import hashlib
           import json
           import os
+          import subprocess
           from pathlib import Path
 
-          root = Path("data/archives_resultats")
           snapshot = {}
 
-          if root.is_symlink():
-              raise SystemExit("Lien symbolique racine interdit")
-
-          if root.exists():
-              if not root.is_dir():
-                  raise SystemExit("Repertoire archives invalide")
-
-              for path in sorted(root.rglob("*")):
-                  if path.is_symlink():
-                      raise SystemExit(
-                          f"Lien symbolique interdit : {path}"
-                      )
-
-                  if path.is_file():
-                      relative = path.relative_to(root).as_posix()
-                      snapshot[relative] = hashlib.sha256(
-                          path.read_bytes()
-                      ).hexdigest()
-
-          destination = (
-              Path(os.environ["RUNNER_TEMP"])
-              / "x1000-archives-avant.json"
+          tracked = subprocess.check_output(
+              ["git", "ls-files", "-z"]
           )
 
-          destination.write_text(
-              json.dumps(snapshot, sort_keys=True),
-              encoding="utf-8",
-          )
+          for item in tracked.split(b"\0"):
+              if not item:
+                  continue
 
-          print("Archives memorisees :", len(snapshot))
-          PY
+              name = os.fsdecode(item)
+              path = Path(name)
 
-      - name: "Executer les autotests"
-        run: |
-          set -euo pipefail
-
-          python pmu_engine.py --self-test
-          python analyse_hippique.py --self-test
-          python resultats_archives.py --self-test
-
-      - name: "Verifier les archives existantes"
-        run: |
-          set -euo pipefail
-
-          python resultats_archives.py --verify-archives
-
-      - name: "Preparer environnement isole"
-        run: |
-          set -euo pipefail
-
-          TEST_DIR="$RUNNER_TEMP/x1000"
-
-          mkdir -p "$TEST_DIR/data"
-
-          cp pmu_engine.py "$TEST_DIR/"
-          cp analyse_hippique.py "$TEST_DIR/"
-          cp resultats_archives.py "$TEST_DIR/"
-
-          test -s "$TEST_DIR/pmu_engine.py"
-          test -s "$TEST_DIR/analyse_hippique.py"
-          test -s "$TEST_DIR/resultats_archives.py"
-
-      - name: "Collecter les donnees PMU reelles"
-        run: |
-          set -euo pipefail
-
-          cd "$RUNNER_TEMP/x1000"
-
-          python pmu_engine.py
-
-          test -s data/publication_courses.json
-          test -s data/diagnostic_collecte_pmu.json
-
-      - name: "Valider la collecte PMU"
-        run: |
-          set -euo pipefail
-
-          cd "$RUNNER_TEMP/x1000"
-
-          python - <<'PY'
-          import datetime as dt
-          import json
-          from pathlib import Path
-          from zoneinfo import ZoneInfo
-
-          from analyse_hippique import (
-              validate,
-              validate_course,
-              parse_instant,
-          )
-
-          def unique_keys(pairs):
-              result = {}
-              for key, value in pairs:
-                  if key in result:
-                      raise ValueError(
-                          f"Cle JSON dupliquee : {key}"
-                      )
-                  result[key] = value
-              return result
-
-          def reject_constant(value):
-              raise ValueError(
-                  f"Constante JSON interdite : {value}"
-              )
-
-          def load_json(path):
-              return json.loads(
-                  Path(path).read_text(encoding="utf-8-sig"),
-                  object_pairs_hook=unique_keys,
-                  parse_constant=reject_constant,
-              )
-
-          payload = load_json(
-              "data/publication_courses.json"
-          )
-
-          diagnostic = load_json(
-              "data/diagnostic_collecte_pmu.json"
-          )
-
-          if not isinstance(payload, dict):
-              raise SystemExit("Publication PMU invalide")
-
-          if not isinstance(diagnostic, dict):
-              raise SystemExit("Diagnostic PMU invalide")
-
-          date = validate(payload)
-
-          now = dt.datetime.now(dt.timezone.utc)
-
-          today = now.astimezone(
-              ZoneInfo("Europe/Paris")
-          ).date().isoformat()
-
-          if date != today:
-              raise SystemExit("Date PMU incorrecte")
-
-          collected = parse_instant(
-              payload["collecte_a"]
-          ).astimezone(dt.timezone.utc)
-
-          age = (now - collected).total_seconds()
-
-          if not -300 <= age <= 1800:
-              raise SystemExit(
-                  "Collecte trop ancienne ou future"
-              )
-
-          courses = payload.get("courses")
-
-          if not isinstance(courses, list) or not courses:
-              raise SystemExit(
-                  "Aucune course PMU verifiee"
-              )
-
-          ids = set()
-          participants = 0
-
-          for course in courses:
-              cid = validate_course(course, date)
-
-              if not isinstance(cid, str) or not cid:
+              if path.is_symlink() or not path.is_file():
                   raise SystemExit(
-                      "Identifiant course invalide"
+                      f"Fichier suivi invalide : {name}"
                   )
 
-              if cid in ids:
-                  raise SystemExit(
-                      f"Course dupliquee : {cid}"
-                  )
+              snapshot[name] = hashlib.sha256(
+                  path.read_bytes()
+              ).hexdigest()
 
-              ids.add(cid)
-              participants += course["nombre_partants"]
-
-          print("Date Paris :", today)
-          print("Courses :", len(ids))
-          print("Partants actifs :", participants)
-          print("Fraicheur : OK")
-          PY
-
-      - name: "Produire les analyses automatiques"
-        run: |
-          set -euo pipefail
-
-          cd "$RUNNER_TEMP/x1000"
-
-          python analyse_hippique.py
-
-          test -s data/publication_analyses.json
-
-      - name: "Verifier les analyses et SHA256"
-        run: |
-          set -euo pipefail
-
-          cd "$RUNNER_TEMP/x1000"
-
-          python - <<'PY'
-          import hashlib
-          import json
-          from pathlib import Path
-
-          def unique_keys(pairs):
-              result = {}
-              for key, value in pairs:
-                  if key in result:
-                      raise ValueError(
-                          f"Cle JSON dupliquee : {key}"
-                      )
-                  result[key] = value
-              return result
-
-          def reject_constant(value):
-              raise ValueError(
-                  f"Constante interdite : {value}"
-              )
-
-          def load_json(raw):
-              return json.loads(
-                  raw.decode("utf-8-sig"),
-                  object_pairs_hook=unique_keys,
-                  parse_constant=reject_constant,
-              )
-
-          source = Path(
-              "data/publication_courses.json"
-          ).read_bytes()
-
-          output = Path(
-              "data/publication_analyses.json"
-          ).read_bytes()
-
-          courses = load_json(source)
-          analyses = load_json(output)
-
-          if not isinstance(analyses, dict):
-              raise SystemExit(
-                  "Publication analyses invalide"
-              )
-
-          digest = hashlib.sha256(
-              source
-          ).hexdigest()
-
-          if analyses.get("source_sha256") != digest:
-              raise SystemExit(
-                  "Empreinte SHA256 incoherente"
-              )
-
-          source_courses = courses.get("courses")
-
-          if not isinstance(source_courses, list):
-              raise SystemExit(
-                  "Courses source invalides"
-              )
-
-          source_ids = []
-
-          for course in source_courses:
-              if not isinstance(course, dict):
-                  raise SystemExit(
-                      "Course source invalide"
-                  )
-
-              cid = course.get("id")
-
-              if not isinstance(cid, str) or not cid:
-                  raise SystemExit(
-                      "Identifiant source invalide"
-                  )
-
-              source_ids.append(cid)
-
-          if len(source_ids) != len(set(source_ids)):
-              raise SystemExit(
-                  "Courses source dupliquees"
-              )
-
-          result_courses = analyses.get("courses")
-
-          if not isinstance(result_courses, list):
-              raise SystemExit(
-                  "Liste analyses invalide"
-              )
-
-          result_ids = []
-
-          for course in result_courses:
-              if not isinstance(course, dict):
-                  raise SystemExit(
-                      "Analyse course invalide"
-                  )
-
-              cid = course.get("id")
-
-              if not isinstance(cid, str) or not cid:
-                  raise SystemExit(
-                      "Identifiant analyse invalide"
-                  )
-
-              result_ids.append(cid)
-
-              for field in (
-                  "fige",
-                  "resultat",
-                  "selection",
-              ):
-                  if course.get(field) is not None:
-                      raise SystemExit(
-                          f"Champ non autorise : {field}"
-                      )
-
-          if len(result_ids) != len(set(result_ids)):
-              raise SystemExit(
-                  "Analyses dupliquees"
-              )
-
-          if set(result_ids) != set(source_ids):
-              raise SystemExit(
-                  "Courses analysees incoherentes"
-              )
-
-          print("Analyses :", len(result_ids))
-          print("SHA256 : OK")
-          print("Aucun FIGE automatique")
-          print("Aucun resultat invente")
-          PY
-
-      - name: "Verifier archives et integrite depot"
-        if: always()
-        run: |
-          set -euo pipefail
-
-          SNAPSHOT="$RUNNER_TEMP/x1000-archives-avant.json"
-
-          if [ -f "$SNAPSHOT" ]; then
-            python - <<'PY'
-          import hashlib
-          import json
-          import os
-          from pathlib import Path
+          if not snapshot:
+              raise SystemExit("Depot vide")
 
           root = Path("data/archives_resultats")
 
-          snapshot_path = (
-              Path(os.environ["RUNNER_TEMP"])
-              / "x1000-archives-avant.json"
-          )
-
-          initial = json.loads(
-              snapshot_path.read_text(encoding="utf-8")
-          )
-
-          current = {}
-
           if root.is_symlink():
               raise SystemExit(
-                  "Lien symbolique racine interdit"
+                  "Lien symbolique archives interdit"
               )
 
           if root.exists():
@@ -451,54 +141,557 @@ jobs:
                       "Repertoire archives invalide"
                   )
 
-              for path in sorted(root.rglob("*")):
+              for path in root.rglob("*"):
                   if path.is_symlink():
                       raise SystemExit(
-                          "Lien symbolique interdit"
+                          f"Lien symbolique interdit : {path}"
                       )
 
-                  if path.is_file():
-                      key = path.relative_to(root).as_posix()
-                      current[key] = hashlib.sha256(
-                          path.read_bytes()
-                      ).hexdigest()
+          destination = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-activation-snapshot.json"
+          )
+
+          destination.write_text(
+              json.dumps(snapshot, sort_keys=True),
+              encoding="utf-8",
+          )
+
+          print("Snapshot SHA256 : OK")
+          print("Fichiers memorises :", len(snapshot))
+          PY
+
+      - name: "Executer autotests"
+        run: |
+          set -euo pipefail
+
+          python pmu_engine.py --self-test
+          python analyse_hippique.py --self-test
+          python resultats_archives.py --self-test
+
+      - name: "Verifier archives officielles"
+        run: |
+          set -euo pipefail
+
+          python resultats_archives.py --verify-archives
+
+          echo "Verification archives : OK"
+
+      - name: "Preparer environnement isole"
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$TEST_DIR/data"
+
+          python - <<'PY'
+          import os
+          import shutil
+          import subprocess
+          from pathlib import Path
+
+          destination = Path(os.environ["TEST_DIR"])
+
+          tracked = subprocess.check_output(
+              ["git", "ls-files", "-z"]
+          )
+
+          for entry in tracked.split(b"\0"):
+              if not entry:
+                  continue
+
+              name = os.fsdecode(entry)
+              source = Path(name)
+
+              if source.is_symlink():
+                  raise SystemExit(
+                      f"Lien symbolique interdit : {name}"
+                  )
+
+              if not source.is_file():
+                  raise SystemExit(
+                      f"Fichier suivi invalide : {name}"
+                  )
+
+              # Copie des modules Python locaux.
+              # Les donnees historiques ne sont
+              # jamais copiees dans l'environnement
+              # de collecte.
+              if (
+                  source.suffix == ".py"
+                  and "data" not in source.parts
+              ):
+                  target = destination / source
+                  target.parent.mkdir(
+                      parents=True, exist_ok=True
+                  )
+                  shutil.copyfile(source, target)
+
+          for name in (
+              "pmu_engine.py",
+              "analyse_hippique.py",
+              "resultats_archives.py",
+          ):
+              if not (destination / name).is_file():
+                  raise SystemExit(
+                      f"Script de test absent : {name}"
+                  )
+
+          print("Environnement isole : OK")
+          PY
+
+      - name: "Collecter donnees PMU reelles"
+        run: |
+          set -euo pipefail
+
+          cd "$TEST_DIR"
+
+          python pmu_engine.py
+
+          test -s data/publication_courses.json
+          test -s data/diagnostic_collecte_pmu.json
+
+          echo "Collecte PMU de test : terminee"
+
+      - name: "Valider collecte et diagnostic"
+        run: |
+          set -euo pipefail
+
+          cd "$TEST_DIR"
+
+          python - <<'PY'
+          import datetime as dt
+          import json
+          import os
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          from analyse_hippique import (
+              validate,
+              validate_course,
+          )
+
+          def require(condition, message):
+              if not condition:
+                  raise SystemExit(
+                      f"::error::{message}"
+                  )
+
+          def unique_keys(pairs):
+              result = {}
+
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(
+                          f"Cle JSON dupliquee : {key}"
+                      )
+                  result[key] = value
+
+              return result
+
+          def reject_constant(value):
+              raise ValueError(
+                  f"Constante interdite : {value}"
+              )
+
+          def load(name):
+              path = Path(name)
+
+              require(
+                  path.is_file()
+                  and not path.is_symlink()
+                  and path.stat().st_size > 0,
+                  f"Fichier invalide : {name}",
+              )
+
+              payload = json.loads(
+                  path.read_text(encoding="utf-8-sig"),
+                  object_pairs_hook=unique_keys,
+                  parse_constant=reject_constant,
+              )
+
+              require(
+                  isinstance(payload, dict),
+                  f"Objet JSON invalide : {name}",
+              )
+
+              return payload
+
+          source = load(
+              "data/publication_courses.json"
+          )
+
+          diagnostic = load(
+              "data/diagnostic_collecte_pmu.json"
+          )
+
+          date = validate(source)
+
+          now = dt.datetime.now(dt.timezone.utc)
+
+          today = now.astimezone(
+              ZoneInfo("Europe/Paris")
+          ).date().isoformat()
+
+          require(
+              date == today,
+              "Programme PMU hors date du jour",
+          )
+
+          require(
+              source.get("source")
+              == os.environ["PMU_API_BASE"],
+              "Source PMU non autorisee",
+          )
+
+          require(
+              source.get("statut") == "OK",
+              "Collecte PMU incomplete",
+          )
+
+          require(
+              source.get("erreurs") == [],
+              "Erreurs PMU presentes",
+          )
+
+          timestamp = source.get("collecte_a")
+
+          require(
+              isinstance(timestamp, str),
+              "Horodatage collecte absent",
+          )
+
+          try:
+              collected = dt.datetime.fromisoformat(
+                  timestamp.replace("Z", "+00:00")
+              )
+          except ValueError:
+              raise SystemExit(
+                  "::error::Horodatage collecte invalide"
+              )
+
+          require(
+              collected.tzinfo is not None
+              and collected.utcoffset() is not None,
+              "Fuseau horaire absent",
+          )
+
+          age = (
+              now - collected.astimezone(
+                  dt.timezone.utc
+              )
+          ).total_seconds()
+
+          require(
+              -60 <= age <= 1800,
+              "Collecte trop ancienne ou future",
+          )
+
+          courses = source.get("courses")
+
+          require(
+              isinstance(courses, list) and bool(courses),
+              "Aucune course PMU verifiee",
+          )
+
+          ids = []
+          participants = 0
+
+          for course in courses:
+              cid = validate_course(course, date)
+
+              require(
+                  isinstance(cid, str) and bool(cid),
+                  "Identifiant course invalide",
+              )
+
+              ids.append(cid)
+
+              count = course.get("nombre_partants")
+
+              require(
+                  type(count) is int and count >= 0,
+                  "Nombre de partants invalide",
+              )
+
+              participants += count
+
+          require(
+              len(ids) == len(set(ids)),
+              "Courses PMU dupliquees",
+          )
+
+          require(
+              diagnostic.get("date") == date,
+              "Date diagnostic incoherente",
+          )
+
+          require(
+              diagnostic.get("statut") == "OK",
+              "Diagnostic PMU non valide",
+          )
+
+          require(
+              diagnostic.get("collecte_a")
+              == source.get("collecte_a"),
+              "Diagnostic non synchronise",
+          )
+
+          require(
+              diagnostic.get("courses") == courses,
+              "Diagnostic et courses differents",
+          )
+
+          print("Date Paris :", today)
+          print("Courses :", len(ids))
+          print("Partants actifs :", participants)
+          print("Fraicheur collecte : OK")
+          print("Diagnostic PMU : OK")
+          PY
+
+      - name: "Produire analyses descriptives"
+        run: |
+          set -euo pipefail
+
+          cd "$TEST_DIR"
+
+          python analyse_hippique.py
+
+          test -s data/publication_analyses.json
+
+          echo "Analyses descriptives generees"
+
+      - name: "Valider analyses et SHA256"
+        run: |
+          set -euo pipefail
+
+          cd "$TEST_DIR"
+
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          from analyse_hippique import analyze
+
+          def require(condition, message):
+              if not condition:
+                  raise SystemExit(
+                      f"::error::{message}"
+                  )
+
+          def unique_keys(pairs):
+              result = {}
+
+              for key, value in pairs:
+                  if key in result:
+                      raise ValueError(
+                          f"Cle JSON dupliquee : {key}"
+                      )
+                  result[key] = value
+
+              return result
+
+          def reject_constant(value):
+              raise ValueError(
+                  f"Constante interdite : {value}"
+              )
+
+          def load(raw):
+              payload = json.loads(
+                  raw.decode("utf-8-sig"),
+                  object_pairs_hook=unique_keys,
+                  parse_constant=reject_constant,
+              )
+
+              require(
+                  isinstance(payload, dict),
+                  "Objet JSON invalide",
+              )
+
+              return payload
+
+          source_path = Path(
+              "data/publication_courses.json"
+          )
+
+          analyses_path = Path(
+              "data/publication_analyses.json"
+          )
+
+          require(
+              not source_path.is_symlink()
+              and source_path.is_file(),
+              "Source invalide",
+          )
+
+          require(
+              not analyses_path.is_symlink()
+              and analyses_path.is_file(),
+              "Analyses invalides",
+          )
+
+          raw = source_path.read_bytes()
+          source = load(raw)
+          published = load(
+              analyses_path.read_bytes()
+          )
+
+          digest = hashlib.sha256(raw).hexdigest()
+
+          require(
+              published.get("source_sha256") == digest,
+              "SHA256 analyses incorrect",
+          )
+
+          require(
+              published.get("statut")
+              == "DESCRIPTIF_SANS_PRONOSTIC",
+              "Statut analyses invalide",
+          )
+
+          require(
+              published.get("date")
+              == source.get("date"),
+              "Date analyses incoherente",
+          )
+
+          expected = analyze(source, raw)
+
+          require(
+              isinstance(expected, dict),
+              "Resultat moteur invalide",
+          )
+
+          require(
+              published.get("courses")
+              == expected.get("courses"),
+              "Analyses descriptives incoherentes",
+          )
+
+          entries = published.get("courses")
+
+          require(
+              isinstance(entries, list),
+              "Liste analyses invalide",
+          )
+
+          for course in entries:
+              require(
+                  isinstance(course, dict),
+                  "Entree analyse invalide",
+              )
+
+              for field in (
+                  "fige",
+                  "resultat",
+                  "selection",
+              ):
+                  require(
+                      course.get(field) is None,
+                      f"Champ interdit : {field}",
+                  )
+
+          print("Analyses :", len(entries))
+          print("SHA256 :", digest)
+          print("Analyses descriptives : OK")
+          print("Aucun FIGE genere")
+          PY
+
+      - name: "Verifier integrite finale du depot"
+        if: always() && steps.snapshot.outcome == 'success'
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          target = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-activation-snapshot.json"
+          )
+
+          if not target.is_file():
+              raise SystemExit(
+                  "::error::Snapshot initial absent"
+              )
+
+          initial = json.loads(
+              target.read_text(encoding="utf-8")
+          )
+
+          current = {}
+
+          tracked = subprocess.check_output(
+              ["git", "ls-files", "-z"]
+          )
+
+          for entry in tracked.split(b"\0"):
+              if not entry:
+                  continue
+
+              name = os.fsdecode(entry)
+              path = Path(name)
+
+              if path.is_symlink() or not path.is_file():
+                  raise SystemExit(
+                      f"Fichier suivi invalide : {name}"
+                  )
+
+              current[name] = hashlib.sha256(
+                  path.read_bytes()
+              ).hexdigest()
 
           if current != initial:
               raise SystemExit(
-                  "Archives historiques modifiees"
+                  "::error::Fichiers du depot modifies"
               )
 
-          print("Archives historiques intactes")
+          root = Path("data/archives_resultats")
+
+          if root.is_symlink():
+              raise SystemExit(
+                  "Lien symbolique archives interdit"
+              )
+
+          if root.exists():
+              if not root.is_dir():
+                  raise SystemExit(
+                      "Repertoire archives invalide"
+                  )
+
+              for path in root.rglob("*"):
+                  if path.is_symlink():
+                      raise SystemExit(
+                          f"Lien symbolique interdit : {path}"
+                      )
+
+          print("SHA256 depot : OK")
+          print("Archives historiques : intactes")
           PY
-          else
-            echo "::warning::Snapshot initial absent"
-            echo "Le controle SHA256 initial n'a pas ete execute."
-          fi
 
-          if [ -d .git ]; then
-            git diff --exit-code HEAD --
-            git diff --cached --exit-code
+          git diff --exit-code HEAD --
+          git diff --cached --exit-code
 
-            if [ -n "$(git ls-files --others --exclude-standard)" ]; then
-              echo "::error::Fichiers non suivis detectes"
-              exit 1
-            fi
-
-            echo "Depot Git intact"
-          else
-            echo "::error::Depot Git indisponible"
+          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "::error::Fichiers non suivis detectes"
             exit 1
           fi
 
-      - name: "Conserver les publications de test"
+          echo "Depot Git intact : OK"
+
+      - name: "Conserver publications de test"
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: x1000-validation-${{ github.run_id }}
+          name: x1000-activation-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/x1000/data/publication_courses.json
-            ${{ runner.temp }}/x1000/data/publication_analyses.json
-            ${{ runner.temp }}/x1000/data/diagnostic_collecte_pmu.json
+            ${{ runner.temp }}/x1000-test/data/publication_courses.json
+            ${{ runner.temp }}/x1000-test/data/publication_analyses.json
+            ${{ runner.temp }}/x1000-test/data/diagnostic_collecte_pmu.json
           retention-days: 7
           if-no-files-found: error
 
@@ -506,25 +699,28 @@ jobs:
         if: success()
         run: |
           {
-            echo "## X1000 - Activation securisee V1.4"
+            echo "## X1000 - Activation securisee V1.5"
             echo ""
             echo "- Branche securisee : OK"
-            echo "- Collecte PMU : OK"
-            echo "- Fraicheur : OK"
-            echo "- Analyses factuelles : OK"
-            echo "- SHA256 : OK"
-            echo "- Archives : intactes"
-            echo "- Depot : intact"
+            echo "- Syntaxe Python : OK"
+            echo "- Autotests : OK"
+            echo "- Archives existantes : verifiees"
+            echo "- Collecte PMU reelle : OK"
+            echo "- Diagnostic PMU : OK"
+            echo "- Fraicheur collecte : OK"
+            echo "- Analyses descriptives : OK"
+            echo "- SHA256 analyses : OK"
+            echo "- Integrite depot : OK"
             echo "- Artefacts de test : disponibles"
+            echo "- Commit Git : aucun"
+            echo "- Push Git : aucun"
             echo "- Modification main : aucune"
-            echo "- Publication Git : aucune"
-            echo "- FIGE automatique : aucun"
-            echo "- Resultat invente : aucun"
+            echo "- FIGE fictif : aucun"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: "Signaler un echec"
         if: failure()
         run: |
-          echo "::error::Activation X1000 V1.4 echouee"
+          echo "::error::Activation X1000 V1.5 echouee"
+          echo "Verifier les journaux GitHub Actions."
           echo "Ne pas fusionner vers main."
-          echo "Consulter les journaux GitHub Actions."
