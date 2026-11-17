@@ -1,0 +1,178 @@
+name: "X1000 - Collecte PMU France - Tableau"
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17,47 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-collecte-pmu-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  collecte-pmu:
+    name: "Controle reunions courses partants France"
+    if: >-
+      github.repository ==
+      'yadcaf-cloud/x1000-intelligence-hippique-humaine'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Recuperation du depot
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Installation Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verification du depot et du collecteur
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
+
+          test -f collecte_pmu.py
+
+          python -m py_compile collecte_pmu.py
+
+          echo "DEPOT_ET_COLLECTEUR_VALIDES"
+
+      - name: Collecte reelle PMU France
+        shell: bash
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+          PYTHONUNBUFFERED: "1"
+          X1000_SORTIE: "sortie"
+        run: |
+          set -euo pipefail
+          python collecte_pmu.py
+
+      - name: Validation des donnees collectees
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          fichier = Path(
+              "sortie/publication_courses.json"
+          )
+
+          if not fichier.is_file():
+              raise SystemExit(
+                  "ERREUR : publication absente"
+              )
+
+          data = json.loads(
+              fichier.read_text(encoding="utf-8")
+          )
+
+          if data.get("schema") != "x1000-pmu-france-v1":
+              raise SystemExit(
+                  "ERREUR : schema incorrect"
+              )
+
+          courses = data.get("courses")
+
+          if not isinstance(courses, list) or not courses:
+              raise SystemExit(
+                  "ERREUR : aucune course valide"
+              )
+
+          identifiants = set()
+
+          for course in courses:
+              if course.get("pays_verifie") != "FR":
+                  raise SystemExit(
+                      "ERREUR : pays non confirme"
+                  )
+
+              cid = course.get("course_id")
+
+              if not cid or cid in identifiants:
+                  raise SystemExit(
+                      "ERREUR : identifiant invalide"
+                  )
+
+              identifiants.add(cid)
+
+              if not course.get("depart"):
+                  raise SystemExit(
+                      "ERREUR : depart manquant"
+                  )
+
+              partants = course.get("partants")
+
+              if not isinstance(partants, list) or not partants:
+                  raise SystemExit(
+                      "ERREUR : partants manquants"
+                  )
+
+              numeros = set()
+
+              for cheval in partants:
+                  numero = cheval.get("numero")
+                  nom = cheval.get("nom")
+
+                  if (
+                      not isinstance(numero, int)
+                      or isinstance(numero, bool)
+                      or numero <= 0
+                      or not isinstance(nom, str)
+                      or not nom.strip()
+                      or numero in numeros
+                  ):
+                      raise SystemExit(
+                          "ERREUR : partant invalide"
+                      )
+
+                  numeros.add(numero)
+
+          print(
+              "VALIDATION_OK :",
+              len(courses),
+              "course(s) françaises"
+          )
+          PY
+
+      - name: Rapport de controle
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## X1000 - Collecte PMU France"
+            echo
+            echo "- Depot : $GITHUB_REPOSITORY"
+            echo "- Branche : $GITHUB_REF_NAME"
+            echo "- Mode : lecture seule"
+            echo "- Aucun FIGE modifie"
+            echo "- Aucune archive modifiee"
+            echo "- Aucun pronostic modifie"
+            echo "- Aucun commit, push ou deploiement"
+            echo
+            if [ -f sortie/publication_courses.json ]; then
+              echo "Fichier JSON genere."
+            else
+              echo "Aucun fichier JSON exploitable."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Conservation du rapport PMU
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x1000-pmu-france-${{ github.run_number }}
+          path: sortie/publication_courses.json
+          if-no-files-found: warn
+          retention-days: 7
