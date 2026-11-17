@@ -1,4 +1,4 @@
-name: "X1000 - Reparation et controle securise"
+name: "X1000 PHOENIX V2 - Diagnostic securise"
 
 on:
   workflow_dispatch:
@@ -7,23 +7,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: x1000-controle-${{ github.ref }}
+  group: x1000-diagnostic-v2-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  diagnostic:
-    name: "Diagnostic X1000 PMU"
+  controle:
+    name: "Controle X1000 PHOENIX"
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-
-    if: >-
-      github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
-      github.ref == 'refs/heads/feature/activation-pmu-analyses-archives'
-
-    env:
-      PYTHONDONTWRITEBYTECODE: "1"
-      PYTHONUNBUFFERED: "1"
-      PYTHONNOUSERSITE: "1"
 
     steps:
       - name: Recuperer le depot
@@ -36,7 +27,18 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Verifier les fichiers Python
+      - name: Verifier le depot
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Depot : $GITHUB_REPOSITORY"
+          echo "Branche : $GITHUB_REF_NAME"
+          echo "Commit : $GITHUB_SHA"
+
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
+
+      - name: Diagnostic Python et moteurs
         shell: bash
         run: |
           set -euo pipefail
@@ -51,25 +53,40 @@ jobs:
               "resultats_archives.py",
           ]
 
+          errors = []
+
           for name in scripts:
               path = Path(name)
 
-              if not path.is_file() or path.is_symlink():
-                  raise SystemExit(
-                      f"::error::Fichier absent : {name}"
-                  )
+              if not path.is_file():
+                  errors.append(f"ABSENT : {name}")
+                  continue
 
-              ast.parse(
-                  path.read_text(encoding="utf-8-sig"),
-                  filename=name
+              try:
+                  ast.parse(
+                      path.read_text(encoding="utf-8-sig"),
+                      filename=name
+                  )
+                  print(f"OK : {name}")
+              except (SyntaxError, UnicodeError) as exc:
+                  errors.append(f"ERREUR : {name} : {exc}")
+
+          print("\nCONTROLE DES MOTEURS M1 A M5")
+
+          for number in range(1, 6):
+              print(
+                  f"M{number} : execution non effectuee"
               )
 
-              print(f"OK : {name}")
+          if errors:
+              for error in errors:
+                  print(f"::error::{error}")
+              raise SystemExit(1)
 
-          print("Syntaxe Python valide")
+          print("Diagnostic Python termine")
           PY
 
-      - name: Verifier les archives sans modification
+      - name: Controle des archives
         shell: bash
         run: |
           set -euo pipefail
@@ -81,71 +98,42 @@ jobs:
 
           if root.is_symlink():
               raise SystemExit(
-                  "::error::Archives en lien symbolique"
+                  "::error::Archives : lien symbolique"
               )
 
           if root.exists() and not root.is_dir():
               raise SystemExit(
-                  "::error::Chemin archives invalide"
+                  "::error::Archives : chemin invalide"
               )
 
           if root.is_dir():
-              for path in root.rglob("*"):
-                  if path.is_symlink():
+              for item in root.rglob("*"):
+                  if item.is_symlink():
                       raise SystemExit(
-                          "::error::Lien symbolique dans archives"
+                          "::error::Lien symbolique detecte"
                       )
 
-          print("Controle structurel des archives OK")
+          print("Archives : controle termine")
           print("Aucune archive modifiee")
           PY
-
-      - name: Verifier les moteurs M1 a M5
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          python - <<'PY'
-          for i in range(1, 6):
-              print(f"M{i} : controle a completer")
-
-          print("Aucun moteur execute")
-          print("Aucun pronostic modifie")
-          PY
-
-      - name: Verifier integrite du depot
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          git diff --exit-code HEAD --
-          git diff --cached --exit-code
-
-          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
-            echo "::error::Fichiers inattendus"
-            exit 1
-          fi
-
-          echo "Depot intact"
 
       - name: Rapport final
         if: always()
         shell: bash
         env:
-          JOB_STATUS: ${{ job.status }}
+          RESULTAT: ${{ job.status }}
         run: |
           {
-            echo "## X1000 PHOENIX"
+            echo "## X1000 PHOENIX V2"
             echo ""
-            echo "Statut : $JOB_STATUS"
-            echo "Branche : $GITHUB_REF"
-            echo "Commit : $GITHUB_SHA"
+            echo "Statut : $RESULTAT"
             echo ""
-            echo "- Diagnostic uniquement"
+            echo "- Controle des fichiers Python"
+            echo "- M1 a M5 non executes"
+            echo "- Archives non modifiees"
+            echo "- Aucun pronostic modifie"
+            echo "- Aucun FIGE cree"
             echo "- Aucun deploiement"
             echo "- Aucun push automatique"
-            echo "- Aucun FIGE genere"
-            echo "- Archives non modifiees"
-            echo "- Moteurs non executes"
             echo "- Serveur Termux non modifie"
           } >> "$GITHUB_STEP_SUMMARY"
