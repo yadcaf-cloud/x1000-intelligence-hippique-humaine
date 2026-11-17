@@ -1,0 +1,133 @@
+name: "X1000 PHOENIX - Controle operationnel"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/x1000-activation-automatique.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-controle-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  diagnostic:
+    name: "Diagnostic X1000 M1-M5"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Recuperation du depot
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Installation Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Controle du depot
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Depot : $GITHUB_REPOSITORY"
+          echo "Branche : $GITHUB_REF_NAME"
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
+
+      - name: Diagnostic Python et moteurs
+        shell: bash
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          root = Path(".")
+          fichiers = list(root.rglob("*.py"))
+          fichiers = [
+              p for p in fichiers
+              if ".git" not in p.parts
+              and ".venv" not in p.parts
+              and "venv" not in p.parts
+          ]
+
+          erreurs = []
+          print("=== CONTROLE PYTHON ===")
+
+          for p in fichiers:
+              try:
+                  source = p.read_text(encoding="utf-8-sig")
+                  ast.parse(source, filename=str(p))
+                  print("OK :", p)
+              except Exception as e:
+                  erreurs.append(f"{p}: {e}")
+
+          print("=== MOTEURS M1 A M5 ===")
+          for i in range(1, 6):
+              candidats = [
+                  p for p in fichiers
+                  if p.stem.lower() in (
+                      f"m{i}",
+                      f"moteur_m{i}",
+                      f"moteur_{i}"
+                  )
+              ]
+              print(
+                  f"M{i} : "
+                  + (
+                      ", ".join(map(str, candidats))
+                      if candidats else
+                      "Non localise par nom standard"
+                  )
+              )
+
+          if erreurs:
+              for e in erreurs:
+                  print("ERREUR :", e)
+              raise SystemExit(1)
+
+          print("Diagnostic syntaxique termine")
+          PY
+
+      - name: Verification archives
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path("data/archives_resultats")
+          if p.is_symlink():
+              raise SystemExit("Archives : lien interdit")
+          if p.exists() and not p.is_dir():
+              raise SystemExit("Archives : chemin invalide")
+          if p.is_dir():
+              for item in p.rglob("*"):
+                  if item.is_symlink():
+                      raise SystemExit(
+                          "Archives : lien symbolique detecte"
+                      )
+          print("Archives non modifiees")
+          PY
+
+      - name: Rapport final
+        if: always()
+        shell: bash
+        env:
+          STATUS: ${{ job.status }}
+        run: |
+          {
+            echo "## X1000 PHOENIX"
+            echo "Statut : $STATUS"
+            echo "- Verification syntaxique Python"
+            echo "- Recherche des moteurs M1-M5"
+            echo "- Aucun moteur execute"
+            echo "- Archives preservees"
+            echo "- Aucun FIGE"
+            echo "- Aucun deploiement"
+            echo "- Aucun push automatique"
+            echo "- Serveur Termux independant"
+          } >> "$GITHUB_STEP_SUMMARY"

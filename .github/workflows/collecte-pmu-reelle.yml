@@ -1,0 +1,425 @@
+name: "X1000 - Collecte PMU securisee V2.2"
+
+on:
+  workflow_dispatch:
+
+  push:
+    branches:
+      - "feature/activation-pmu-analyses-archives"
+    paths:
+      - "pmu_engine.py"
+      - ".github/workflows/collecte-pmu-reelle.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-collecte-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  collecte-pmu:
+    name: "Validation collecte PMU sans publication"
+
+    if: >-
+      github.repository ==
+      'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
+      github.ref ==
+      'refs/heads/feature/activation-pmu-analyses-archives'
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      TZ: Europe/Paris
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONNOUSERSITE: "1"
+
+    steps:
+      - name: "Recuperer la branche securisee"
+        id: checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: "Installer Python 3.12"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: "Verifier branche et syntaxe"
+        run: |
+          set -euo pipefail
+
+          test "$GITHUB_REF" = \
+            "refs/heads/feature/activation-pmu-analyses-archives"
+
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          path = Path("pmu_engine.py")
+
+          if not path.is_file() or path.stat().st_size == 0:
+              raise SystemExit(
+                  "::error::Collecteur PMU absent ou vide"
+              )
+
+          ast.parse(
+              path.read_text(encoding="utf-8-sig"),
+              filename=str(path),
+          )
+
+          print("Branche securisee : OK")
+          print("Syntaxe Python : OK")
+          PY
+
+      - name: "Memoriser integrite initiale du depot"
+        id: depot_snapshot
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          raw = subprocess.check_output(
+              ["git", "ls-files", "-z"]
+          )
+
+          snapshot = {}
+
+          for item in raw.split(b"\0"):
+              if not item:
+                  continue
+
+              name = os.fsdecode(item)
+              path = Path(name)
+
+              if path.is_symlink():
+                  raise SystemExit(
+                      f"Lien symbolique interdit : {name}"
+                  )
+
+              if not path.is_file():
+                  raise SystemExit(
+                      f"Fichier suivi absent : {name}"
+                  )
+
+              snapshot[name] = hashlib.sha256(
+                  path.read_bytes()
+              ).hexdigest()
+
+          if not snapshot:
+              raise SystemExit(
+                  "::error::Depot sans fichiers suivis"
+              )
+
+          target = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-collecte-depot-avant.json"
+          )
+
+          target.write_text(
+              json.dumps(snapshot, sort_keys=True),
+              encoding="utf-8",
+          )
+
+          print("Fichiers suivis :", len(snapshot))
+          print("Snapshot initial : OK")
+          PY
+
+      - name: "Executer les autotests PMU"
+        run: |
+          set -euo pipefail
+
+          python pmu_engine.py --self-test
+
+          echo "Autotests PMU : OK"
+
+      - name: "Preparer environnement isole"
+        id: preparation
+        run: |
+          set -euo pipefail
+
+          TEST_DIR="$RUNNER_TEMP/x1000-collecte-pmu"
+
+          if [ -e "$TEST_DIR" ]; then
+            echo "::error::Dossier temporaire deja present"
+            exit 1
+          fi
+
+          mkdir -p "$TEST_DIR"
+
+          cp pmu_engine.py "$TEST_DIR/pmu_engine.py"
+
+          test -s "$TEST_DIR/pmu_engine.py"
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-collecte-pmu"
+          )
+
+          if root.is_symlink() or not root.is_dir():
+              raise SystemExit(
+                  "Environnement isole invalide"
+              )
+
+          files = {}
+
+          for path in root.rglob("*"):
+              if path.is_symlink():
+                  raise SystemExit(
+                      f"Lien symbolique interdit : {path}"
+                  )
+
+              if path.is_file():
+                  relative = (
+                      path.relative_to(root).as_posix()
+                  )
+
+                  files[relative] = hashlib.sha256(
+                      path.read_bytes()
+                  ).hexdigest()
+
+          if set(files) != {"pmu_engine.py"}:
+              raise SystemExit(
+                  "Contenu temporaire inattendu"
+              )
+
+          snapshot = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-collecte-avant.json"
+          )
+
+          snapshot.write_text(
+              json.dumps(files, sort_keys=True),
+              encoding="utf-8",
+          )
+
+          print("Environnement isole : OK")
+          print("Snapshot temporaire : OK")
+          PY
+
+      - name: "Tester collecte PMU reelle en dry-run"
+        run: |
+          set -euo pipefail
+
+          cd "$RUNNER_TEMP/x1000-collecte-pmu"
+
+          python pmu_engine.py --dry-run
+
+          echo "Collecte PMU dry-run : OK"
+          echo "Aucune publication demandee"
+
+      - name: "Verifier absence ecriture temporaire"
+        if: always() && steps.preparation.outcome == 'success'
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          temp = Path(os.environ["RUNNER_TEMP"])
+          root = temp / "x1000-collecte-pmu"
+          snapshot = temp / "x1000-collecte-avant.json"
+
+          if not snapshot.is_file():
+              raise SystemExit(
+                  "::error::Snapshot temporaire absent"
+              )
+
+          if root.is_symlink() or not root.is_dir():
+              raise SystemExit(
+                  "Environnement temporaire invalide"
+              )
+
+          initial = json.loads(
+              snapshot.read_text(encoding="utf-8")
+          )
+
+          if (
+              not isinstance(initial, dict)
+              or set(initial) != {"pmu_engine.py"}
+          ):
+              raise SystemExit(
+                  "Snapshot temporaire invalide"
+              )
+
+          current = {}
+
+          for path in root.rglob("*"):
+              if path.is_symlink():
+                  raise SystemExit(
+                      f"Lien symbolique detecte : {path}"
+                  )
+
+              if path.is_file():
+                  relative = (
+                      path.relative_to(root).as_posix()
+                  )
+
+                  current[relative] = hashlib.sha256(
+                      path.read_bytes()
+                  ).hexdigest()
+
+          if current != initial:
+              added = sorted(
+                  set(current) - set(initial)
+              )
+              removed = sorted(
+                  set(initial) - set(current)
+              )
+              changed = sorted(
+                  name
+                  for name in set(initial) & set(current)
+                  if initial[name] != current[name]
+              )
+
+              print("Fichiers ajoutes :", added)
+              print("Fichiers supprimes :", removed)
+              print("Fichiers modifies :", changed)
+
+              raise SystemExit(
+                  "::error::Ecriture inattendue pendant dry-run"
+              )
+
+          print("Aucune ecriture temporaire : OK")
+          print("Integrite temporaire SHA256 : OK")
+          PY
+
+      - name: "Verifier integrite finale du depot"
+        if: always() && steps.checkout.outcome == 'success'
+        run: |
+          set -euo pipefail
+
+          test -d .git
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import subprocess
+          from pathlib import Path
+
+          target = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-collecte-depot-avant.json"
+          )
+
+          if not target.is_file():
+              raise SystemExit(
+                  "::error::Snapshot depot initial absent"
+              )
+
+          initial = json.loads(
+              target.read_text(encoding="utf-8")
+          )
+
+          if not isinstance(initial, dict) or not initial:
+              raise SystemExit(
+                  "::error::Snapshot depot invalide"
+              )
+
+          raw = subprocess.check_output(
+              ["git", "ls-files", "-z"]
+          )
+
+          current = {}
+
+          for item in raw.split(b"\0"):
+              if not item:
+                  continue
+
+              name = os.fsdecode(item)
+              path = Path(name)
+
+              if path.is_symlink():
+                  raise SystemExit(
+                      f"Lien symbolique interdit : {name}"
+                  )
+
+              if not path.is_file():
+                  raise SystemExit(
+                      f"Fichier suivi absent : {name}"
+                  )
+
+              current[name] = hashlib.sha256(
+                  path.read_bytes()
+              ).hexdigest()
+
+          if current != initial:
+              changed = sorted(
+                  name
+                  for name in set(initial) | set(current)
+                  if initial.get(name) != current.get(name)
+              )
+
+              for name in changed:
+                  print(
+                      f"::error::Fichier modifie : {name}"
+                  )
+
+              raise SystemExit(
+                  "Integrite SHA256 du depot non respectee"
+              )
+
+          print("SHA256 du depot : OK")
+          PY
+
+          git diff --exit-code HEAD --
+          git diff --cached --exit-code
+
+          if [ -n "$(git ls-files --others --exclude-standard)" ]; then
+            echo "::error::Fichiers non suivis detectes"
+            git ls-files --others --exclude-standard
+            exit 1
+          fi
+
+          echo "Depot Git intact : OK"
+
+      - name: "Rapport final de validation"
+        if: success()
+        run: |
+          {
+            echo "## X1000 - Collecte PMU V2.2"
+            echo ""
+            echo "- Branche securisee : OK"
+            echo "- Syntaxe Python : OK"
+            echo "- Autotests PMU : OK"
+            echo "- Collecte reelle dry-run : OK"
+            echo "- Environnement isole : OK"
+            echo "- Aucune ecriture temporaire : OK"
+            echo "- SHA256 du depot : OK"
+            echo "- Integrite Git : OK"
+            echo "- Publication Git : aucune"
+            echo "- Modification main : aucune"
+            echo "- FIGE automatique : aucun"
+            echo "- Resultat invente : aucun"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Signaler un echec"
+        if: failure()
+        run: |
+          echo "::error::Collecte PMU V2.2 echouee"
+          echo "Ne pas fusionner vers main."
+          echo "Consulter les journaux GitHub Actions."
+          echo "Aucune publication autorisee."
