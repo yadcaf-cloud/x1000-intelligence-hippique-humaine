@@ -1,139 +1,133 @@
-name: "X1000 PHOENIX V2 - Diagnostic securise"
+name: "X1000 PHOENIX - Controle operationnel"
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/x1000-activation-automatique.yml"
 
 permissions:
   contents: read
 
 concurrency:
-  group: x1000-diagnostic-v2-${{ github.ref }}
+  group: x1000-controle-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  controle:
-    name: "Controle X1000 PHOENIX"
-    runs-on: ubuntu-24.04
+  diagnostic:
+    name: "Diagnostic X1000 M1-M5"
+    runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Recuperer le depot
+      - name: Recuperation du depot
         uses: actions/checkout@v4
         with:
           persist-credentials: false
 
-      - name: Installer Python
+      - name: Installation Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
-      - name: Verifier le depot
+      - name: Controle du depot
         shell: bash
         run: |
           set -euo pipefail
           echo "Depot : $GITHUB_REPOSITORY"
           echo "Branche : $GITHUB_REF_NAME"
-          echo "Commit : $GITHUB_SHA"
-
           test "$GITHUB_REPOSITORY" = \
             "yadcaf-cloud/x1000-intelligence-hippique-humaine"
 
       - name: Diagnostic Python et moteurs
         shell: bash
         run: |
-          set -euo pipefail
-
           python - <<'PY'
           import ast
           from pathlib import Path
 
-          scripts = [
-              "pmu_engine.py",
-              "analyse_hippique.py",
-              "resultats_archives.py",
+          root = Path(".")
+          fichiers = list(root.rglob("*.py"))
+          fichiers = [
+              p for p in fichiers
+              if ".git" not in p.parts
+              and ".venv" not in p.parts
+              and "venv" not in p.parts
           ]
 
-          errors = []
+          erreurs = []
+          print("=== CONTROLE PYTHON ===")
 
-          for name in scripts:
-              path = Path(name)
-
-              if not path.is_file():
-                  errors.append(f"ABSENT : {name}")
-                  continue
-
+          for p in fichiers:
               try:
-                  ast.parse(
-                      path.read_text(encoding="utf-8-sig"),
-                      filename=name
+                  source = p.read_text(encoding="utf-8-sig")
+                  ast.parse(source, filename=str(p))
+                  print("OK :", p)
+              except Exception as e:
+                  erreurs.append(f"{p}: {e}")
+
+          print("=== MOTEURS M1 A M5 ===")
+          for i in range(1, 6):
+              candidats = [
+                  p for p in fichiers
+                  if p.stem.lower() in (
+                      f"m{i}",
+                      f"moteur_m{i}",
+                      f"moteur_{i}"
                   )
-                  print(f"OK : {name}")
-              except (SyntaxError, UnicodeError) as exc:
-                  errors.append(f"ERREUR : {name} : {exc}")
-
-          print("\nCONTROLE DES MOTEURS M1 A M5")
-
-          for number in range(1, 6):
+              ]
               print(
-                  f"M{number} : execution non effectuee"
+                  f"M{i} : "
+                  + (
+                      ", ".join(map(str, candidats))
+                      if candidats else
+                      "Non localise par nom standard"
+                  )
               )
 
-          if errors:
-              for error in errors:
-                  print(f"::error::{error}")
+          if erreurs:
+              for e in erreurs:
+                  print("ERREUR :", e)
               raise SystemExit(1)
 
-          print("Diagnostic Python termine")
+          print("Diagnostic syntaxique termine")
           PY
 
-      - name: Controle des archives
+      - name: Verification archives
         shell: bash
         run: |
-          set -euo pipefail
-
           python - <<'PY'
           from pathlib import Path
 
-          root = Path("data/archives_resultats")
-
-          if root.is_symlink():
-              raise SystemExit(
-                  "::error::Archives : lien symbolique"
-              )
-
-          if root.exists() and not root.is_dir():
-              raise SystemExit(
-                  "::error::Archives : chemin invalide"
-              )
-
-          if root.is_dir():
-              for item in root.rglob("*"):
+          p = Path("data/archives_resultats")
+          if p.is_symlink():
+              raise SystemExit("Archives : lien interdit")
+          if p.exists() and not p.is_dir():
+              raise SystemExit("Archives : chemin invalide")
+          if p.is_dir():
+              for item in p.rglob("*"):
                   if item.is_symlink():
                       raise SystemExit(
-                          "::error::Lien symbolique detecte"
+                          "Archives : lien symbolique detecte"
                       )
-
-          print("Archives : controle termine")
-          print("Aucune archive modifiee")
+          print("Archives non modifiees")
           PY
 
       - name: Rapport final
         if: always()
         shell: bash
         env:
-          RESULTAT: ${{ job.status }}
+          STATUS: ${{ job.status }}
         run: |
           {
-            echo "## X1000 PHOENIX V2"
-            echo ""
-            echo "Statut : $RESULTAT"
-            echo ""
-            echo "- Controle des fichiers Python"
-            echo "- M1 a M5 non executes"
-            echo "- Archives non modifiees"
-            echo "- Aucun pronostic modifie"
-            echo "- Aucun FIGE cree"
+            echo "## X1000 PHOENIX"
+            echo "Statut : $STATUS"
+            echo "- Verification syntaxique Python"
+            echo "- Recherche des moteurs M1-M5"
+            echo "- Aucun moteur execute"
+            echo "- Archives preservees"
+            echo "- Aucun FIGE"
             echo "- Aucun deploiement"
             echo "- Aucun push automatique"
-            echo "- Serveur Termux non modifie"
+            echo "- Serveur Termux independant"
           } >> "$GITHUB_STEP_SUMMARY"
