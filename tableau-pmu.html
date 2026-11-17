@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#07131f">
+<title>X1000 — Tableau PMU France</title>
+<style>
+:root {
+  color-scheme: dark;
+  font-family: system-ui, sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #07131f;
+  color: #eaf3f7;
+  line-height: 1.5;
+}
+header, main, footer {
+  max-width: 1100px;
+  margin: auto;
+  padding: 20px;
+}
+h1, h2 { color: #f0cf80; }
+h3 { color: #bce7ff; }
+a { color: #9edcff; }
+button {
+  padding: 12px 18px;
+  background: #f0cf80;
+  color: #07131f;
+  border: 0;
+  border-radius: 9px;
+  font-weight: bold;
+  cursor: pointer;
+}
+.panel {
+  background: #102638;
+  border: 1px solid #315166;
+  border-radius: 12px;
+  padding: 18px;
+  margin: 16px 0;
+}
+.grid {
+  display: grid;
+  grid-template-columns:
+    repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.muted { color: #b7c9d3; }
+.status {
+  padding: 12px;
+  border-left: 4px solid #f0cf80;
+  background: #193448;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th, td {
+  padding: 10px;
+  border-bottom: 1px solid #315166;
+  text-align: left;
+}
+.table-wrap { overflow-x: auto; }
+article { overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🏇 X1000 — Intelligence Hippique Humaine</h1>
+  <p>Réunions, courses et partants PMU France</p>
+  <p class="muted">
+    Consultation en lecture seule.
+    Aucune décision ni aucun pronostic créé.
+  </p>
+  <button id="refresh" type="button">
+    Actualiser le tableau
+  </button>
+</header>
+
+<main>
+  <section aria-labelledby="titre-courses">
+    <h2 id="titre-courses">🏟️ Réunions et courses</h2>
+    <p id="etat" class="status" role="status">
+      En attente de publication PMU.
+    </p>
+    <div id="courses"></div>
+  </section>
+
+  <section aria-labelledby="titre-moteurs">
+    <h2 id="titre-moteurs">🧠 Moteurs M1 à M5</h2>
+    <p id="etat-moteurs" class="status"
+       role="status">
+      En attente de publication des moteurs.
+    </p>
+    <div id="moteurs" class="grid"></div>
+  </section>
+
+  <section aria-labelledby="titre-coordination">
+    <h2 id="titre-coordination">
+      ⚖️ Coordination centrale X1000
+    </h2>
+    <div id="coordination" class="panel">
+      Aucun arbitrage vérifié disponible.
+    </div>
+  </section>
+
+  <p>
+    <a href="./index.html">
+      Retour au site X1000
+    </a>
+  </p>
+</main>
+
+<footer>
+  <p>
+    X1000 — Données réelles uniquement.
+    FIGÉs et archives inchangés.
+  </p>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  const $ = id => document.getElementById(id);
+  const NOMS = ["M1", "M2", "M3", "M4", "M5"];
+
+  function objet(v) {
+    return v !== null &&
+      typeof v === "object" &&
+      !Array.isArray(v);
+  }
+
+  function texte(v, defaut = "Non renseigné") {
+    if (typeof v === "string" && v.trim()) {
+      return v.trim();
+    }
+    if (typeof v === "number" &&
+        Number.isFinite(v)) {
+      return String(v);
+    }
+    return defaut;
+  }
+
+  function ajouter(parent, tag, valeur) {
+    const element = document.createElement(tag);
+    element.textContent = String(valeur ?? "");
+    parent.append(element);
+    return element;
+  }
+
+  async function lireJSON(chemin) {
+    const reponse = await fetch(
+      chemin + "?v=" + Date.now(),
+      {
+        method: "GET",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json"
+        }
+      }
+    );
+
+    if (!reponse.ok) {
+      throw new Error("HTTP " + reponse.status);
+    }
+
+    return reponse.json();
+  }
+
+  function afficherPartants(zone, partants) {
+    const enveloppe = ajouter(zone, "div", "");
+    enveloppe.className = "table-wrap";
+
+    const tableau = ajouter(enveloppe, "table", "");
+    const entete = ajouter(tableau, "thead", "");
+    const ligne = ajouter(entete, "tr", "");
+
+    ["N°", "Cheval", "Situation"].forEach(t => {
+      ajouter(ligne, "th", t);
+    });
+
+    const corps = ajouter(tableau, "tbody", "");
+
+    partants.forEach(p => {
+      if (!objet(p)) return;
+
+      const tr = ajouter(corps, "tr", "");
+      ajouter(tr, "td", texte(p.numero));
+      ajouter(tr, "td", texte(p.nom));
+      ajouter(
+        tr,
+        "td",
+        p.non_partant === true
+          ? "Non-partant signalé"
+          : "Inscrit — statut à confirmer"
+      );
+    });
+  }
+
+  function afficherCourses(donnees) {
+    if (!objet(donnees) ||
+        donnees.schema !== "x1000-pmu-france-v1" ||
+        !Array.isArray(donnees.courses)) {
+      throw new Error("Format PMU non conforme");
+    }
+
+    const zone = $("courses");
+    zone.replaceChildren();
+
+    const courses = donnees.courses.filter(c =>
+      objet(c) &&
+      c.pays_verifie === "FR" &&
+      typeof c.course_id === "string" &&
+      Array.isArray(c.partants) &&
+      c.partants.length > 0
+    );
+
+    $("etat").textContent =
+      courses.length + " course(s) françaises reçue(s). " +
+      "Publication : " +
+      texte(donnees.date_publication) +
+      ". Source : " +
+      texte(donnees.source);
+
+    if (!courses.length) {
+      ajouter(
+        zone,
+        "p",
+        "Aucune course française validée disponible."
+      );
+      return;
+    }
+
+    const groupes = new Map();
+
+    courses.forEach(course => {
+      const reunion = texte(
+        course.reunion, "Réunion inconnue"
+      );
+
+      if (!groupes.has(reunion)) {
+        groupes.set(reunion, []);
+      }
+      groupes.get(reunion).push(course);
+    });
+
+    for (const [reunion, liste] of groupes) {
+      const section = ajouter(zone, "section", "");
+      ajouter(section, "h2", "Réunion " + reunion);
+
+      liste.forEach(course => {
+        const carte = ajouter(
+          section, "article", ""
+        );
+        carte.className = "panel";
+
+        ajouter(
+          carte,
+          "h3",
+          texte(course.course) + " — " +
+          texte(course.hippodrome)
+        );
+
+        ajouter(
+          carte,
+          "p",
+          texte(course.nom_course, "Course PMU")
+        );
+
+        ajouter(
+          carte,
+          "p",
+          "Départ : " + texte(course.depart)
+        );
+
+        ajouter(
+          carte,
+          "p",
+          "Identifiant : " +
+          texte(course.course_id)
+        );
+
+        ajouter(
+          carte,
+          "p",
+          "Source : " +
+          texte(course.source, "PMU TurfInfo")
+        );
+
+        ajouter(
+          carte,
+          "h3",
+          "Partants (" + course.partants.length + ")"
+        );
+
+        afficherPartants(
+          carte,
+          course.partants
+        );
+      });
+    }
+  }
+
+  function classement(liste) {
+    if (!Array.isArray(liste) ||
+        liste.length !== 5) {
+      return "Aucun classement validé";
+    }
+
+    const valeurs = liste.map(n => {
+      const s = String(n);
+      return /^[1-9][0-9]*$/.test(s)
+        ? Number(s) : null;
+    });
+
+    if (valeurs.some(n =>
+          !Number.isSafeInteger(n)) ||
+        new Set(valeurs).size !== 5) {
+      return "Classement non valide";
+    }
+
+    return valeurs.join(" - ");
+  }
+
+  function afficherMoteurs(donnees) {
+    if (!objet(donnees) ||
+        donnees.schema !== "x1000-moteurs-v1" ||
+        !objet(donnees.moteurs)) {
+      throw new Error(
+        "Publication moteurs non conforme"
+      );
+    }
+
+    const zone = $("moteurs");
+    zone.replaceChildren();
+
+    NOMS.forEach(nom => {
+      const moteur = objet(donnees.moteurs[nom])
+        ? donnees.moteurs[nom] : {};
+
+      const carte = ajouter(zone, "article", "");
+      carte.className = "panel";
+
+      ajouter(carte, "h3", "Moteur " + nom);
+      ajouter(
+        carte, "p",
+        "État : " +
+        texte(moteur.etat, "Non vérifié")
+      );
+      ajouter(
+        carte, "p",
+        "Classement : " +
+        classement(moteur.classement)
+      );
+      ajouter(
+        carte, "p",
+        "Analyse : " +
+        texte(moteur.analyse, "Non publiée")
+      );
+      ajouter(
+        carte, "p",
+        "Pari : " +
+        texte(moteur.pari, "Non proposé")
+      );
+    });
+
+    $("etat-moteurs").textContent =
+      "Publication moteurs reçue. " +
+      "Date : " +
+      texte(donnees.date_publication) +
+      ". Vérifier la provenance des décisions.";
+
+    const coordination = objet(donnees.coordination)
+      ? donnees.coordination : {};
+
+    const zoneCoordination = $("coordination");
+    zoneCoordination.replaceChildren();
+
+    ajouter(
+      zoneCoordination, "h3",
+      "Arbitre central X1000"
+    );
+    ajouter(
+      zoneCoordination, "p",
+      "État : " +
+      texte(coordination.etat, "Non vérifié")
+    );
+    ajouter(
+      zoneCoordination, "p",
+      "Décision : " +
+      texte(coordination.decision, "Non publiée")
+    );
+    ajouter(
+      zoneCoordination, "p",
+      "Justification : " +
+      texte(
+        coordination.justification,
+        "Non publiée"
+      )
+    );
+  }
+
+  async function actualiser() {
+    const bouton = $("refresh");
+    bouton.disabled = true;
+
+    $("etat").textContent =
+      "Chargement des courses PMU...";
+    $("etat-moteurs").textContent =
+      "Chargement des moteurs...";
+
+    $("courses").replaceChildren();
+    $("moteurs").replaceChildren();
+
+    $("coordination").textContent =
+      "Aucun arbitrage vérifié disponible.";
+
+    try {
+      const courses = await lireJSON(
+        "./data/publication_courses.json"
+      );
+      afficherCourses(courses);
+    } catch (erreur) {
+      $("etat").textContent =
+        "Courses indisponibles : " +
+        erreur.message +
+        ". Vérifier la publication du JSON.";
+    }
+
+    try {
+      const moteurs = await lireJSON(
+        "./data/publication_moteurs.json"
+      );
+      afficherMoteurs(moteurs);
+    } catch (erreur) {
+      $("etat-moteurs").textContent =
+        "Moteurs M1–M5 indisponibles : " +
+        erreur.message;
+
+      $("moteurs").replaceChildren();
+      NOMS.forEach(nom => {
+        const carte = ajouter(
+          $("moteurs"), "article", ""
+        );
+        carte.className = "panel";
+        ajouter(carte, "h3", nom);
+        ajouter(
+          carte, "p",
+          "Aucune décision vérifiée publiée."
+        );
+      });
+    }
+
+    bouton.disabled = false;
+  }
+
+  $("refresh").addEventListener(
+    "click", actualiser
+  );
+
+  actualiser();
+})();
+</script>
+</body>
+</html>
