@@ -1,4 +1,3 @@
-
 name: "X1000 - Intelligence Hippique Humaine - Collecte PMU France"
 
 on:
@@ -18,8 +17,7 @@ jobs:
     name: "Controle PMU France - reunions courses partants"
     if: >-
       github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
-      (github.event_name == 'schedule' ||
-       github.ref_name == 'fix/pmu-github-tableau-20261117')
+      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
 
@@ -38,17 +36,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          test "$GITHUB_REPOSITORY" = \
-            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
-
-          if [[ "$GITHUB_EVENT_NAME" != "schedule" ]]; then
-            test "$GITHUB_REF_NAME" = \
-              "fix/pmu-github-tableau-20261117"
+          test "$GITHUB_REPOSITORY" = "yadcaf-cloud/x1000-intelligence-hippique-humaine"
+          if [[ "$GITHUB_EVENT_NAME" == "schedule" ]]; then
+            test "$GITHUB_REF_NAME" = "main"
           fi
-
-          echo "DEPOT_ET_BRANCHE_VERIFIES"
-          echo "MODE_LECTURE_SEULE"
+          echo "DEPOT_VERIFIE / MODE_LECTURE_SEULE"
           mkdir -p sortie
 
       - name: Collecte reelle PMU TurfInfo
@@ -57,15 +49,12 @@ jobs:
           TZ: Europe/Paris
         run: |
           set -euo pipefail
-          mkdir -p sortie
-
-          cat > /tmp/x1000_collecte.py <<'PY'
+          python - <<'PY'
           import json
           import os
           import sys
           import time
           import urllib.request
-          import urllib.error
           from datetime import datetime
           from zoneinfo import ZoneInfo
 
@@ -73,14 +62,11 @@ jobs:
               "https://online.turfinfo.api.pmu.fr/rest/client/1",
               "https://offline.turfinfo.api.pmu.fr/rest/client/7",
           ]
-
-          NOW = datetime.now(ZoneInfo("Europe/Paris"))
-          DATE = NOW.strftime("%d%m%Y")
-          ISO_DATE = NOW.strftime("%Y-%m-%d")
-
-          ERRORS = []
-          WARNINGS = []
-          FRANCE = {"FRANCE", "FR", "FRA"}
+          now = datetime.now(ZoneInfo("Europe/Paris"))
+          date_pmu = now.strftime("%d%m%Y")
+          iso_date = now.strftime("%Y-%m-%d")
+          errors, warnings = [], []
+          france = {"FRANCE", "FR", "FRA"}
 
           def field(obj, *keys):
               if not isinstance(obj, dict):
@@ -91,548 +77,253 @@ jobs:
                       return value
               return None
 
-          def number(value):
+          def entries(obj, *keys):
+              value = field(obj, *keys)
+              return value if isinstance(value, list) else []
+
+          def positive_int(value):
               if isinstance(value, bool):
                   return None
               try:
                   n = int(value)
                   return n if n > 0 else None
-              except (ValueError, TypeError, OverflowError):
+              except (TypeError, ValueError, OverflowError):
                   return None
-
-          def list_field(obj, *keys):
-              value = field(obj, *keys)
-              return value if isinstance(value, list) else []
 
           def get_json(path):
               failures = []
-
               for base in BASES:
                   url = base + path
-
                   for attempt in range(2):
                       try:
-                          req = urllib.request.Request(
-                              url,
-                              headers={
-                                  "Accept": "application/json",
-                                  "User-Agent": "Mozilla/5.0 X1000-PHOENIX",
-                              },
-                          )
-
-                          with urllib.request.urlopen(
-                              req, timeout=15
-                          ) as response:
+                          request = urllib.request.Request(url, headers={
+                              "Accept": "application/json",
+                              "User-Agent": "X1000-PHOENIX/1.0 (read-only)",
+                          })
+                          with urllib.request.urlopen(request, timeout=12) as response:
                               raw = response.read(8_000_001)
-
                           if len(raw) > 8_000_000:
-                              raise ValueError(
-                                  "Reponse PMU trop volumineuse"
-                              )
-
-                          data = json.loads(raw)
-
-                          if not isinstance(data, (dict, list)):
-                              raise ValueError(
-                                  "Structure JSON PMU invalide"
-                              )
-
-                          return data, url
-
+                              raise ValueError("Reponse trop volumineuse")
+                          result = json.loads(raw)
+                          if not isinstance(result, (dict, list)):
+                              raise ValueError("JSON inattendu")
+                          return result, url
                       except Exception as exc:
-                          failures.append(
-                              f"{url}: {type(exc).__name__}: {exc}"
-                          )
-
+                          failures.append(f"{url}: {type(exc).__name__}: {exc}")
                           if attempt == 0:
-                              time.sleep(1)
-
+                              time.sleep(0.5)
               raise RuntimeError(" | ".join(failures))
 
-          def country_of(reunion):
-              keys = (
-                  "pays",
-                  "codePays",
-                  "paysCode",
-                  "codePaysHippodrome",
-              )
-
-              value = field(reunion, *keys)
-              hippo = field(reunion, "hippodrome")
-
-              if isinstance(hippo, dict):
-                  value = value or field(hippo, *keys)
-
+          def country_of(meeting):
+              keys = ("pays", "codePays", "paysCode", "codePaysHippodrome")
+              value = field(meeting, *keys)
+              hippo = field(meeting, "hippodrome")
+              if value is None and isinstance(hippo, dict):
+                  value = field(hippo, *keys)
               if isinstance(value, dict):
-                  value = field(
-                      value, "code", "nom", "libelle"
-                  )
+                  value = field(value, "code", "nom", "libelle")
+              return value.strip().upper() if isinstance(value, str) else None
 
-              if not isinstance(value, str):
-                  return None
+          def hippo_name(meeting):
+              value = field(meeting, "hippodrome")
+              if isinstance(value, dict):
+                  value = field(value, "libelleCourt", "libelleLong", "nom")
+              return value.strip() if isinstance(value, str) and value.strip() else None
 
-              return value.strip().upper()
-
-          def meeting_number(reunion):
-              return number(field(
-                  reunion,
-                  "numOfficiel",
-                  "numeroReunion",
-                  "numReunion",
-              ))
-
-          def race_number(course):
-              return number(field(
-                  course,
-                  "num",
-                  "numCourse",
-                  "numeroCourse",
-                  "numOfficiel",
-              ))
-
-          def participants_of(data):
-              if isinstance(data, list):
-                  return data
-
-              if isinstance(data, dict):
-                  return list_field(
-                      data, "participants", "partants"
-                  )
-
-              return []
-
-          def save_json(filename, obj):
-              os.makedirs("sortie", exist_ok=True)
-
-              path = os.path.join("sortie", filename)
-
-              with open(
-                  path, "w", encoding="utf-8"
-              ) as f:
-                  json.dump(
-                      obj,
-                      f,
-                      ensure_ascii=False,
-                      indent=2,
-                      default=str,
-                  )
-
-          def valid_depart(value):
-              if value is None or isinstance(value, bool):
+          def departure(value):
+              if isinstance(value, bool) or value is None:
                   return False
-
               if isinstance(value, (int, float)):
                   return value > 0
+              return isinstance(value, str) and bool(value.strip())
 
-              if isinstance(value, str):
-                  return bool(value.strip())
+          def write_json(filename, obj):
+              os.makedirs("sortie", exist_ok=True)
+              with open(os.path.join("sortie", filename), "w", encoding="utf-8") as file:
+                  json.dump(obj, file, ensure_ascii=False, indent=2)
 
-              return False
-
-          report = {
+          diagnostic = {
               "systeme": "X1000 PHOENIX",
               "mode": "LECTURE_SEULE",
               "source": "PMU TurfInfo",
-              "date": ISO_DATE,
-              "collecte_a": NOW.isoformat(),
+              "date": iso_date,
+              "collecte_a": now.isoformat(),
               "statut": "EN_COURS",
               "reunions_france": 0,
               "courses_france": 0,
               "partants_identifies": 0,
-              "erreurs": ERRORS,
-              "avertissements": WARNINGS,
+              "erreurs": errors,
+              "avertissements": warnings,
           }
-
           output = {
               "systeme": "X1000 PHOENIX",
-              "date": ISO_DATE,
+              "date": iso_date,
               "source": "PMU TurfInfo",
               "verification": "collecte_structurelle",
               "reunions": [],
           }
 
           try:
-              programme, source = get_json(
-                  f"/programme/{DATE}"
-              )
-
-              report["url_programme"] = source
-
+              programme, programme_url = get_json(f"/programme/{date_pmu}")
+              diagnostic["url_programme"] = programme_url
               if not isinstance(programme, dict):
-                  raise ValueError(
-                      "Programme PMU non conforme"
-                  )
+                  raise ValueError("Programme PMU non conforme")
+              meetings = entries(programme, "reunions")
+              if not meetings:
+                  raise ValueError("Aucune reunion dans le programme PMU")
 
-              reunions = list_field(
-                  programme, "reunions"
-              )
-
-              if not reunions:
-                  raise ValueError(
-                      "Aucune reunion PMU disponible"
-                  )
-
-              meeting_ids = set()
-              race_ids = set()
-
-              for reunion in reunions:
-                  if not isinstance(reunion, dict):
+              seen_meetings = set()
+              seen_races = set()
+              for meeting in meetings:
+                  if not isinstance(meeting, dict):
+                      warnings.append("Reunion de format invalide")
                       continue
-
-                  nr = meeting_number(reunion)
-
+                  nr = positive_int(field(meeting, "numOfficiel", "numeroReunion", "numReunion"))
                   if nr is None:
-                      WARNINGS.append(
-                          "Reunion sans numero officiel"
-                      )
+                      warnings.append("Reunion sans numero officiel")
                       continue
-
-                  if nr in meeting_ids:
-                      ERRORS.append(
-                          f"Reunion R{nr} dupliquee"
-                      )
+                  if nr in seen_meetings:
+                      errors.append(f"R{nr}: reunion dupliquee")
                       continue
-
-                  meeting_ids.add(nr)
-
-                  pays = country_of(reunion)
-
-                  if pays not in FRANCE:
-                      WARNINGS.append(
-                          f"R{nr}: pays non francais "
-                          "ou non verifie"
-                      )
+                  seen_meetings.add(nr)
+                  country = country_of(meeting)
+                  if country not in france:
+                      warnings.append(f"R{nr}: pays non francais ou non verifie ({country})")
                       continue
-
-                  hippo = field(
-                      reunion, "hippodrome"
-                  )
-
-                  if isinstance(hippo, dict):
-                      hippo = field(
-                          hippo,
-                          "libelleCourt",
-                          "libelleLong",
-                          "nom",
-                      )
-
-                  if not isinstance(hippo, str) or not hippo.strip():
-                      WARNINGS.append(
-                          f"R{nr}: hippodrome non identifiable"
-                      )
+                  hippo = hippo_name(meeting)
+                  if not hippo:
+                      warnings.append(f"R{nr}: hippodrome non identifiable")
                       continue
-
+                  courses = entries(meeting, "courses")
+                  if not courses:
+                      warnings.append(f"R{nr}: aucune course fournie")
+                      continue
                   item = {
-                      "id": f"{ISO_DATE}-R{nr}",
+                      "id": f"{iso_date}-R{nr}",
                       "numero": nr,
                       "hippodrome": hippo,
-                      "pays": pays,
+                      "pays": country,
                       "courses": [],
                   }
-
-                  courses = list_field(
-                      reunion, "courses"
-                  )
-
-                  if not courses:
-                      WARNINGS.append(
-                          f"R{nr}: aucune course fournie"
-                      )
-                      continue
-
                   for course in courses:
                       if not isinstance(course, dict):
+                          warnings.append(f"R{nr}: course de format invalide")
                           continue
-
-                      nc = race_number(course)
-
+                      nc = positive_int(field(course, "num", "numCourse", "numeroCourse", "numOfficiel"))
                       if nc is None:
-                          WARNINGS.append(
-                              f"R{nr}: course sans numero"
-                          )
+                          warnings.append(f"R{nr}: course sans numero")
                           continue
-
-                      course_id = (
-                          f"{ISO_DATE}-R{nr}-C{nc}"
-                      )
-
-                      if course_id in race_ids:
-                          ERRORS.append(
-                              f"{course_id}: identifiant duplique"
-                          )
+                      cid = f"{iso_date}-R{nr}-C{nc}"
+                      if cid in seen_races:
+                          errors.append(f"{cid}: course dupliquee")
                           continue
-
-                      race_ids.add(course_id)
-
-                      depart = field(
-                          course,
-                          "heureDepart",
-                          "heureDepartInitiale",
-                      )
-
-                      if not valid_depart(depart):
-                          ERRORS.append(
-                              f"{course_id}: horaire absent "
-                              "ou invalide"
-                          )
+                      seen_races.add(cid)
+                      start = field(course, "heureDepart", "heureDepartInitiale")
+                      if not departure(start):
+                          errors.append(f"{cid}: horaire absent ou invalide")
                           continue
-
-                      path = (
-                          f"/programme/{DATE}"
-                          f"/R{nr}/C{nc}/participants"
-                      )
-
                       try:
-                          pdata, psource = get_json(path)
-                          participants = participants_of(pdata)
-
+                          pdata, participants_url = get_json(
+                              f"/programme/{date_pmu}/R{nr}/C{nc}/participants"
+                          )
+                          participants = pdata if isinstance(pdata, list) else entries(pdata, "participants", "partants")
                           if not participants:
-                              raise ValueError(
-                                  "Liste des participants vide"
-                              )
-
-                          chevaux = []
-                          seen = set()
-                          invalides = 0
-
+                              raise ValueError("Liste des participants vide")
+                          horses, seen_numbers = [], set()
                           for p in participants:
                               if not isinstance(p, dict):
-                                  invalides += 1
-                                  continue
-
-                              num = number(field(
-                                  p,
-                                  "numPmu",
-                                  "numero",
-                                  "num",
-                              ))
-
-                              nom = field(
-                                  p, "nom", "nomCheval"
-                              )
-
-                              if (
-                                  num is None
-                                  or not isinstance(nom, str)
-                                  or not nom.strip()
-                              ):
-                                  invalides += 1
-                                  continue
-
-                              if num in seen:
-                                  invalides += 1
-                                  WARNINGS.append(
-                                      f"{course_id}: "
-                                      f"numero duplique {num}"
-                                  )
-                                  continue
-
-                              seen.add(num)
-
-                              non_partant = field(
-                                  p, "nonPartant"
-                              )
-
-                              if not isinstance(non_partant, bool):
-                                  non_partant = None
-
-                              chevaux.append({
+                                  raise ValueError("Participant non structure")
+                              num = positive_int(field(p, "numPmu", "numero", "num"))
+                              name = field(p, "nom", "nomCheval")
+                              if num is None or not isinstance(name, str) or not name.strip():
+                                  raise ValueError("Participant sans numero ou nom")
+                              if num in seen_numbers:
+                                  raise ValueError(f"Numero de participant duplique: {num}")
+                              seen_numbers.add(num)
+                              non_runner = field(p, "nonPartant")
+                              if not isinstance(non_runner, bool):
+                                  non_runner = None
+                              horses.append({
                                   "numero": num,
-                                  "nom": nom.strip(),
-                                  "jockey": field(
-                                      p, "jockey", "driver"
-                                  ),
-                                  "entraineur": field(
-                                      p, "entraineur"
-                                  ),
-                                  "non_partant": non_partant,
+                                  "nom": name.strip(),
+                                  "jockey": field(p, "jockey", "driver"),
+                                  "entraineur": field(p, "entraineur"),
+                                  "non_partant": non_runner,
                               })
-
-                          if invalides:
-                              raise ValueError(
-                                  f"{invalides} participant(s) "
-                                  "invalides ou dupliques"
-                              )
-
-                          if not chevaux:
-                              raise ValueError(
-                                  "Aucun cheval identifiable"
-                              )
-
-                          race = {
-                              "id": course_id,
+                          item["courses"].append({
+                              "id": cid,
                               "reunion": nr,
                               "course": nc,
-                              "nom": field(
-                                  course,
-                                  "libelle",
-                                  "libelleCourt",
-                                  "nom",
-                              ),
-                              "heure_depart": depart,
-                              "distance": field(
-                                  course, "distance"
-                              ),
-                              "discipline": field(
-                                  course, "discipline"
-                              ),
-                              "nombre_partants": len(chevaux),
-                              "partants": chevaux,
-                              "source": psource,
-                              "statut": "COLLECTE_VERIFIEE",
-                          }
-
-                          item["courses"].append(race)
-
-                          report["courses_france"] += 1
-                          report["partants_identifies"] += len(
-                              chevaux
-                          )
-
+                              "nom": field(course, "libelle", "libelleCourt", "nom"),
+                              "heure_depart": start,
+                              "distance": field(course, "distance"),
+                              "discipline": field(course, "discipline"),
+                              "nombre_partants": len(horses),
+                              "partants": horses,
+                              "source": participants_url,
+                              "statut": "COLLECTE_STRUCTURELLE_VERIFIEE",
+                          })
+                          diagnostic["courses_france"] += 1
+                          diagnostic["partants_identifies"] += len(horses)
                       except Exception as exc:
-                          ERRORS.append(
-                              f"{course_id}: {exc}"
-                          )
-
-                      time.sleep(0.2)
-
+                          errors.append(f"{cid}: {exc}")
+                      time.sleep(0.15)
                   if item["courses"]:
                       output["reunions"].append(item)
-                      report["reunions_france"] += 1
+                      diagnostic["reunions_france"] += 1
 
-              if report["courses_france"] == 0:
-                  report["statut"] = "ECHEC"
-                  raise RuntimeError(
-                      "Aucune course francaise "
-                      "exploitable avec partants"
-                  )
-
-              report["statut"] = (
-                  "PARTIEL" if ERRORS else "OK"
-              )
-
+              if not diagnostic["courses_france"]:
+                  raise RuntimeError("Aucune course francaise exploitable avec partants")
+              diagnostic["statut"] = "PARTIEL" if errors else "OK"
           except Exception as exc:
-              ERRORS.append(str(exc))
-
-              if report["statut"] == "EN_COURS":
-                  report["statut"] = "ECHEC"
-
+              errors.append(str(exc))
+              diagnostic["statut"] = "ECHEC"
           finally:
-              output["statut_collecte"] = report["statut"]
-
-              save_json(
-                  "courses-pmu-france.json", output
-              )
-
-              save_json(
-                  "diagnostic-collecte-pmu.json", report
-              )
-
-              print(json.dumps(
-                  report,
-                  ensure_ascii=False,
-                  indent=2,
-              ))
-
-          if report["statut"] == "ECHEC":
+              output["statut_collecte"] = diagnostic["statut"]
+              write_json("courses-pmu-france.json", output)
+              write_json("diagnostic-collecte-pmu.json", diagnostic)
+              print(json.dumps(diagnostic, ensure_ascii=False, indent=2))
+          if diagnostic["statut"] == "ECHEC":
               sys.exit(1)
           PY
 
-          python /tmp/x1000_collecte.py
-
       - name: Validation des fichiers JSON
-        if: success()
         shell: bash
         run: |
           set -euo pipefail
-
           python - <<'PY'
           import json
-          from datetime import datetime
-          from zoneinfo import ZoneInfo
-
-          with open(
-              "sortie/diagnostic-collecte-pmu.json",
-              encoding="utf-8",
-          ) as f:
-              diagnostic = json.load(f)
-
-          with open(
-              "sortie/courses-pmu-france.json",
-              encoding="utf-8",
-          ) as f:
+          with open("sortie/diagnostic-collecte-pmu.json", encoding="utf-8") as f:
+              d = json.load(f)
+          with open("sortie/courses-pmu-france.json", encoding="utf-8") as f:
               data = json.load(f)
-
-          assert diagnostic["statut"] in (
-              "OK", "PARTIEL"
-          ), "Statut de collecte invalide"
-
-          assert diagnostic["courses_france"] > 0
-          assert diagnostic["partants_identifies"] > 0
-
-          assert data["date"] == diagnostic["date"]
-          assert data["statut_collecte"] == diagnostic["statut"]
-
-          reunions = data["reunions"]
-
-          assert isinstance(reunions, list)
-          assert len(reunions) == diagnostic["reunions_france"]
-
-          total_courses = 0
-          total_partants = 0
-          ids = set()
-          reunions_ids = set()
-
-          for reunion in reunions:
-              assert reunion["pays"] in (
-                  "FRANCE", "FR", "FRA"
-              )
-
-              assert reunion["id"] not in reunions_ids
-              reunions_ids.add(reunion["id"])
-
-              assert reunion["hippodrome"]
-              assert reunion["courses"]
-
-              for course in reunion["courses"]:
-                  cid = course["id"]
-
-                  assert cid not in ids
-                  ids.add(cid)
-
-                  assert course["partants"]
-                  assert course["heure_depart"] is not None
-                  assert course["source"]
-
-                  numeros = [
-                      p["numero"]
-                      for p in course["partants"]
-                  ]
-
-                  assert len(numeros) == len(set(numeros))
-                  assert len(numeros) == course["nombre_partants"]
-
-                  for p in course["partants"]:
-                      assert isinstance(p["numero"], int)
-                      assert p["numero"] > 0
-                      assert isinstance(p["nom"], str)
-                      assert p["nom"].strip()
-
-                  total_courses += 1
-                  total_partants += len(numeros)
-
-          assert total_courses == diagnostic["courses_france"]
-          assert total_partants == diagnostic["partants_identifies"]
-
+          assert d["statut"] in ("OK", "PARTIEL"), "Statut invalide"
+          assert data["date"] == d["date"]
+          assert data["statut_collecte"] == d["statut"]
+          assert len(data["reunions"]) == d["reunions_france"]
+          race_ids, meeting_ids = set(), set()
+          total_races = total_horses = 0
+          for meeting in data["reunions"]:
+              assert meeting["pays"] in ("FRANCE", "FR", "FRA")
+              assert meeting["id"] not in meeting_ids
+              meeting_ids.add(meeting["id"])
+              assert meeting["hippodrome"] and meeting["courses"]
+              for race in meeting["courses"]:
+                  assert race["id"] not in race_ids
+                  race_ids.add(race["id"])
+                  assert race["heure_depart"] is not None and race["source"]
+                  assert race["partants"]
+                  nums = [p["numero"] for p in race["partants"]]
+                  assert len(nums) == len(set(nums)) == race["nombre_partants"]
+                  for horse in race["partants"]:
+                      assert type(horse["numero"]) is int and horse["numero"] > 0
+                      assert isinstance(horse["nom"], str) and horse["nom"].strip()
+                  total_races += 1
+                  total_horses += len(nums)
+          assert total_races == d["courses_france"] > 0
+          assert total_horses == d["partants_identifies"] > 0
           print("VALIDATION_X1000_OK")
-          print("Statut :", diagnostic["statut"])
-          print("Reunions :", len(reunions))
-          print("Courses :", total_courses)
-          print("Partants :", total_partants)
-          print(
-              "Erreurs partielles :",
-              len(diagnostic["erreurs"])
-          )
+          print(f"Reunions={len(meeting_ids)} Courses={total_races} Partants={total_horses}")
           PY
 
       - name: Publier les diagnostics en artifact
@@ -648,6 +339,7 @@ jobs:
         if: always()
         shell: bash
         run: |
+          set -euo pipefail
           {
             echo "## X1000 PHOENIX - Collecte PMU France"
             echo ""
@@ -655,47 +347,27 @@ jobs:
             echo "- Branche : $GITHUB_REF_NAME"
             echo "- Mode : lecture seule"
             echo "- Source : PMU TurfInfo"
-            echo "- FIGEs : non modifies"
-            echo "- Archives : non modifiees"
-            echo "- Pronostics : non modifies"
-            echo "- Moteurs M1-M5 : non modifies"
-            echo "- Commit automatique : aucun"
-            echo "- Push automatique : aucun"
-            echo "- Deploiement : aucun"
+            echo "- FIGEs, archives, pronostics, moteurs M1-M5 : non modifies"
+            echo "- Commit, push, deploiement automatiques : aucun"
             echo ""
-
-            if [[ -f sortie/diagnostic-collecte-pmu.json ]]; then
-              python - <<'PY'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ -f sortie/diagnostic-collecte-pmu.json ]]; then
+            python - <<'PY'
           import json
           import os
-
-          with open(
-              "sortie/diagnostic-collecte-pmu.json",
-              encoding="utf-8"
-          ) as f:
+          with open("sortie/diagnostic-collecte-pmu.json", encoding="utf-8") as f:
               d = json.load(f)
-
           lines = [
-              "### Diagnostic PMU",
-              "",
+              "### Diagnostic PMU", "",
               f"- Statut : {d['statut']}",
               f"- Reunions : {d['reunions_france']}",
               f"- Courses : {d['courses_france']}",
               f"- Partants : {d['partants_identifies']}",
               f"- Erreurs : {len(d['erreurs'])}",
-              f"- Avertissements : {len(d['avertissements'])}",
-              "",
+              f"- Avertissements : {len(d['avertissements'])}", "",
           ]
-
-          with open(
-              os.environ["GITHUB_STEP_SUMMARY"],
-              "a",
-              encoding="utf-8"
-          ) as f:
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
               f.write("\n".join(lines) + "\n")
           PY
-            fi
-
-            echo "Les fichiers JSON sont disponibles dans les artifacts." \
-              >> "$GITHUB_STEP_SUMMARY"
-          } 
+          fi
+          echo "Les fichiers JSON sont disponibles dans les artifacts." >> "$GITHUB_STEP_SUMMARY"
