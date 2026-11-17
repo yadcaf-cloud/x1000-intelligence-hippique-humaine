@@ -100,17 +100,14 @@ jobs:
           print("Aucune archive modifiee")
           PY
 
-      - name: Verifier les moteurs disponibles
+      - name: Verifier les moteurs M1 a M5
         shell: bash
         run: |
           set -euo pipefail
 
           python - <<'PY'
-          from pathlib import Path
-
           for i in range(1, 6):
-              name = f"M{i}"
-              print(f"{name} : controle a completer")
+              print(f"M{i} : controle a completer")
 
           print("Aucun moteur execute")
           print("Aucun pronostic modifie")
