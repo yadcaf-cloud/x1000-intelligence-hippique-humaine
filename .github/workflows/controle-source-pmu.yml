@@ -1,0 +1,152 @@
+name: "X1000 PHOENIX - Controle donnees PMU"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-controle-pmu
+  cancel-in-progress: false
+
+jobs:
+  controle-pmu:
+    name: "Diagnostic source PMU"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: "Installation Python 3.11"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: "Controle des donnees PMU"
+        shell: bash
+        run: |
+          python - <<'PY'
+          import datetime
+          import json
+          import sys
+          import urllib.error
+          import urllib.request
+          from zoneinfo import ZoneInfo
+
+          date = datetime.datetime.now(
+              ZoneInfo("Europe/Paris")
+          ).strftime("%d%m%Y")
+
+          url = (
+              "https://online.turfinfo.api.pmu.fr"
+              "/rest/client/1/programme/" + date
+          )
+
+          print("=== X1000 CONTROLE PMU ===")
+          print("Date :", date)
+          print("Source :", url)
+
+          try:
+              request = urllib.request.Request(
+                  url,
+                  headers={
+                      "Accept": "application/json",
+                      "User-Agent": "X1000-Diagnostic/1.0"
+                  }
+              )
+
+              with urllib.request.urlopen(
+                  request, timeout=25
+              ) as response:
+                  raw = response.read(5_000_001)
+                  print("HTTP :", response.status)
+
+              if len(raw) > 5_000_000:
+                  raise ValueError(
+                      "Reponse trop volumineuse"
+                  )
+
+              data = json.loads(raw)
+
+              if not isinstance(data, dict):
+                  raise ValueError(
+                      "Structure JSON invalide"
+                  )
+
+              programme = data.get("programme")
+
+              if isinstance(programme, dict):
+                  reunions = programme.get("reunions")
+              else:
+                  reunions = data.get("reunions")
+
+              if not isinstance(reunions, list):
+                  raise ValueError(
+                      "Liste des reunions absente"
+                  )
+
+              print("Reunions :", len(reunions))
+
+              courses_total = 0
+
+              for reunion in reunions:
+                  if not isinstance(reunion, dict):
+                      continue
+
+                  hippodrome = reunion.get(
+                      "hippodrome", {}
+                  )
+
+                  if isinstance(hippodrome, dict):
+                      nom = (
+                          hippodrome.get("libelleCourt")
+                          or hippodrome.get("libelleLong")
+                          or "Inconnu"
+                      )
+                      pays = (
+                          hippodrome.get("codePays")
+                          or hippodrome.get("pays")
+                          or "Non precise"
+                      )
+                  else:
+                      nom = "Inconnu"
+                      pays = "Non precise"
+
+                  courses = reunion.get("courses", [])
+
+                  nombre = (
+                      len(courses)
+                      if isinstance(courses, list)
+                      else 0
+                  )
+
+                  courses_total += nombre
+
+                  print(
+                      "Reunion :",
+                      reunion.get("numOfficiel", "?"),
+                      "| Hippodrome :", nom,
+                      "| Pays :", pays,
+                      "| Courses :", nombre
+                  )
+
+              print("Total courses :", courses_total)
+              print("Source JSON accessible.")
+              print(
+                  "Attention : origine France,"
+                  " partants et horaires restent"
+                  " a verifier avant publication."
+              )
+              print("Aucun FIGE modifie.")
+              print("Aucune archive modifiee.")
+              print("Aucun pronostic invente.")
+
+          except Exception as erreur:
+              print(
+                  "ECHEC CONTROLE PMU :",
+                  type(erreur).__name__,
+                  str(erreur),
+                  file=sys.stderr
+              )
+              sys.exit(1)
+          PY
