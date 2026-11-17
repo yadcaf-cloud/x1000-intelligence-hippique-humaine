@@ -1,0 +1,319 @@
+name: "X1000 PHOENIX - Controle courses France et partants PMU"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/controle-courses-france-pmu.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-controle-france-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  controle:
+    name: "Verification PMU France - courses et partants"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Installation Python 3.11
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Controle des donnees reelles PMU
+        shell: bash
+        run: |
+          python - <<'PY'
+          import datetime
+          import json
+          import sys
+          import urllib.request
+          import urllib.error
+          from zoneinfo import ZoneInfo
+
+          BASE = "https://online.turfinfo.api.pmu.fr/rest/client/1"
+          DATE = datetime.datetime.now(
+              ZoneInfo("Europe/Paris")
+          ).strftime("%d%m%Y")
+
+          # Liste explicite de sites francais connus.
+          # Une absence dans cette liste signifie
+          # NON VERIFIE, jamais "etranger" automatiquement.
+          FRANCE = {
+              "CHANTILLY", "ANGERS", "VINCENNES",
+              "LYON LA SOIE", "LONGCHAMP", "PARISLONGCHAMP",
+              "AUTEUIL", "SAINT CLOUD", "DEAUVILLE",
+              "CABOURG", "CAEN", "CAGNES SUR MER",
+              "MARSEILLE BORELY", "MARSEILLE VIVAUX",
+              "TOULOUSE", "BORDEAUX LE BOUSCAT",
+              "NANTES", "COMPIEGNE", "FONTAINEBLEAU",
+              "MAISONS LAFFITTE", "ENGHIEN",
+              "LE CROISE LAROCHE", "LAVAL",
+              "LE MANS", "VICHY", "PORNICHET",
+              "LA TESTE", "DIEPPE", "STRASBOURG",
+              "LE LION D ANGERS", "PAU",
+              "SAINT MALO", "HYERES", "NANCY",
+              "CLAIREFONTAINE", "SALON DE PROVENCE",
+              "FEURS", "CHARTRES", "ARGENTAN",
+              "AMIENS", "REIMS", "GRAIGNES",
+              "MESLAY DU MAINE", "LES SABLES D OLONNE",
+              "BEAUMONT DE LOMAGNE", "LA CAPELLE",
+              "MOULINS", "DAX", "MONT DE MARSAN"
+          }
+
+          def normaliser(texte):
+              import unicodedata
+              texte = unicodedata.normalize(
+                  "NFKD", str(texte or "")
+              )
+              texte = "".join(
+                  c for c in texte
+                  if not unicodedata.combining(c)
+              )
+              return " ".join(
+                  texte.upper().replace("-", " ")
+                  .replace("'", " ").split()
+              )
+
+          FRANCE = {normaliser(x) for x in FRANCE}
+
+          def charger(url):
+              req = urllib.request.Request(
+                  url,
+                  headers={
+                      "Accept": "application/json",
+                      "User-Agent": "X1000-PMU-Control/2.0"
+                  }
+              )
+              with urllib.request.urlopen(
+                  req, timeout=25
+              ) as rep:
+                  if rep.status != 200:
+                      raise ValueError(
+                          f"HTTP inattendu: {rep.status}"
+                      )
+                  raw = rep.read(5_000_001)
+                  if len(raw) > 5_000_000:
+                      raise ValueError("Reponse trop grande")
+                  return json.loads(raw)
+
+          def identifier_hippodrome(reunion):
+              hip = reunion.get("hippodrome", {})
+              if isinstance(hip, dict):
+                  nom = (
+                      hip.get("libelleCourt")
+                      or hip.get("libelleLong")
+                      or ""
+                  )
+              else:
+                  nom = str(hip or "")
+              return normaliser(nom)
+
+          def verifier_horaire(course):
+              # Le PMU fournit habituellement un timestamp
+              # en millisecondes.
+              valeur = course.get("heureDepart")
+              if isinstance(valeur, bool):
+                  return False, "horaire invalide"
+              if not isinstance(valeur, (int, float)):
+                  return False, "horaire absent"
+              try:
+                  horodatage = valeur / 1000
+                  heure = datetime.datetime.fromtimestamp(
+                      horodatage,
+                      tz=ZoneInfo("Europe/Paris")
+                  )
+                  jour = heure.strftime("%d%m%Y")
+                  if jour != DATE:
+                      return False, "date incoherente"
+                  return True, heure.strftime("%H:%M")
+              except (ValueError, OverflowError, OSError):
+                  return False, "horaire invalide"
+
+          print("=== X1000 PHOENIX - PMU FRANCE ===")
+          print("Date:", DATE)
+          print("Mode: lecture seule")
+          print("Aucun FIGE ou pronostic modifie")
+
+          try:
+              programme = charger(
+                  f"{BASE}/programme/{DATE}"
+              )
+              if not isinstance(programme, dict):
+                  raise ValueError("JSON programme invalide")
+
+              contenu = programme.get(
+                  "programme", programme
+              )
+              if not isinstance(contenu, dict):
+                  raise ValueError("Programme absent")
+
+              reunions = contenu.get("reunions")
+              if not isinstance(reunions, list):
+                  raise ValueError("Reunions absentes")
+
+              total = 0
+              valides = 0
+              anomalies = 0
+              exclus = 0
+              non_verifies = 0
+
+              for reunion in reunions:
+                  if not isinstance(reunion, dict):
+                      anomalies += 1
+                      continue
+
+                  hip = identifier_hippodrome(reunion)
+                  pays = reunion.get("pays", {})
+                  if isinstance(pays, dict):
+                      code = str(
+                          pays.get("code")
+                          or pays.get("codePays")
+                          or ""
+                      ).upper()
+                  else:
+                      code = str(pays or "").upper()
+
+                  # Ne jamais attribuer FR par defaut.
+                  if code and code not in ("FR", "FRA", "FRANCE"):
+                      print("EXCLU (pays):", hip, code)
+                      exclus += 1
+                      continue
+
+                  if hip not in FRANCE:
+                      print("NON VERIFIE (site):", hip)
+                      non_verifies += 1
+                      continue
+
+                  numero_r = reunion.get("numOfficiel")
+                  courses = reunion.get("courses", [])
+
+                  if not isinstance(courses, list):
+                      anomalies += 1
+                      continue
+
+                  print("\nHIPPODROME FRANCE:", hip)
+
+                  for course in courses:
+                      total += 1
+                      if not isinstance(course, dict):
+                          anomalies += 1
+                          continue
+
+                      numero_c = course.get("numOrdre")
+                      if not isinstance(numero_r, int) or not isinstance(numero_c, int):
+                          anomalies += 1
+                          print("ANOMALIE: identifiant course")
+                          continue
+
+                      identifiant = f"R{numero_r}C{numero_c}"
+                      ok_heure, heure = verifier_horaire(
+                          course
+                      )
+
+                      if not ok_heure:
+                          anomalies += 1
+                          print(identifiant, heure)
+                          continue
+
+                      url = (
+                          f"{BASE}/programme/{DATE}/"
+                          f"R{numero_r}/C{numero_c}/participants"
+                      )
+
+                      try:
+                          data = charger(url)
+                          if isinstance(data, dict):
+                              partants = data.get(
+                                  "participants"
+                              )
+                          elif isinstance(data, list):
+                              partants = data
+                          else:
+                              partants = None
+
+                          if not isinstance(partants, list):
+                              raise ValueError(
+                                  "Liste des participants absente"
+                              )
+
+                          actifs = [
+                              p for p in partants
+                              if isinstance(p, dict)
+                              and p.get("nonPartant") is False
+                          ]
+                          incertains = [
+                              p for p in partants
+                              if isinstance(p, dict)
+                              and "nonPartant" not in p
+                          ]
+
+                          numeros = [
+                              p.get("numPmu")
+                              for p in actifs
+                          ]
+
+                          if (
+                              not actifs
+                              or incertains
+                              or any(
+                                  not isinstance(n, int)
+                                  or isinstance(n, bool)
+                                  for n in numeros
+                              )
+                              or len(set(numeros)) != len(numeros)
+                          ):
+                              raise ValueError(
+                                  "Partants actifs non confirmes"
+                              )
+
+                          valides += 1
+                          print(
+                              "VALIDE", identifiant,
+                              "|", heure,
+                              "| partants actifs:", len(actifs)
+                          )
+
+                      except (
+                          urllib.error.URLError,
+                          ValueError,
+                          TimeoutError,
+                          json.JSONDecodeError
+                      ) as erreur:
+                          anomalies += 1
+                          print(
+                              "ANOMALIE", identifiant,
+                              "|", str(erreur)
+                          )
+
+              print("\n=== BILAN ===")
+              print("Courses examinees:", total)
+              print("Courses validees:", valides)
+              print("Anomalies:", anomalies)
+              print("Reunions exclues:", exclus)
+              print("Reunions non verifiees:", non_verifies)
+              print("FIGEs: non modifies")
+              print("Archives: non modifiees")
+              print("Serveur local: non modifie")
+              print("Aucune publication automatique")
+
+              if anomalies or non_verifies or valides == 0:
+                  print("CONTROLE INCOMPLET")
+                  sys.exit(1)
+
+              print("CONTROLE TECHNIQUE TERMINE")
+
+          except Exception as erreur:
+              print(
+                  "ECHEC PMU:",
+                  type(erreur).__name__,
+                  str(erreur),
+                  file=sys.stderr
+              )
+              sys.exit(1)
+          PY
