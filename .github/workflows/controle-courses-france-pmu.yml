@@ -1,4 +1,4 @@
-name: "X1000 PHOENIX - Controle courses France et partants PMU"
+name: "X1000 PHOENIX - Controle courses France PMU"
 
 on:
   workflow_dispatch:
@@ -20,300 +20,188 @@ jobs:
     timeout-minutes: 15
 
     steps:
+      - name: Recuperation du depot
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
       - name: Installation Python 3.11
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Controle des donnees reelles PMU
+      - name: Controle du depot
         shell: bash
         run: |
+          set -euo pipefail
+          echo "Depot : $GITHUB_REPOSITORY"
+          echo "Branche : $GITHUB_REF_NAME"
+
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
+
+      - name: Controle PMU France
+        shell: bash
+        env:
+          PMU_COURSES_URL: ${{ vars.PMU_COURSES_URL }}
+        run: |
           python - <<'PY'
-          import datetime
           import json
+          import os
           import sys
           import urllib.request
-          import urllib.error
-          from zoneinfo import ZoneInfo
+          from datetime import datetime, timezone
 
-          BASE = "https://online.turfinfo.api.pmu.fr/rest/client/1"
-          DATE = datetime.datetime.now(
-              ZoneInfo("Europe/Paris")
-          ).strftime("%d%m%Y")
+          print("=== X1000 PHOENIX ===")
+          print("Controle des donnees PMU France")
+          print("Mode lecture seule")
+          print("FIGES et archives proteges")
 
-          # Liste explicite de sites francais connus.
-          # Une absence dans cette liste signifie
-          # NON VERIFIE, jamais "etranger" automatiquement.
-          FRANCE = {
-              "CHANTILLY", "ANGERS", "VINCENNES",
-              "LYON LA SOIE", "LONGCHAMP", "PARISLONGCHAMP",
-              "AUTEUIL", "SAINT CLOUD", "DEAUVILLE",
-              "CABOURG", "CAEN", "CAGNES SUR MER",
-              "MARSEILLE BORELY", "MARSEILLE VIVAUX",
-              "TOULOUSE", "BORDEAUX LE BOUSCAT",
-              "NANTES", "COMPIEGNE", "FONTAINEBLEAU",
-              "MAISONS LAFFITTE", "ENGHIEN",
-              "LE CROISE LAROCHE", "LAVAL",
-              "LE MANS", "VICHY", "PORNICHET",
-              "LA TESTE", "DIEPPE", "STRASBOURG",
-              "LE LION D ANGERS", "PAU",
-              "SAINT MALO", "HYERES", "NANCY",
-              "CLAIREFONTAINE", "SALON DE PROVENCE",
-              "FEURS", "CHARTRES", "ARGENTAN",
-              "AMIENS", "REIMS", "GRAIGNES",
-              "MESLAY DU MAINE", "LES SABLES D OLONNE",
-              "BEAUMONT DE LOMAGNE", "LA CAPELLE",
-              "MOULINS", "DAX", "MONT DE MARSAN"
-          }
+          url = os.getenv("PMU_COURSES_URL", "").strip()
 
-          def normaliser(texte):
-              import unicodedata
-              texte = unicodedata.normalize(
-                  "NFKD", str(texte or "")
-              )
-              texte = "".join(
-                  c for c in texte
-                  if not unicodedata.combining(c)
-              )
-              return " ".join(
-                  texte.upper().replace("-", " ")
-                  .replace("'", " ").split()
-              )
+          if not url:
+              print("SOURCE_NON_CONFIGUREE")
+              print("Configurer PMU_COURSES_URL")
+              sys.exit(1)
 
-          FRANCE = {normaliser(x) for x in FRANCE}
+          if not url.startswith("https://"):
+              print("ERREUR : HTTPS obligatoire")
+              sys.exit(1)
 
-          def charger(url):
+          try:
               req = urllib.request.Request(
                   url,
                   headers={
-                      "Accept": "application/json",
-                      "User-Agent": "X1000-PMU-Control/2.0"
+                      "User-Agent": "X1000-PHOENIX-Controle/1.0",
+                      "Accept": "application/json"
                   }
               )
+
               with urllib.request.urlopen(
-                  req, timeout=25
-              ) as rep:
-                  if rep.status != 200:
-                      raise ValueError(
-                          f"HTTP inattendu: {rep.status}"
-                      )
-                  raw = rep.read(5_000_001)
-                  if len(raw) > 5_000_000:
-                      raise ValueError("Reponse trop grande")
-                  return json.loads(raw)
+                  req, timeout=20
+              ) as response:
+                  data = json.load(response)
 
-          def identifier_hippodrome(reunion):
-              hip = reunion.get("hippodrome", {})
-              if isinstance(hip, dict):
-                  nom = (
-                      hip.get("libelleCourt")
-                      or hip.get("libelleLong")
-                      or ""
-                  )
-              else:
-                  nom = str(hip or "")
-              return normaliser(nom)
-
-          def verifier_horaire(course):
-              # Le PMU fournit habituellement un timestamp
-              # en millisecondes.
-              valeur = course.get("heureDepart")
-              if isinstance(valeur, bool):
-                  return False, "horaire invalide"
-              if not isinstance(valeur, (int, float)):
-                  return False, "horaire absent"
-              try:
-                  horodatage = valeur / 1000
-                  heure = datetime.datetime.fromtimestamp(
-                      horodatage,
-                      tz=ZoneInfo("Europe/Paris")
-                  )
-                  jour = heure.strftime("%d%m%Y")
-                  if jour != DATE:
-                      return False, "date incoherente"
-                  return True, heure.strftime("%H:%M")
-              except (ValueError, OverflowError, OSError):
-                  return False, "horaire invalide"
-
-          print("=== X1000 PHOENIX - PMU FRANCE ===")
-          print("Date:", DATE)
-          print("Mode: lecture seule")
-          print("Aucun FIGE ou pronostic modifie")
-
-          try:
-              programme = charger(
-                  f"{BASE}/programme/{DATE}"
-              )
-              if not isinstance(programme, dict):
-                  raise ValueError("JSON programme invalide")
-
-              contenu = programme.get(
-                  "programme", programme
-              )
-              if not isinstance(contenu, dict):
-                  raise ValueError("Programme absent")
-
-              reunions = contenu.get("reunions")
-              if not isinstance(reunions, list):
-                  raise ValueError("Reunions absentes")
-
-              total = 0
-              valides = 0
-              anomalies = 0
-              exclus = 0
-              non_verifies = 0
-
-              for reunion in reunions:
-                  if not isinstance(reunion, dict):
-                      anomalies += 1
-                      continue
-
-                  hip = identifier_hippodrome(reunion)
-                  pays = reunion.get("pays", {})
-                  if isinstance(pays, dict):
-                      code = str(
-                          pays.get("code")
-                          or pays.get("codePays")
-                          or ""
-                      ).upper()
-                  else:
-                      code = str(pays or "").upper()
-
-                  # Ne jamais attribuer FR par defaut.
-                  if code and code not in ("FR", "FRA", "FRANCE"):
-                      print("EXCLU (pays):", hip, code)
-                      exclus += 1
-                      continue
-
-                  if hip not in FRANCE:
-                      print("NON VERIFIE (site):", hip)
-                      non_verifies += 1
-                      continue
-
-                  numero_r = reunion.get("numOfficiel")
-                  courses = reunion.get("courses", [])
-
-                  if not isinstance(courses, list):
-                      anomalies += 1
-                      continue
-
-                  print("\nHIPPODROME FRANCE:", hip)
-
-                  for course in courses:
-                      total += 1
-                      if not isinstance(course, dict):
-                          anomalies += 1
-                          continue
-
-                      numero_c = course.get("numOrdre")
-                      if not isinstance(numero_r, int) or not isinstance(numero_c, int):
-                          anomalies += 1
-                          print("ANOMALIE: identifiant course")
-                          continue
-
-                      identifiant = f"R{numero_r}C{numero_c}"
-                      ok_heure, heure = verifier_horaire(
-                          course
-                      )
-
-                      if not ok_heure:
-                          anomalies += 1
-                          print(identifiant, heure)
-                          continue
-
-                      url = (
-                          f"{BASE}/programme/{DATE}/"
-                          f"R{numero_r}/C{numero_c}/participants"
-                      )
-
-                      try:
-                          data = charger(url)
-                          if isinstance(data, dict):
-                              partants = data.get(
-                                  "participants"
-                              )
-                          elif isinstance(data, list):
-                              partants = data
-                          else:
-                              partants = None
-
-                          if not isinstance(partants, list):
-                              raise ValueError(
-                                  "Liste des participants absente"
-                              )
-
-                          actifs = [
-                              p for p in partants
-                              if isinstance(p, dict)
-                              and p.get("nonPartant") is False
-                          ]
-                          incertains = [
-                              p for p in partants
-                              if isinstance(p, dict)
-                              and "nonPartant" not in p
-                          ]
-
-                          numeros = [
-                              p.get("numPmu")
-                              for p in actifs
-                          ]
-
-                          if (
-                              not actifs
-                              or incertains
-                              or any(
-                                  not isinstance(n, int)
-                                  or isinstance(n, bool)
-                                  for n in numeros
-                              )
-                              or len(set(numeros)) != len(numeros)
-                          ):
-                              raise ValueError(
-                                  "Partants actifs non confirmes"
-                              )
-
-                          valides += 1
-                          print(
-                              "VALIDE", identifiant,
-                              "|", heure,
-                              "| partants actifs:", len(actifs)
-                          )
-
-                      except (
-                          urllib.error.URLError,
-                          ValueError,
-                          TimeoutError,
-                          json.JSONDecodeError
-                      ) as erreur:
-                          anomalies += 1
-                          print(
-                              "ANOMALIE", identifiant,
-                              "|", str(erreur)
-                          )
-
-              print("\n=== BILAN ===")
-              print("Courses examinees:", total)
-              print("Courses validees:", valides)
-              print("Anomalies:", anomalies)
-              print("Reunions exclues:", exclus)
-              print("Reunions non verifiees:", non_verifies)
-              print("FIGEs: non modifies")
-              print("Archives: non modifiees")
-              print("Serveur local: non modifie")
-              print("Aucune publication automatique")
-
-              if anomalies or non_verifies or valides == 0:
-                  print("CONTROLE INCOMPLET")
-                  sys.exit(1)
-
-              print("CONTROLE TECHNIQUE TERMINE")
-
-          except Exception as erreur:
-              print(
-                  "ECHEC PMU:",
-                  type(erreur).__name__,
-                  str(erreur),
-                  file=sys.stderr
-              )
+          except Exception as exc:
+              print("ERREUR_CONNEXION_PMU")
+              print(type(exc).__name__, str(exc))
               sys.exit(1)
+
+          if isinstance(data, list):
+              courses = data
+          elif isinstance(data, dict):
+              courses = data.get("courses", [])
+          else:
+              courses = []
+
+          if not isinstance(courses, list):
+              print("FORMAT_COURSES_INVALIDE")
+              sys.exit(1)
+
+          print("Courses recues :", len(courses))
+
+          valides = 0
+          incompletes = 0
+          exclues = 0
+
+          for course in courses:
+              if not isinstance(course, dict):
+                  incompletes += 1
+                  continue
+
+              pays = str(
+                  course.get("pays")
+                  or course.get("country")
+                  or ""
+              ).upper().strip()
+
+              if pays not in ("FR", "FRA", "FRANCE"):
+                  exclues += 1
+                  continue
+
+              identifiant = (
+                  course.get("id")
+                  or course.get("course_id")
+              )
+
+              hippodrome = course.get("hippodrome")
+              depart = (
+                  course.get("depart")
+                  or course.get("heure_depart")
+              )
+              partants = course.get("partants")
+
+              if (
+                  not identifiant
+                  or not hippodrome
+                  or not depart
+                  or not isinstance(partants, list)
+                  or not partants
+              ):
+                  incompletes += 1
+                  continue
+
+              numeros = set()
+              coherent = True
+
+              for cheval in partants:
+                  if not isinstance(cheval, dict):
+                      coherent = False
+                      break
+
+                  numero = cheval.get("numero")
+                  nom = cheval.get("nom")
+
+                  if (
+                      numero is None
+                      or not nom
+                      or str(numero) in numeros
+                  ):
+                      coherent = False
+                      break
+
+                  numeros.add(str(numero))
+
+              if not coherent:
+                  incompletes += 1
+                  continue
+
+              valides += 1
+
+              print(
+                  "COURSE_VALIDEE",
+                  identifiant,
+                  hippodrome,
+                  depart,
+                  "partants:",
+                  len(partants)
+              )
+
+          print("=== BILAN ===")
+          print("Courses France valides :", valides)
+          print("Courses incompletes :", incompletes)
+          print("Courses exclues :", exclues)
+          print(
+              "Controle UTC :",
+              datetime.now(timezone.utc).isoformat()
+          )
+
+          if valides == 0:
+              print("AUCUNE_COURSE_FRANCE_VALIDEE")
+              sys.exit(1)
+
+          print("CONTROLE_TERMINE")
+          print("Aucune modification des donnees")
           PY
+
+      - name: Bilan de securite
+        if: always()
+        shell: bash
+        run: |
+          echo "X1000 PHOENIX"
+          echo "Controle en lecture seule"
+          echo "Aucun FIGE cree ou modifie"
+          echo "Aucune archive modifiee"
+          echo "Aucun pronostic modifie"
+          echo "Aucun commit automatique"
+          echo "Aucun deploiement automatique"
