@@ -1,0 +1,81 @@
+name: "X1000 - Raccordement PMU vers site - controle"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-raccordement-controle-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verifier-publication:
+    if: >-
+      github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
+      github.ref_name == 'fix/audit-general-pmu-20261118'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Recuperer la branche
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Installer Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verifier les scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            collecte_pmu.py \
+            adapter_collecte_tableau.py \
+            preparer_site_pmu.py
+
+      - name: Collecter les donnees reelles PMU
+        shell: bash
+        env:
+          X1000_SORTIE: sortie
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          set -euo pipefail
+          python collecte_pmu.py
+
+      - name: Adapter les donnees pour le tableau
+        shell: bash
+        run: |
+          set -euo pipefail
+          python adapter_collecte_tableau.py
+
+      - name: Preparer et valider le site
+        shell: bash
+        run: |
+          set -euo pipefail
+          python preparer_site_pmu.py
+          test -s site_pmu/data/publication_courses.json
+          test -s site_pmu/sortie/recherche_courses_du_jour.json
+          test -s site_pmu/index.html
+          test -s site_pmu/tableau-pmu.html
+
+      - name: Conserver le site valide
+        uses: actions/upload-artifact@v4
+        with:
+          name: x1000-site-pmu-valide-${{ github.run_id }}
+          path: site_pmu/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Rapport de controle
+        if: always()
+        shell: bash
+        run: |
+          echo "## Raccordement PMU vers site" >> "$GITHUB_STEP_SUMMARY"
+          echo "Branche : $GITHUB_REF_NAME" >> "$GITHUB_STEP_SUMMARY"
+          echo "Mode : controle sans deploiement automatique" >> "$GITHUB_STEP_SUMMARY"
+          echo "Aucun FIGE, archive ou pronostic modifie" >> "$GITHUB_STEP_SUMMARY"
