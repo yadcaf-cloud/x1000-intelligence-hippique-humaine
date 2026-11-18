@@ -15,18 +15,24 @@ jobs:
     name: "Audit statique moteurs et raccordement PMU"
     if: >-
       github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
-      github.ref_name == 'fix/audit-general-pmu-20261118'
+      github.ref == 'refs/heads/fix/audit-general-pmu-20261118' &&
+      github.event_name == 'workflow_dispatch'
 
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
+
+    defaults:
+      run:
+        shell: bash
 
     env:
       PYTHONDONTWRITEBYTECODE: "1"
       PYTHONNOUSERSITE: "1"
+      PYTHONUNBUFFERED: "1"
       PYTHONUTF8: "1"
 
     steps:
-      - name: Recuperer le depot
+      - name: Recuperer la branche autorisee
         uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -37,10 +43,25 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Diagnostic complet en lecture seule
-        shell: bash
+      - name: Verifier depot et branche
         run: |
           set -euo pipefail
+
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
+
+          test "$GITHUB_REF" = \
+            "refs/heads/fix/audit-general-pmu-20261118"
+
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+
+          echo "DEPOT_ET_BRANCHE_AUTORISES"
+
+      - name: Diagnostic approfondi en lecture seule
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$RUNNER_TEMP/x1000-diagnostic"
 
           python - <<'PY'
           import ast
@@ -48,556 +69,467 @@ jobs:
           import json
           import os
           import re
-          import sys
           import urllib.error
           import urllib.request
 
-          from collections import defaultdict
-          from datetime import datetime
+          from datetime import datetime, timezone
           from pathlib import Path
           from zoneinfo import ZoneInfo
 
           ROOT = Path.cwd()
-          REPO = (
-              "yadcaf-cloud/"
-              "x1000-intelligence-hippique-humaine"
+
+          DEST = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-diagnostic"
+              / "diagnostic_approfondi.json"
           )
-          BRANCH = "fix/audit-general-pmu-20261118"
 
-          if os.environ.get("GITHUB_REPOSITORY") != REPO:
-              raise SystemExit("DEPOT_NON_AUTORISE")
+          REQUIRED = (
+              "collecte_pmu.py",
+              "adapter_collecte_tableau.py",
+              "raccorder_moteurs_x1000.py",
+              "verifier_raccordement_moteurs.py",
+              "preparer_site_pmu.py",
+          )
 
-          if os.environ.get("GITHUB_REF_NAME") != BRANCH:
-              raise SystemExit("BRANCHE_NON_AUTORISEE")
+          PAGES = (
+              "index.html",
+              "tableau-pmu.html",
+          )
 
-          ignored = {
-              ".git", ".venv", "venv",
-              "__pycache__", "node_modules",
-              ".tox", ".mypy_cache",
-              ".pytest_cache"
+          EXCLUDED = {
+              ".git",
+              ".venv",
+              "venv",
+              "__pycache__",
+              "node_modules",
+              ".tox",
+              ".pytest_cache",
           }
 
-          errors = []
-          warnings = []
-          trees = {}
-          sources = {}
-          definitions = defaultdict(list)
-          calls = defaultdict(list)
-          imports = defaultdict(set)
-          candidates = defaultdict(list)
+          rapport = {
+              "schema": "x1000-diagnostic-approfondi-v3",
+              "date_controle": datetime.now(
+                  timezone.utc
+              ).isoformat(),
+              "branche": os.environ.get(
+                  "GITHUB_REF_NAME"
+              ),
+              "statut": "NON_TERMINE",
+              "scripts": {},
+              "pages": {},
+              "moteurs": {},
+              "coordination": {},
+              "json_existants": {},
+              "pmu": {
+                  "accessible": False,
+                  "courses_france_certifiees": False,
+                  "participants_verifies": False,
+              },
+              "integrite": {},
+              "erreurs": [],
+              "alertes": [],
+              "execution_moteurs_verifiee": False,
+              "raccordement_operationnel_verifie": False,
+              "pronostics_authentifies": False,
+              "figes_authentifies": False,
+              "deploiement_effectue": False,
+          }
 
-          def note(level, message):
-              print(f"{level} : {message}", flush=True)
-              if level == "ERREUR":
-                  errors.append(message)
-              elif level == "ALERTE":
-                  warnings.append(message)
+          def erreur(message):
+              print("ERREUR:", message, flush=True)
+              rapport["erreurs"].append(message)
 
-          def relative(path):
-              return path.relative_to(ROOT).as_posix()
+          def alerte(message):
+              print("ALERTE:", message, flush=True)
+              rapport["alertes"].append(message)
 
           def eligible(path):
-              return (
-                  path.is_file()
-                  and not any(
-                      part in ignored
-                      for part in path.relative_to(ROOT).parts
-                  )
+              if not path.is_file() or path.is_symlink():
+                  return False
+
+              try:
+                  rel = path.relative_to(ROOT)
+              except ValueError:
+                  return False
+
+              return not any(
+                  part in EXCLUDED
+                  for part in rel.parts
               )
 
-          def find_files(pattern):
-              return sorted(
-                  p for p in ROOT.rglob(pattern)
-                  if eligible(p)
+          def empreintes():
+              result = {}
+
+              for path in ROOT.rglob("*"):
+                  if not eligible(path):
+                      continue
+
+                  if path.suffix.lower() not in {
+                      ".py", ".json", ".html",
+                      ".yml", ".yaml",
+                  }:
+                      continue
+
+                  digest = hashlib.sha256()
+
+                  with path.open("rb") as handle:
+                      for bloc in iter(
+                          lambda: handle.read(65536),
+                          b"",
+                      ):
+                          digest.update(bloc)
+
+                  result[
+                      path.relative_to(ROOT).as_posix()
+                  ] = digest.hexdigest()
+
+              return result
+
+          def sauvegarder():
+              DEST.write_text(
+                  json.dumps(
+                      rapport,
+                      indent=2,
+                      ensure_ascii=False,
+                  ) + "\n",
+                  encoding="utf-8",
               )
 
-          def sha256(path):
-              digest = hashlib.sha256()
-              with path.open("rb") as handle:
-                  for chunk in iter(
-                      lambda: handle.read(65536), b""
-                  ):
-                      digest.update(chunk)
-              return digest.hexdigest()
-
-          def sensitive(path):
-              name = relative(path).lower()
-              suffix = path.suffix.lower()
-              return (
-                  suffix in {".py", ".json", ".html", ".yml", ".yaml"}
-                  or "fige" in name
-                  or "archive" in name
-                  or "pronostic" in name
-              )
-
-          def snapshot():
-              return {
-                  relative(p): sha256(p)
-                  for p in ROOT.rglob("*")
-                  if eligible(p) and sensitive(p)
-              }
-
-          print("=== X1000 DIAGNOSTIC APPROFONDI ===")
-          print("DEPOT :", REPO)
-          print("BRANCHE :", BRANCH)
-          print("MODE : LECTURE SEULE")
-          print()
-
-          before = snapshot()
-          print("EMPREINTES_INITIALES :", len(before))
+          before = None
+          arbres = {}
 
           try:
-              print("\n=== 1. INVENTAIRE PYTHON ===")
+              print("=== X1000 AUDIT APPROFONDI ===")
+              print("MODE: LECTURE_SEULE")
 
-              files = find_files("*.py")
-              print("FICHIERS_PYTHON :", len(files))
+              before = empreintes()
 
-              if not files:
-                  note("ERREUR", "AUCUN_FICHIER_PYTHON")
+              print("=== 1. SCRIPTS REQUIS ===")
 
-              for path in files:
-                  name = relative(path)
-                  print("FICHIER :", name)
+              for nom in REQUIRED:
+                  path = ROOT / nom
+
+                  info = {
+                      "present": False,
+                      "syntaxe_valide": False,
+                  }
+
+                  rapport["scripts"][nom] = info
+
+                  if not eligible(path):
+                      erreur(f"SCRIPT_ABSENT: {nom}")
+                      continue
+
+                  info["present"] = True
 
                   try:
-                      raw = path.read_text(
-                          encoding="utf-8-sig"
+                      raw = path.read_bytes()
+
+                      info["sha256"] = hashlib.sha256(
+                          raw
+                      ).hexdigest()
+
+                      arbre = ast.parse(
+                          raw.decode("utf-8-sig"),
+                          filename=nom,
                       )
-                      tree = ast.parse(
-                          raw, filename=name
-                      )
-                      trees[name] = tree
-                      sources[name] = raw
-                      print("SYNTAXE_OK :", name)
+
+                      arbres[nom] = arbre
+                      info["syntaxe_valide"] = True
+
+                      print("SCRIPT_OK:", nom)
+
                   except (
-                      SyntaxError, UnicodeError, OSError
+                      SyntaxError,
+                      UnicodeError,
+                      OSError,
                   ) as exc:
-                      note(
-                          "ERREUR",
-                          f"PYTHON_INVALIDE {name}: {exc}"
+                      erreur(
+                          f"PYTHON_INVALIDE {nom}: {exc}"
                       )
 
-              print("\n=== 2. DEFINITIONS PYTHON ===")
+              print("=== 2. INVENTAIRE PYTHON ===")
 
-              for name, tree in trees.items():
-                  for node in ast.walk(tree):
-                      if isinstance(
+              for path in sorted(ROOT.rglob("*.py")):
+                  if not eligible(path):
+                      continue
+
+                  nom = path.relative_to(
+                      ROOT
+                  ).as_posix()
+
+                  if nom in arbres:
+                      continue
+
+                  try:
+                      arbre = ast.parse(
+                          path.read_text(
+                              encoding="utf-8-sig"
+                          ),
+                          filename=nom,
+                      )
+
+                      arbres[nom] = arbre
+
+                      print("PYTHON_OK:", nom)
+
+                  except (
+                      SyntaxError,
+                      UnicodeError,
+                      OSError,
+                  ) as exc:
+                      erreur(
+                          f"PYTHON_INVALIDE {nom}: {exc}"
+                      )
+
+              print("=== 3. IDENTIFICATION M1-M5 ===")
+
+              for numero in range(1, 6):
+                  moteur = f"M{numero}"
+
+                  motif = re.compile(
+                      rf"(?<![A-Za-z0-9])"
+                      rf"(?:m{numero}|"
+                      rf"moteur[_-]?m?{numero}|"
+                      rf"engine[_-]?m?{numero})"
+                      rf"(?![A-Za-z0-9])",
+                      re.IGNORECASE,
+                  )
+
+                  references = []
+                  definitions = []
+
+                  for nom, arbre in arbres.items():
+                      if motif.search(nom):
+                          references.append(nom)
+
+                      for node in ast.walk(arbre):
+                          if isinstance(
+                              node,
+                              (
+                                  ast.FunctionDef,
+                                  ast.AsyncFunctionDef,
+                                  ast.ClassDef,
+                              ),
+                          ) and motif.search(node.name):
+                              definitions.append({
+                                  "fichier": nom,
+                                  "nom": node.name,
+                                  "ligne": node.lineno,
+                              })
+
+                  rapport["moteurs"][moteur] = {
+                      "references_fichiers": sorted(
+                          set(references)
+                      ),
+                      "definitions": definitions,
+                      "execution_verifiee": False,
+                      "decision_reelle_verifiee": False,
+                  }
+
+                  if definitions:
+                      print(
+                          moteur,
+                          "DEFINITION_STATIQUE_IDENTIFIEE",
+                      )
+                  elif references:
+                      alerte(
+                          f"{moteur}: REFERENCE_SEULEMENT"
+                      )
+                  else:
+                      alerte(
+                          f"{moteur}: NON_IDENTIFIE_LOCAL"
+                      )
+
+              print("=== 4. COORDINATION X1000 ===")
+
+              termes = (
+                  "coordination",
+                  "arbitrage",
+                  "arbitre",
+                  "fusion",
+                  "consensus",
+              )
+
+              definitions = []
+
+              for nom, arbre in arbres.items():
+                  for node in ast.walk(arbre):
+                      if not isinstance(
                           node,
                           (
                               ast.FunctionDef,
                               ast.AsyncFunctionDef,
-                              ast.ClassDef
-                          )
+                              ast.ClassDef,
+                          ),
                       ):
-                          kind = type(node).__name__
-                          definitions[name].append(
-                              (node.name, node.lineno, kind)
-                          )
-
-                      elif isinstance(node, ast.Import):
-                          for alias in node.names:
-                              imports[name].add(alias.name)
-
-                      elif isinstance(node, ast.ImportFrom):
-                          imports[name].add(
-                              node.module or ""
-                          )
-
-                      elif isinstance(node, ast.Call):
-                          try:
-                              target = ast.unparse(
-                                  node.func
-                              )
-                          except Exception:
-                              target = "INCONNU"
-                          calls[name].append(
-                              (target, node.lineno)
-                          )
-
-              for name in sorted(trees):
-                  print("\nMODULE :", name)
-                  for symbol, line, kind in definitions[name]:
-                      print(
-                          f"  {kind} L{line}: {symbol}"
-                      )
-
-              print("\n=== 3. IDENTIFICATION M1-M5 ===")
-
-              engine_patterns = {
-                  f"M{i}": re.compile(
-                      rf"(?<![A-Za-z0-9])"
-                      rf"(?:moteur[_-]?|engine[_-]?)?"
-                      rf"m?{i}"
-                      rf"(?![A-Za-z0-9])",
-                      re.IGNORECASE
-                  )
-                  for i in range(1, 6)
-              }
-
-              engine_status = {}
-
-              for engine, pattern in engine_patterns.items():
-                  print(f"\n--- {engine} ---")
-
-                  for name, tree in trees.items():
-                      evidence = []
-                      score = 0
-
-                      if pattern.search(name):
-                          score += 2
-                          evidence.append("NOM_FICHIER")
-
-                      for symbol, line, kind in definitions[name]:
-                          if pattern.search(symbol):
-                              score += 10
-                              evidence.append(
-                                  f"DEFINITION:{kind}:{symbol}:L{line}"
-                              )
-
-                      for target, line in calls[name]:
-                          if pattern.search(target):
-                              score += 5
-                              evidence.append(
-                                  f"APPEL:{target}:L{line}"
-                              )
-
-                      # Recherche de cles M1-M5 dans les
-                      # dictionnaires Python, sans execution.
-                      for node in ast.walk(tree):
-                          if not isinstance(node, ast.Dict):
-                              continue
-
-                          for key in node.keys:
-                              if isinstance(
-                                  key, ast.Constant
-                              ) and isinstance(
-                                  key.value, str
-                              ):
-                                  if pattern.fullmatch(
-                                      key.value.strip()
-                                  ):
-                                      score += 6
-                                      evidence.append(
-                                          f"CLE_DICTIONNAIRE:L{key.lineno}"
-                                      )
-
-                      # Les commentaires et textes ne sont
-                      # pas consideres comme des preuves.
-                      if score:
-                          candidates[engine].append(
-                              (score, name, evidence)
-                          )
-
-                  found = sorted(
-                      candidates[engine],
-                      key=lambda x: x[0],
-                      reverse=True
-                  )
-
-                  if not found:
-                      engine_status[engine] = "NON_IDENTIFIE"
-                      note(
-                          "ALERTE",
-                          f"{engine}: NON_IDENTIFIE"
-                      )
-                      continue
-
-                  has_definition = False
-
-                  for score, name, evidence in found[:15]:
-                      print("CANDIDAT :", name)
-                      print("SCORE_INDICATIF :", score)
-
-                      for item in evidence:
-                          print("  PREUVE_STATIQUE :", item)
-                          if item.startswith("DEFINITION:"):
-                              has_definition = True
-
-                  if has_definition:
-                      status = "DEFINITION_IDENTIFIEE"
-                  else:
-                      status = "REFERENCE_IDENTIFIEE"
-
-                  engine_status[engine] = status
-                  print("STATUT :", status)
-
-              print("\n=== 4. POINTS D'ENTREE ===")
-
-              entry_terms = (
-                  "main", "run", "execute",
-                  "executer", "analyser", "analyse",
-                  "predict", "predire", "selection",
-                  "classer", "ranking", "pronostic",
-                  "moteur", "engine", "coordination",
-                  "arbitrage", "fusion"
-              )
-
-              for name in sorted(trees):
-                  entries = [
-                      (symbol, line, kind)
-                      for symbol, line, kind
-                      in definitions[name]
-                      if any(
-                          term in symbol.lower()
-                          for term in entry_terms
-                      )
-                  ]
-
-                  for symbol, line, kind in entries:
-                      print(
-                          f"POINT_ENTREE_POTENTIEL "
-                          f"{name}:L{line}:{kind}:{symbol}"
-                      )
-
-              print("\n=== 5. COORDINATION CENTRALE ===")
-
-              coordination_terms = (
-                  "coordination", "coordinateur",
-                  "arbitrage", "arbitre", "fusion",
-                  "consensus", "classement",
-                  "ranking", "moteurs", "engines"
-              )
-
-              coordination_files = []
-
-              for name, tree in trees.items():
-                  matching = []
-
-                  for symbol, line, kind in definitions[name]:
-                      if any(
-                          term in symbol.lower()
-                          for term in coordination_terms
-                      ):
-                          matching.append(
-                              f"{kind}:{symbol}:L{line}"
-                          )
-
-                  if matching:
-                      coordination_files.append(name)
-                      print("COORDINATION_CANDIDATE :", name)
-                      for item in matching:
-                          print("  ", item)
-
-              if not coordination_files:
-                  note(
-                      "ALERTE",
-                      "COORDINATION_NON_IDENTIFIEE"
-                  )
-
-              print("\n=== 6. IMPORTS INTERNES ===")
-
-              module_names = {
-                  Path(name).stem: name
-                  for name in trees
-              }
-
-              for name in sorted(trees):
-                  for module in sorted(imports[name]):
-                      base = module.split(".")[0]
-
-                      if base in module_names:
-                          print(
-                              f"IMPORT_INTERNE "
-                              f"{name} -> {module_names[base]}"
-                          )
-
-              print("\n=== 7. RACCORDEMENT PMU ===")
-
-              pmu_terms = (
-                  "turfinfo",
-                  "pmu.fr",
-                  "publication_courses.json",
-                  "recherche_courses_du_jour.json",
-                  "participants",
-                  "partants",
-                  "course_id",
-                  "heuredepart"
-              )
-
-              readers = []
-              writers = []
-
-              for name, tree in trees.items():
-                  raw = sources[name].lower()
-
-                  if not any(
-                      term in raw for term in pmu_terms
-                  ):
-                      continue
-
-                  print("\nMODULE_PMU_CANDIDAT :", name)
-
-                  for node in ast.walk(tree):
-                      if not isinstance(node, ast.Call):
-                          continue
-
-                      try:
-                          target = ast.unparse(
-                              node.func
-                          )
-                      except Exception:
                           continue
 
                       if any(
-                          term in target
-                          for term in (
-                              "json.load",
-                              "read_text",
-                              "read_bytes",
-                              "urlopen"
-                          )
+                          terme in node.name.lower()
+                          for terme in termes
                       ):
-                          readers.append(name)
-                          print(
-                              f"LECTURE_POTENTIELLE "
-                              f"L{node.lineno}: {target}"
-                          )
+                          definitions.append({
+                              "fichier": nom,
+                              "nom": node.name,
+                              "ligne": node.lineno,
+                          })
 
-                      if any(
-                          term in target
-                          for term in (
-                              "write_text",
-                              "write_bytes",
-                              "json.dump",
-                              "os.replace"
-                          )
-                      ):
-                          writers.append(name)
-                          print(
-                              f"ECRITURE_POTENTIELLE "
-                              f"L{node.lineno}: {target}"
-                          )
-
-              readers = sorted(set(readers))
-              writers = sorted(set(writers))
-
-              print("LECTEURS_POTENTIELS :", readers)
-              print("PRODUCTEURS_POTENTIELS :", writers)
-
-              if not readers:
-                  note(
-                      "ALERTE",
-                      "LECTEUR_DONNEES_PMU_NON_IDENTIFIE"
-                  )
-
-              print("\n=== 8. FICHIERS DE RACCORDEMENT ===")
-
-              required = {
-                  "collecte_pmu.py": "Collecte PMU",
-                  "adapter_collecte_pmu.py": "Adaptateur PMU",
-                  "index.html": "Tableau de bord"
+              rapport["coordination"] = {
+                  "definitions_potentielles": definitions,
+                  "execution_verifiee": False,
               }
 
-              for filename, role in required.items():
-                  matches = find_files(filename)
+              if not definitions:
+                  alerte(
+                      "COORDINATION_NON_IDENTIFIEE_LOCAL"
+                  )
 
-                  if matches:
-                      for path in matches:
-                          print(
-                              f"TROUVE : {role} -> "
-                              f"{relative(path)}"
-                          )
-                  else:
-                      note(
-                          "ALERTE",
-                          f"NON_LOCALISE : {role} ({filename})"
+              print("=== 5. PAGES DU SITE ===")
+
+              for nom in PAGES:
+                  path = ROOT / nom
+
+                  info = {
+                      "present": False,
+                      "references": [],
+                  }
+
+                  rapport["pages"][nom] = info
+
+                  if not eligible(path):
+                      erreur(f"PAGE_ABSENTE: {nom}")
+                      continue
+
+                  try:
+                      html = path.read_text(
+                          encoding="utf-8"
                       )
 
-              print("\n=== 9. JSON EXISTANTS ===")
+                      if not html.strip():
+                          raise ValueError(
+                              "PAGE_VIDE"
+                          )
 
-              expected = (
+                      info["present"] = True
+
+                      info["references"] = [
+                          terme
+                          for terme in (
+                              "publication_courses.json",
+                              "recherche_courses_du_jour.json",
+                              "publication_moteurs.json",
+                              "pronostics-officiels",
+                          )
+                          if terme in html
+                      ]
+
+                      print("PAGE_OK:", nom)
+
+                  except (
+                      OSError,
+                      UnicodeError,
+                      ValueError,
+                  ) as exc:
+                      erreur(
+                          f"PAGE_INVALIDE {nom}: {exc}"
+                      )
+
+              print("=== 6. JSON EXISTANTS ===")
+
+              for nom in (
                   "sortie/publication_courses.json",
-                  "sortie/recherche_courses_du_jour.json"
-              )
+                  "sortie/recherche_courses_du_jour.json",
+                  "sortie/publication_moteurs.json",
+              ):
+                  path = ROOT / nom
 
-              for filename in expected:
-                  path = ROOT / filename
+                  if not path.exists():
+                      rapport["json_existants"][nom] = (
+                          "ABSENT_NON_BLOQUANT"
+                      )
 
-                  if not path.is_file():
-                      note(
-                          "ALERTE",
-                          f"JSON_ABSENT: {filename}"
+                      alerte(
+                          f"JSON_NON_GENERE: {nom}"
                       )
                       continue
 
                   try:
-                      data = json.loads(
-                          path.read_text(encoding="utf-8")
-                      )
-                  except (ValueError, OSError) as exc:
-                      note(
-                          "ERREUR",
-                          f"JSON_INVALIDE {filename}: {exc}"
-                      )
-                      continue
-
-                  print("JSON_VALIDE :", filename)
-
-                  if isinstance(data, dict):
-                      courses = data.get("courses")
-
-                      if isinstance(courses, list):
-                          print(
-                              "COURSES :", len(courses)
+                      if not eligible(path):
+                          raise ValueError(
+                              "FICHIER_NON_REGULIER"
                           )
 
-                          for course in courses[:5]:
-                              if not isinstance(course, dict):
-                                  continue
+                      data = json.loads(
+                          path.read_text(
+                              encoding="utf-8"
+                          )
+                      )
 
-                              partants = course.get("partants")
-                              print(
-                                  "COURSE :",
-                                  course.get("course_id"),
-                                  "PARTANTS :",
-                                  len(partants)
-                                  if isinstance(partants, list)
-                                  else "INCONNU"
-                              )
+                      if not isinstance(data, dict):
+                          raise ValueError(
+                              "OBJET_JSON_ATTENDU"
+                          )
 
-              print("\n=== 10. SOURCE PMU REELLE ===")
+                      rapport["json_existants"][nom] = (
+                          "STRUCTURE_JSON_VALIDE"
+                      )
 
-              paris = ZoneInfo("Europe/Paris")
-              today = datetime.now(paris)
-              date_pmu = today.strftime("%d%m%Y")
+                      print("JSON_OK:", nom)
 
-              base_url = (
+                  except (
+                      ValueError,
+                      UnicodeError,
+                      OSError,
+                  ) as exc:
+                      rapport["json_existants"][nom] = (
+                          "INVALIDE"
+                      )
+
+                      erreur(
+                          f"JSON_INVALIDE {nom}: {exc}"
+                      )
+
+              print("=== 7. SOURCE PMU ===")
+
+              date = datetime.now(
+                  ZoneInfo("Europe/Paris")
+              ).strftime("%d%m%Y")
+
+              url = (
                   "https://online.turfinfo.api.pmu.fr"
                   "/rest/client/1/programme/"
+                  + date
               )
-              url = base_url + date_pmu
 
-              pmu_ok = False
-              france_count = 0
-              france_courses = 0
-
-              print("DATE :", today.date().isoformat())
-              print("SOURCE :", url)
+              rapport["pmu"]["url"] = url
 
               try:
-                  request = urllib.request.Request(
+                  req = urllib.request.Request(
                       url,
                       headers={
                           "Accept": "application/json",
-                          "User-Agent": "X1000-Audit/1.0"
+                          "User-Agent": "X1000-Audit/3.0",
                       },
-                      method="GET"
                   )
 
                   with urllib.request.urlopen(
-                      request, timeout=15
+                      req, timeout=20
                   ) as response:
                       if response.status != 200:
                           raise ValueError(
                               f"HTTP_{response.status}"
                           )
+
                       if response.geturl() != url:
                           raise ValueError(
                               "REDIRECTION_INATTENDUE"
                           )
-                      raw = response.read(8_000_001)
 
-                  if len(raw) > 8_000_000:
+                      raw = response.read(8000001)
+
+                  if len(raw) > 8000000:
                       raise ValueError(
                           "REPONSE_TROP_VOLUMINEUSE"
                       )
@@ -608,7 +540,7 @@ jobs:
 
                   if not isinstance(data, dict):
                       raise ValueError(
-                          "PROGRAMME_FORMAT_INVALIDE"
+                          "PROGRAMME_NON_OBJET"
                       )
 
                   programme = data.get(
@@ -617,7 +549,7 @@ jobs:
 
                   if not isinstance(programme, dict):
                       raise ValueError(
-                          "PROGRAMME_NON_OBJET"
+                          "PROGRAMME_INVALIDE"
                       )
 
                   reunions = programme.get("reunions")
@@ -627,289 +559,195 @@ jobs:
                           "REUNIONS_ABSENTES"
                       )
 
-                  print("REUNIONS_TOTALES :", len(reunions))
-
-                  for reunion in reunions:
-                      if not isinstance(reunion, dict):
-                          continue
-
-                      hip = reunion.get("hippodrome")
-                      sources_pays = [reunion]
-
-                      if isinstance(hip, dict):
-                          sources_pays.append(hip)
-
-                      pays = []
-
-                      for obj in sources_pays:
-                          for key in (
-                              "pays", "codePays",
-                              "nomPays", "country",
-                              "countryCode",
-                              "codePaysHippodrome"
-                          ):
-                              value = obj.get(key)
-                              if value is None:
-                                  continue
-                              if isinstance(value, dict):
-                                  value = (
-                                      value.get("code")
-                                      or value.get("nom")
-                                      or value.get("libelle")
-                                  )
-                              if value is not None:
-                                  pays.append(
-                                      str(value).strip().upper()
-                                  )
-
-                      if not pays or not all(
-                          p in ("FR", "FRA", "FRANCE")
-                          for p in pays
-                      ):
-                          continue
-
-                      france_count += 1
-
-                      nr = reunion.get(
-                          "numOfficiel",
-                          reunion.get("numeroReunion")
-                      )
-
-                      courses = reunion.get("courses")
-
-                      if not isinstance(courses, list):
-                          note(
-                              "ALERTE",
-                              f"R{nr}: COURSES_ABSENTES"
-                          )
-                          continue
-
-                      france_courses += len(courses)
-
-                      print(
-                          "REUNION_FRANCE :", nr,
-                          "COURSES :", len(courses)
-                      )
-
-                      for course in courses:
-                          if not isinstance(course, dict):
-                              continue
-
-                          nc = course.get(
-                              "numOrdre",
-                              course.get("numeroCourse")
-                          )
-
-                          print(
-                              f"  COURSE R{nr}C{nc}",
-                              "DEPART :",
-                              course.get(
-                                  "heureDepart",
-                                  course.get(
-                                      "heureDepartInitiale"
-                                  )
-                              )
-                          )
-
-                  print("REUNIONS_FRANCE :", france_count)
-                  print("COURSES_FRANCE :", france_courses)
-
-                  pmu_ok = (
-                      france_count > 0
-                      and france_courses > 0
+                  rapport["pmu"]["accessible"] = True
+                  rapport["pmu"]["reunions"] = len(
+                      reunions
                   )
 
-                  if not pmu_ok:
-                      note(
-                          "ALERTE",
-                          "AUCUNE_COURSE_FRANCAISE_IDENTIFIEE"
-                      )
+                  print("PMU_ACCESSIBLE")
+                  print("REUNIONS:", len(reunions))
+
+                  if not reunions:
+                      alerte("PROGRAMME_PMU_VIDE")
 
               except (
                   urllib.error.URLError,
                   TimeoutError,
+                  ValueError,
+                  UnicodeError,
                   OSError,
-                  ValueError
               ) as exc:
-                  note(
-                      "ERREUR",
+                  erreur(
                       f"SOURCE_PMU_ECHEC: {exc}"
                   )
 
-              print("\n=== 11. GITHUB PAGES ===")
+              print("=== 8. WORKFLOWS ===")
 
-              for path in find_files("index.html"):
-                  name = relative(path)
-                  print("PAGE :", name)
+              dossier = (
+                  ROOT / ".github" / "workflows"
+              )
 
-                  try:
-                      html = path.read_text(
-                          encoding="utf-8"
-                      )
-                  except OSError as exc:
-                      note(
-                          "ERREUR",
-                          f"HTML_LECTURE {name}: {exc}"
-                      )
-                      continue
-
-                  for term in (
-                      "publication_courses.json",
-                      "recherche_courses_du_jour.json",
-                      "fetch(",
-                      "pronostics-officiels",
-                      "M1", "M2", "M3", "M4", "M5"
-                  ):
-                      if term in html:
-                          print("  REFERENCE :", term)
-
-              print("\n=== 12. WORKFLOWS ===")
-
-              workflow_dir = ROOT / ".github/workflows"
-
-              if workflow_dir.is_dir():
-                  paths = sorted(
-                      list(workflow_dir.glob("*.yml"))
-                      + list(workflow_dir.glob("*.yaml"))
+              if not dossier.is_dir():
+                  erreur(
+                      "DOSSIER_WORKFLOWS_ABSENT"
+                  )
+              else:
+                  chemins = sorted(
+                      list(dossier.glob("*.yml"))
+                      + list(dossier.glob("*.yaml"))
                   )
 
-                  for path in paths:
-                      print("WORKFLOW :", relative(path))
-
-                      try:
-                          raw = path.read_text(
-                              encoding="utf-8"
-                          )
-                      except OSError as exc:
-                          note(
-                              "ERREUR",
-                              f"WORKFLOW_LECTURE: {exc}"
-                          )
-                          continue
-
-                      for term in (
-                          "collecte_pmu.py",
-                          "adapter_collecte",
-                          "deploy-pages",
-                          "upload-pages-artifact",
-                          "x1000_moteurs.py",
-                          "pmu_engine.py"
-                      ):
-                          if term in raw:
-                              print("  REFERENCE :", term)
-
-              print("\n=== 13. BILAN MOTEURS ===")
-
-              for engine in (
-                  "M1", "M2", "M3", "M4", "M5"
-              ):
-                  print(
-                      engine, ":",
-                      engine_status.get(
-                          engine, "NON_IDENTIFIE"
-                      )
+                  rapport["nombre_workflows"] = len(
+                      chemins
                   )
 
-              print(
-                  "COORDINATION_IDENTIFIEE :",
-                  bool(coordination_files)
-              )
-              print(
-                  "LECTEURS_PMU_POTENTIELS :",
-                  len(readers)
-              )
-              print(
-                  "SOURCE_PMU_FRANCE :",
-                  "OK" if pmu_ok else "NON_VALIDEE"
-              )
+                  for path in chemins:
+                      print(
+                          "WORKFLOW:",
+                          path.name
+                      )
 
-              print("\n=== LIMITES ===")
-              print(
-                  "Aucun moteur execute."
-              )
-              print(
-                  "Aucun classement ou pari produit."
-              )
-              print(
-                  "Aucun raccordement fonctionnel "
-                  "affirme sans test dynamique."
-              )
-              print(
-                  "Le controle PMU ne verifie pas "
-                  "les participants individuels."
+          except Exception as exc:
+              erreur(
+                  "ERREUR_GENERALE: "
+                  f"{type(exc).__name__}: {exc}"
               )
 
           finally:
-              print("\n=== 14. INTEGRITE SHA256 ===")
+              try:
+                  after = empreintes()
 
-              after = snapshot()
+                  if before is None:
+                      raise RuntimeError(
+                          "EMPREINTES_INITIALES_ABSENTES"
+                      )
 
-              added = sorted(
-                  set(after) - set(before)
-              )
-              removed = sorted(
-                  set(before) - set(after)
-              )
-              modified = sorted(
-                  name for name in (
-                      set(before) & set(after)
+                  ajoutes = sorted(
+                      set(after) - set(before)
                   )
-                  if before[name] != after[name]
+
+                  supprimes = sorted(
+                      set(before) - set(after)
+                  )
+
+                  modifies = sorted(
+                      nom
+                      for nom in set(before) & set(after)
+                      if before[nom] != after[nom]
+                  )
+
+                  rapport["integrite"] = {
+                      "fichiers_ajoutes": ajoutes,
+                      "fichiers_supprimes": supprimes,
+                      "fichiers_modifies": modifies,
+                      "depot_inchange": not (
+                          ajoutes or supprimes or modifies
+                      ),
+                  }
+
+                  if ajoutes or supprimes or modifies:
+                      erreur(
+                          "INTEGRITE_DEPOT_MODIFIEE"
+                      )
+
+              except Exception as exc:
+                  erreur(
+                      "CONTROLE_INTEGRITE_ECHEC: "
+                      f"{type(exc).__name__}: {exc}"
+                  )
+
+                  rapport["integrite"] = {
+                      "depot_inchange": False,
+                      "verification_impossible": True,
+                  }
+
+              rapport["statut"] = (
+                  "DIAGNOSTIC_AVEC_ERREURS"
+                  if rapport["erreurs"]
+                  else (
+                      "DIAGNOSTIC_AVEC_ALERTES"
+                      if rapport["alertes"]
+                      else "DIAGNOSTIC_STATIQUE_TERMINE"
+                  )
               )
 
-              for name in added:
-                  note("ERREUR", f"FICHIER_AJOUTE: {name}")
+              sauvegarder()
 
-              for name in removed:
-                  note("ERREUR", f"FICHIER_SUPPRIME: {name}")
+              print("=== RESULTAT FINAL ===")
+              print("STATUT:", rapport["statut"])
+              print(
+                  "ERREURS:",
+                  len(rapport["erreurs"])
+              )
+              print(
+                  "ALERTES:",
+                  len(rapport["alertes"])
+              )
+              print("RAPPORT:", DEST)
+              print("MOTEURS_NON_EXECUTES")
+              print("PARTANTS_NON_VERIFIES")
+              print("RACCORDEMENT_NON_CERTIFIE")
+              print("AUCUN_COMMIT")
+              print("AUCUN_PUSH")
+              print("AUCUN_DEPLOIEMENT")
+              print("AUCUN_FIGE_MODIFIE")
+              print("AUCUNE_ARCHIVE_MODIFIEE")
+              print("AUCUN_PRONOSTIC_MODIFIE")
 
-              for name in modified:
-                  note("ERREUR", f"FICHIER_MODIFIE: {name}")
-
-              if not (added or removed or modified):
-                  print("INTEGRITE_SHA256_OK")
-
-          print("\n=== RESULTAT FINAL ===")
-          print("ERREURS :", len(errors))
-          print("ALERTES :", len(warnings))
-
-          if errors:
-              print("DIAGNOSTIC_ECHEC")
-              sys.exit(1)
-
-          if warnings:
-              print("DIAGNOSTIC_AVEC_ALERTES")
-          else:
-              print("DIAGNOSTIC_STATIQUE_TERMINE")
-
-          print("AUCUN_COMMIT")
-          print("AUCUN_PUSH")
-          print("AUCUN_DEPLOIEMENT")
-          print("AUCUN_FIGE")
-          print("AUCUN_PRONOSTIC_MODIFIE")
-
+          if rapport["erreurs"]:
+              raise SystemExit(1)
           PY
 
-      - name: Verification finale Git
+      - name: Verifier integrite Git
         if: always()
-        shell: bash
         run: |
           set -euo pipefail
-
-          echo "=== VERIFICATION GIT ==="
 
           git diff --exit-code
           git diff --cached --exit-code
 
           if test -n "$(git ls-files --others --exclude-standard)"; then
-            echo "ERREUR : fichiers non suivis presents"
+            echo "::error::FICHIERS_NON_SUIVIS"
             exit 1
           fi
 
           echo "DEPOT_INCHANGE"
-          echo "AUCUN_COMMIT"
-          echo "AUCUN_PUSH"
-          echo "AUCUN_DEPLOIEMENT"
-          echo "AUCUN_FIGE_MODIFIE"
-          echo "AUCUNE_ARCHIVE_MODIFIEE"
-          echo "AUCUN_PRONOSTIC_MODIFIE"
+
+      - name: Archiver le diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x1000-diagnostic-approfondi-${{ github.run_id }}
+          path: ${{ runner.temp }}/x1000-diagnostic/diagnostic_approfondi.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Rapport final
+        if: always()
+        env:
+          RESULTAT: ${{ job.status }}
+        run: |
+          {
+            echo "## X1000 - Diagnostic approfondi M1-M5"
+            echo ""
+            echo "Resultat : $RESULTAT"
+            echo "Branche : $GITHUB_REF_NAME"
+            echo ""
+            echo "Inventaire des scripts Python"
+            echo "Identification statique des moteurs"
+            echo "Recherche coordination X1000"
+            echo "Controle des pages HTML"
+            echo "Controle de la source PMU"
+            echo "Verification integrite du depot"
+            echo ""
+            echo "Execution des moteurs non certifiee"
+            echo "Raccordement operationnel non certifie"
+            echo "Participants non verifies"
+            echo ""
+            echo "AUCUN COMMIT AUTOMATIQUE"
+            echo "AUCUN PUSH AUTOMATIQUE"
+            echo "AUCUN DEPLOIEMENT"
+            echo "AUCUN FIGE MODIFIE"
+            echo "AUCUNE ARCHIVE MODIFIEE"
+            echo "AUCUN PRONOSTIC MODIFIE"
+          } >> "$GITHUB_STEP_SUMMARY"
