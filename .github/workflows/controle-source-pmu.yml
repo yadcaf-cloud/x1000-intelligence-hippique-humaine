@@ -1,4 +1,4 @@
-name: "X1000 Humaine - Diagnostic source PMU"
+name: "X1000 - Diagnostic source reelle PMU"
 
 on:
   workflow_dispatch:
@@ -12,78 +12,390 @@ concurrency:
 
 jobs:
   source:
-    if: github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine'
+    name: "Verifier programme et participants PMU"
+    if: >-
+      github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
+      github.ref == 'refs/heads/fix/audit-general-pmu-20261118' &&
+      github.event_name == 'workflow_dispatch'
+
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
+
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
 
     steps:
-      - name: Installer Python
+      - name: Installer Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Tester acces et schema PMU
+      - name: Tester les sources PMU
         shell: bash
         run: |
           set -euo pipefail
+
+          mkdir -p "$RUNNER_TEMP/x1000-source"
+
           python - <<'PY'
           import json
+          import re
+          import os
+          import urllib.error
           import urllib.request
           from datetime import datetime
+          from pathlib import Path
           from zoneinfo import ZoneInfo
 
-          date = datetime.now(
+          DATE = datetime.now(
               ZoneInfo("Europe/Paris")
           ).strftime("%d%m%Y")
 
-          url = (
+          BASE = (
               "https://online.turfinfo.api.pmu.fr"
-              "/rest/client/1/programme/" + date
+              "/rest/client/1/programme/" + DATE
           )
 
-          req = urllib.request.Request(
-              url,
-              headers={
-                  "Accept": "application/json",
-                  "User-Agent": "X1000-Humaine-Source/1.0"
-              }
+          DEST = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-source"
+              / "diagnostic_source_pmu.json"
           )
 
-          with urllib.request.urlopen(
-              req, timeout=25
-          ) as response:
-              if (
-                  response.status != 200
-                  or response.geturl() != url
-              ):
-                  raise RuntimeError(
-                      "HTTP ou redirection inattendue"
-                  )
-              raw = response.read(5000001)
-
-          if len(raw) > 5000000:
-              raise RuntimeError(
-                  "Reponse trop volumineuse"
+          def fetch(url):
+              req = urllib.request.Request(
+                  url,
+                  headers={
+                      "Accept": "application/json",
+                      "User-Agent": "X1000-Humaine-Diagnostic/1.0",
+                  },
               )
 
-          data = json.loads(raw.decode("utf-8-sig"))
+              with urllib.request.urlopen(
+                  req, timeout=18
+              ) as response:
+                  if response.status != 200:
+                      raise RuntimeError(
+                          f"HTTP_{response.status}"
+                      )
 
-          if not isinstance(data, dict):
-              raise RuntimeError("Objet JSON attendu")
+                  if response.geturl() != url:
+                      raise RuntimeError(
+                          "REDIRECTION_INATTENDUE"
+                      )
 
-          programme = (
-              data.get("programme")
-              if isinstance(data.get("programme"), dict)
-              else data
-          )
+                  raw = response.read(8000001)
 
-          reunions = programme.get("reunions")
-          if not isinstance(reunions, list):
-              raise RuntimeError("Reunions absentes")
+              if len(raw) > 8000000:
+                  raise RuntimeError(
+                      "REPONSE_TROP_VOLUMINEUSE"
+                  )
 
-          print("HTTP 200 - Reunions:", len(reunions))
-          print(
-              "Source accessible; pays, horaires "
-              "et partants non certifies par ce diagnostic"
-          )
+              return json.loads(
+                  raw.decode("utf-8-sig")
+              )
+
+          def valeur(obj, *cles):
+              if not isinstance(obj, dict):
+                  return None
+
+              for cle in cles:
+                  v = obj.get(cle)
+                  if v is not None and v != "":
+                      return v
+
+              return None
+
+          def numero(v):
+              if type(v) is int and v > 0:
+                  return v
+
+              if (
+                  isinstance(v, str)
+                  and re.fullmatch(r"[1-9][0-9]*", v)
+              ):
+                  return int(v)
+
+              return None
+
+          rapport = {
+              "schema": "x1000-diagnostic-source-v1",
+              "date_pmu": DATE,
+              "source": BASE,
+              "statut": "NON_VERIFIE",
+              "reunions_programme": 0,
+              "courses_identifiables": 0,
+              "endpoints_testes": 0,
+              "endpoints_valides": 0,
+              "endpoints_invalides": 0,
+              "anomalies": [],
+              "authenticite_externe_certifiee": False,
+              "deploiement_effectue": False,
+          }
+
+          def sauvegarder():
+              DEST.write_text(
+                  json.dumps(
+                      rapport,
+                      ensure_ascii=False,
+                      indent=2,
+                  ) + "\n",
+                  encoding="utf-8",
+              )
+
+          try:
+              print("DATE_PMU:", DATE)
+              print("PROGRAMME:", BASE)
+
+              data = fetch(BASE)
+
+              if not isinstance(data, dict):
+                  raise ValueError(
+                      "PROGRAMME_JSON_INVALIDE"
+                  )
+
+              programme = (
+                  data.get("programme")
+                  if isinstance(data.get("programme"), dict)
+                  else data
+              )
+
+              reunions = programme.get("reunions")
+
+              if (
+                  not isinstance(reunions, list)
+                  or not reunions
+              ):
+                  raise ValueError(
+                      "AUCUNE_REUNION"
+                  )
+
+              rapport["reunions_programme"] = len(reunions)
+
+              candidates = []
+              deja_vus = set()
+
+              for reunion in reunions:
+                  if not isinstance(reunion, dict):
+                      continue
+
+                  nr = numero(valeur(
+                      reunion,
+                      "numOfficiel",
+                      "numeroReunion",
+                      "numReunion",
+                      "numero",
+                  ))
+
+                  courses = valeur(
+                      reunion,
+                      "courses",
+                      "listeCourses",
+                  )
+
+                  if nr is None or not isinstance(courses, list):
+                      continue
+
+                  for course in courses:
+                      nc = numero(valeur(
+                          course,
+                          "numOrdre",
+                          "numCourse",
+                          "numeroCourse",
+                          "numero",
+                      ))
+
+                      if nc is None:
+                          continue
+
+                      cid = (nr, nc)
+
+                      if cid not in deja_vus:
+                          deja_vus.add(cid)
+                          candidates.append(cid)
+
+              rapport["courses_identifiables"] = len(candidates)
+
+              if not candidates:
+                  raise ValueError(
+                      "AUCUNE_COURSE_IDENTIFIABLE"
+                  )
+
+              print("REUNIONS:", len(reunions))
+              print("COURSES:", len(candidates))
+
+              # Diagnostic de disponibilite :
+              # essais sur toutes les courses identifiees
+              # jusqu'a 3 endpoints valides.
+              # Les autres endpoints restent non testes.
+              MAX_SUCCES = 3
+
+              for nr, nc in candidates:
+                  if rapport["endpoints_valides"] >= MAX_SUCCES:
+                      break
+
+                  cid = f"R{nr}C{nc}"
+                  url = BASE + f"/{cid}/participants"
+
+                  rapport["endpoints_testes"] += 1
+
+                  try:
+                      participants = fetch(url)
+
+                      if isinstance(participants, dict):
+                          participants = valeur(
+                              participants,
+                              "participants",
+                              "partants",
+                              "listeParticipants",
+                          )
+
+                      if (
+                          not isinstance(participants, list)
+                          or not participants
+                      ):
+                          raise ValueError(
+                              "PARTICIPANTS_ABSENTS"
+                          )
+
+                      numeros = set()
+                      valides = 0
+
+                      for cheval in participants:
+                          if not isinstance(cheval, dict):
+                              raise ValueError(
+                                  "PARTANT_NON_OBJET"
+                              )
+
+                          n = numero(valeur(
+                              cheval,
+                              "numPmu",
+                              "numero",
+                              "num",
+                          ))
+
+                          nom = valeur(
+                              cheval,
+                              "nom",
+                              "nomCheval",
+                          )
+
+                          if (
+                              n is None
+                              or n in numeros
+                              or not isinstance(nom, str)
+                              or not nom.strip()
+                          ):
+                              raise ValueError(
+                                  "PARTANT_INVALIDE"
+                              )
+
+                          numeros.add(n)
+                          valides += 1
+
+                      rapport["endpoints_valides"] += 1
+
+                      print(
+                          f"ENDPOINT_OK {cid}: "
+                          f"{valides} chevaux identifies"
+                      )
+
+                  except (
+                      urllib.error.URLError,
+                      ValueError,
+                      RuntimeError,
+                      TimeoutError,
+                      UnicodeError,
+                      json.JSONDecodeError,
+                  ) as exc:
+                      rapport["endpoints_invalides"] += 1
+
+                      message = (
+                          f"{cid}: "
+                          f"{type(exc).__name__}: {exc}"
+                      )
+
+                      rapport["anomalies"].append(message)
+                      print("ANOMALIE:", message)
+
+              if rapport["endpoints_valides"] == 0:
+                  rapport["statut"] = "ECHEC_SOURCE"
+                  raise RuntimeError(
+                      "AUCUN_ENDPOINT_PARTICIPANTS_VALIDE"
+                  )
+
+              if rapport["endpoints_invalides"] > 0:
+                  rapport["statut"] = (
+                      "SOURCE_ACCESSIBLE_AVEC_ANOMALIES"
+                  )
+              else:
+                  rapport["statut"] = (
+                      "ECHANTILLON_TESTE_SANS_ANOMALIE"
+                  )
+
+              print("STATUT:", rapport["statut"])
+              print(
+                  "ENDPOINTS_TESTES:",
+                  rapport["endpoints_testes"],
+              )
+              print(
+                  "ENDPOINTS_VALIDES:",
+                  rapport["endpoints_valides"],
+              )
+              print(
+                  "ENDPOINTS_INVALIDES:",
+                  rapport["endpoints_invalides"],
+              )
+              print("DIAGNOSTIC_PARTIEL_TERMINE")
+              print("FRANCE_NON_CERTIFIEE_PAR_CE_TEST")
+
+          except Exception as exc:
+              if rapport["statut"] == "NON_VERIFIE":
+                  rapport["statut"] = "ECHEC_SOURCE"
+
+              rapport["anomalies"].append(
+                  f"ERREUR_GENERALE: "
+                  f"{type(exc).__name__}: {exc}"
+              )
+
+              raise
+
+          finally:
+              sauvegarder()
+              print("RAPPORT_JSON:", DEST)
           PY
+
+      - name: Conserver le rapport
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x1000-source-pmu-${{ github.run_id }}
+          path: ${{ runner.temp }}/x1000-source/diagnostic_source_pmu.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Rapport final
+        if: always()
+        env:
+          RESULTAT: ${{ job.status }}
+        shell: bash
+        run: |
+          {
+            echo "## X1000 - Diagnostic source PMU"
+            echo ""
+            echo "Resultat : $RESULTAT"
+            echo "Branche : $GITHUB_REF_NAME"
+            echo ""
+            echo "Programme PMU verifie"
+            echo "Courses identifiables recherchees"
+            echo "Endpoints participants echantillonnes"
+            echo "Anomalies conservees en JSON"
+            echo ""
+            echo "AUCUN COMMIT AUTOMATIQUE"
+            echo "AUCUN PUSH AUTOMATIQUE"
+            echo "AUCUN DEPLOIEMENT"
+            echo "AUCUN PRONOSTIC MODIFIE"
+            echo "AUCUN FIGE MODIFIE"
+            echo "AUCUNE ARCHIVE MODIFIEE"
+          } >> "$GITHUB_STEP_SUMMARY"
