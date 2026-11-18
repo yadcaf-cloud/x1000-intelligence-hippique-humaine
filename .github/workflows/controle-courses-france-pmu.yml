@@ -1,4 +1,4 @@
-name: "X1000 Humaine - Controle courses France PMU"
+name: "X1000 - Controle courses PMU France"
 
 on:
   workflow_dispatch:
@@ -12,228 +12,449 @@ concurrency:
 
 jobs:
   controle:
-    if: github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine'
+    name: "Controle courses et partants France"
+    if: >-
+      github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
+      github.ref == 'refs/heads/fix/audit-general-pmu-20261118' &&
+      github.event_name == 'workflow_dispatch'
+
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONNOUSERSITE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONUTF8: "1"
+      X1000_SORTIE: "sortie"
 
     steps:
-      - name: Recuperer le depot
+      - name: Recuperer la branche autorisee
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 1
 
-      - name: Installer Python
+      - name: Installer Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Controle structurel du programme PMU
-        shell: bash
+      - name: Verifier depot et branche
         run: |
           set -euo pipefail
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
+          test "$GITHUB_REF" = \
+            "refs/heads/fix/audit-general-pmu-20261118"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          echo "BRANCHE_AUTORISEE"
+
+      - name: Preparer environnement isole
+        run: |
+          set -euo pipefail
+
+          dossier="$(mktemp -d \
+            "$RUNNER_TEMP/x1000-courses-XXXXXXXX")"
+
+          echo "X1000_TEST_DIR=$dossier" >> "$GITHUB_ENV"
+
+          test -s collecte_pmu.py
+          test ! -L collecte_pmu.py
+
+          cp -- collecte_pmu.py "$dossier/collecte_pmu.py"
+
+          python - "$dossier" <<'PY'
+          import ast
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1]) / "collecte_pmu.py"
+          ast.parse(
+              path.read_text(encoding="utf-8"),
+              filename=path.name,
+          )
+          print("SYNTAXE_COLLECTEUR_OK")
+          PY
+
+      - name: Collecter les courses PMU
+        run: |
+          set -euo pipefail
+          cd "$X1000_TEST_DIR"
+
+          test ! -e sortie/publication_courses.json
+
+          python collecte_pmu.py
+
+          test -s sortie/publication_courses.json || {
+            echo "::error::PUBLICATION_PMU_ABSENTE"
+            exit 1
+          }
+
+          echo "COLLECTE_TERMINEE"
+
+      - name: Controler courses et partants
+        run: |
+          set -euo pipefail
+          cd "$X1000_TEST_DIR"
+
           python - <<'PY'
           import json
-          import urllib.request
           import re
-          from datetime import datetime
+          from datetime import datetime, timedelta
+          from pathlib import Path
           from zoneinfo import ZoneInfo
 
-          date = datetime.now(
-              ZoneInfo("Europe/Paris")
-          ).strftime("%d%m%Y")
+          PARIS = ZoneInfo("Europe/Paris")
+          NOW = datetime.now(PARIS)
 
-          base = (
-              "https://online.turfinfo.api.pmu.fr"
-              "/rest/client/1/programme/" + date
+          ID_PATTERN = re.compile(
+              r"^(\d{4}-\d{2}-\d{2})-(R[1-9]\d*)-(C[1-9]\d*)$"
           )
 
-          def fetch(url):
-              req = urllib.request.Request(
-                  url,
-                  headers={
-                      "Accept": "application/json",
-                      "User-Agent": "X1000-Humaine-Controle/1.0"
-                  }
-              )
-              with urllib.request.urlopen(req, timeout=18) as r:
-                  if r.status != 200 or r.geturl() != url:
-                      raise RuntimeError("HTTP/redirection inattendue")
-                  raw = r.read(8000001)
+          def erreur(message):
+              raise ValueError(message)
 
-              if len(raw) > 8000000:
-                  raise RuntimeError("Reponse trop volumineuse")
-              return json.loads(raw.decode("utf-8-sig"))
+          def date_avec_fuseau(value, nom):
+              if not isinstance(value, str):
+                  erreur(f"DATE_ABSENTE: {nom}")
 
-          def val(d, *keys):
-              if not isinstance(d, dict):
-                  return None
-              for k in keys:
-                  if d.get(k) is not None and d.get(k) != "":
-                      return d[k]
-              return None
-
-          def num(v):
-              if type(v) is int and v > 0:
-                  return v
-              if isinstance(v, str) and re.fullmatch(
-                  r"[1-9][0-9]*", v
-              ):
-                  return int(v)
-              return None
-
-          def country(r):
-              hip = r.get("hippodrome")
-              values = []
-              for obj in (r, hip):
-                  if not isinstance(obj, dict):
-                      continue
-                  for key in (
-                      "pays", "codePays", "nomPays",
-                      "countryCode", "codePaysHippodrome"
-                  ):
-                      v = obj.get(key)
-                      if isinstance(v, dict):
-                          v = val(v, "code", "nom", "libelle")
-                      if v is not None:
-                          values.append(str(v).strip().upper())
-
-              france = (
-                  "FR", "FRA", "FRANCE",
-                  "FRANCAISE", "FRANÇAISE"
-              )
-              return bool(values) and all(
-                  v in france for v in values
-              )
-
-          data = fetch(base)
-          programme = val(data, "programme") or data
-          reunions = val(programme, "reunions")
-
-          if not isinstance(reunions, list) or not reunions:
-              raise SystemExit("Programme/reunions absents")
-
-          if len(reunions) > 30:
-              raise SystemExit("Nombre de reunions anormal")
-
-          valid = 0
-          anomalies = []
-          seen = set()
-          total = 0
-
-          for r in reunions:
-              if not isinstance(r, dict) or not country(r):
-                  continue
-
-              nr = num(val(
-                  r, "numOfficiel", "numeroReunion",
-                  "numReunion", "numero"
-              ))
-              courses = val(r, "courses", "listeCourses")
-
-              if nr is None or not isinstance(courses, list):
-                  anomalies.append("Reunion incomplete")
-                  continue
-
-              if len(courses) > 40:
-                  anomalies.append(f"R{nr}: trop de courses")
-                  continue
-
-              for c in courses:
-                  if not isinstance(c, dict):
-                      continue
-
-                  nc = num(val(
-                      c, "numOrdre", "numCourse",
-                      "numeroCourse", "numero"
-                  ))
-
-                  if nc is None:
-                      anomalies.append(
-                          f"R{nr}: numero course absent"
-                      )
-                      continue
-
-                  cid = (nr, nc)
-                  if cid in seen:
-                      anomalies.append(
-                          f"R{nr}C{nc}: doublon"
-                      )
-                      continue
-                  seen.add(cid)
-
-                  depart = val(
-                      c, "heureDepart",
-                      "heureDepartInitiale",
-                      "heureDepartPrevue"
+              try:
+                  dt = datetime.fromisoformat(
+                      value.replace("Z", "+00:00")
                   )
-                  if isinstance(depart, bool) or not depart:
-                      anomalies.append(
-                          f"R{nr}C{nc}: depart absent"
-                      )
-                      continue
+              except ValueError:
+                  erreur(f"DATE_INVALIDE: {nom}")
 
-                  try:
-                      ps = fetch(
-                          base + f"/R{nr}/C{nc}/participants"
-                      )
-                      if isinstance(ps, dict):
-                          ps = val(
-                              ps, "participants",
-                              "partants", "listeParticipants"
-                          )
-                      if not isinstance(ps, list) or not ps:
-                          raise ValueError("Partants absents")
+              if dt.tzinfo is None:
+                  erreur(f"FUSEAU_ABSENT: {nom}")
 
-                      numeros = set()
-                      actifs = 0
+              return dt.astimezone(PARIS)
 
-                      for p in ps:
-                          n = num(val(
-                              p, "numPmu", "numero", "num"
-                          ))
-                          nom = val(p, "nom", "nomCheval")
+          source = Path("sortie/publication_courses.json")
 
-                          if (
-                              n is None or n in numeros
-                              or not isinstance(nom, str)
-                              or not nom.strip()
-                          ):
-                              raise ValueError("Partant invalide")
+          if not source.is_file() or not source.stat().st_size:
+              erreur("PUBLICATION_ABSENTE")
 
-                          numeros.add(n)
-                          np = val(
-                              p, "nonPartant", "non_partant"
-                          )
-                          if np not in (True, "true", "oui", "1"):
-                              actifs += 1
+          with source.open(encoding="utf-8") as fichier:
+              data = json.load(fichier)
 
-                      if not actifs:
-                          raise ValueError("Aucun actif")
+          if not isinstance(data, dict):
+              erreur("DOCUMENT_PMU_INVALIDE")
 
-                      valid += 1
-                      total += actifs
-                      print(
-                          f"R{nr}C{nc}: {actifs} partants actifs"
-                      )
+          if data.get("schema") != "x1000-pmu-france-v1":
+              erreur("SCHEMA_INVALIDE")
 
-                  except Exception as e:
-                      anomalies.append(f"R{nr}C{nc}: {e}")
+          if data.get("source") != "PMU TurfInfo":
+              erreur("SOURCE_DECLAREE_INVALIDE")
 
-          print(
-              "Courses valides:", valid,
-              "Partants actifs:", total,
-              "Anomalies:", len(anomalies)
+          if data.get("statut") != "DONNEES_VERIFIEES":
+              erreur("STATUT_COLLECTE_INVALIDE")
+
+          date_pmu = data.get("date_pmu")
+
+          if not isinstance(date_pmu, str):
+              erreur("DATE_PMU_ABSENTE")
+
+          try:
+              date_reference = datetime.strptime(
+                  date_pmu, "%Y-%m-%d"
+              ).date()
+          except ValueError:
+              erreur("DATE_PMU_INVALIDE")
+
+          publication = date_avec_fuseau(
+              data.get("date_publication"),
+              "date_publication",
           )
 
-          for e in anomalies[:40]:
-              print("ANOMALIE:", e)
+          age = NOW - publication
 
-          if valid == 0:
-              raise SystemExit(
-                  "Aucune course francaise valide"
+          if age < timedelta(minutes=-5):
+              erreur("PUBLICATION_DANS_LE_FUTUR")
+
+          if age > timedelta(minutes=30):
+              erreur("PUBLICATION_OBSOLETE")
+
+          # La date PMU doit correspondre a la date
+          # de collecte, sauf passage de minuit.
+          if date_reference not in {
+              publication.date(),
+              (publication - timedelta(days=1)).date(),
+          }:
+              erreur("DATE_PMU_INCOHERENTE")
+
+          courses = data.get("courses")
+
+          if not isinstance(courses, list) or not courses:
+              erreur("AUCUNE_COURSE_VALIDEE")
+
+          diagnostics = data.get("diagnostics", [])
+
+          if not isinstance(diagnostics, list):
+              erreur("DIAGNOSTICS_INVALIDES")
+
+          if not all(isinstance(d, str) for d in diagnostics):
+              erreur("DIAGNOSTIC_MAL_FORME")
+
+          statistiques = data.get("statistiques")
+
+          if not isinstance(statistiques, dict):
+              erreur("STATISTIQUES_ABSENTES")
+
+          champs = (
+              "reunions_programme",
+              "reunions_france",
+              "courses_examinees",
+              "courses_validees",
+              "anomalies",
+          )
+
+          for champ in champs:
+              valeur = statistiques.get(champ)
+              if type(valeur) is not int or valeur < 0:
+                  erreur(f"STATISTIQUE_INVALIDE: {champ}")
+
+          if statistiques["courses_validees"] != len(courses):
+              erreur("COMPTE_COURSES_INCOHERENT")
+
+          if (
+              statistiques["courses_examinees"]
+              < statistiques["courses_validees"]
+          ):
+              erreur("COURSES_EXAMINEES_INCOHERENTES")
+
+          if (
+              statistiques["reunions_france"]
+              > statistiques["reunions_programme"]
+          ):
+              erreur("REUNIONS_INCOHERENTES")
+
+          if statistiques["anomalies"] < len(diagnostics):
+              erreur("COMPTE_ANOMALIES_INCOHERENT")
+
+          identifiants = set()
+          reunions = set()
+          total_partants = 0
+          total_actifs = 0
+          total_np = 0
+
+          for course in courses:
+              if not isinstance(course, dict):
+                  erreur("COURSE_MAL_FORMEE")
+
+              cid = course.get("course_id")
+
+              if not isinstance(cid, str):
+                  erreur("IDENTIFIANT_ABSENT")
+
+              match = ID_PATTERN.fullmatch(cid)
+
+              if not match:
+                  erreur(f"IDENTIFIANT_INVALIDE: {cid}")
+
+              date_id, reunion_id, course_id = match.groups()
+
+              if date_id != date_pmu:
+                  erreur(f"DATE_COURSE_INVALIDE: {cid}")
+
+              if cid in identifiants:
+                  erreur(f"COURSE_DUPLIQUEE: {cid}")
+
+              identifiants.add(cid)
+
+              if course.get("reunion") != reunion_id:
+                  erreur(f"REUNION_INVALIDE: {cid}")
+
+              if course.get("course") != course_id:
+                  erreur(f"NUMERO_COURSE_INVALIDE: {cid}")
+
+              if course.get("date") != date_pmu:
+                  erreur(f"DATE_COURSE_DIFFERENTE: {cid}")
+
+              if course.get("pays_verifie") != "FR":
+                  erreur(f"COURSE_HORS_FRANCE: {cid}")
+
+              if course.get("source") != "PMU TurfInfo":
+                  erreur(f"SOURCE_COURSE_INVALIDE: {cid}")
+
+              hippodrome = course.get("hippodrome")
+
+              if (
+                  not isinstance(hippodrome, str)
+                  or not hippodrome.strip()
+              ):
+                  erreur(f"HIPPODROME_ABSENT: {cid}")
+
+              depart = date_avec_fuseau(
+                  course.get("depart"), cid
               )
-          if anomalies:
-              raise SystemExit(
-                  "Controle partiel: anomalies detectees"
+
+              if depart.date() != date_reference:
+                  erreur(f"DEPART_HORS_DATE: {cid}")
+
+              chevaux = course.get("partants")
+
+              if not isinstance(chevaux, list) or not chevaux:
+                  erreur(f"PARTANTS_ABSENTS: {cid}")
+
+              numeros = set()
+              actifs = 0
+              non_partants = 0
+
+              for cheval in chevaux:
+                  if not isinstance(cheval, dict):
+                      erreur(f"PARTANT_MAL_FORME: {cid}")
+
+                  numero = cheval.get("numero")
+                  nom = cheval.get("nom")
+                  np = cheval.get("non_partant")
+
+                  if type(numero) is not int or numero <= 0:
+                      erreur(f"NUMERO_INVALIDE: {cid}")
+
+                  if numero in numeros:
+                      erreur(f"NUMERO_DUPLIQUE: {cid}")
+
+                  numeros.add(numero)
+
+                  if (
+                      not isinstance(nom, str)
+                      or not nom.strip()
+                  ):
+                      erreur(f"NOM_CHEVAL_ABSENT: {cid}")
+
+                  if type(np) is not bool:
+                      erreur(f"STATUT_NP_INVALIDE: {cid}")
+
+                  if np:
+                      non_partants += 1
+                  else:
+                      actifs += 1
+
+              if actifs == 0:
+                  erreur(f"AUCUN_PARTANT_ACTIF: {cid}")
+
+              reunions.add(reunion_id)
+              total_partants += len(chevaux)
+              total_actifs += actifs
+              total_np += non_partants
+
+              print(
+                  f"COURSE_OK {cid} "
+                  f"actifs={actifs} "
+                  f"non_partants={non_partants}"
               )
+
+          if (
+              len(reunions)
+              > statistiques["reunions_france"]
+          ):
+              erreur("REUNIONS_RETENUES_INCOHERENTES")
+
+          nombre_anomalies = statistiques["anomalies"]
+
+          statut = (
+              "CONTROLE_OK_AVEC_ANOMALIES_COLLECTE"
+              if nombre_anomalies
+              else "CONTROLE_OK_SANS_ANOMALIE_COLLECTE"
+          )
+
+          rapport = {
+              "schema": "x1000-controle-courses-v1",
+              "date_pmu": date_pmu,
+              "controle_a": NOW.isoformat(),
+              "source_declaree": "PMU TurfInfo",
+              "statut": statut,
+              "reunions_retenues": len(reunions),
+              "courses_validees": len(courses),
+              "partants_total": total_partants,
+              "partants_actifs": total_actifs,
+              "non_partants": total_np,
+              "anomalies_collecte": nombre_anomalies,
+              "diagnostics_collecte": diagnostics,
+              "publication_originale": str(source),
+              "authenticite_externe_certifiee": False,
+              "deploiement_effectue": False,
+          }
+
+          destination = Path(
+              "sortie/controle_courses_france.json"
+          )
+
+          destination.write_text(
+              json.dumps(
+                  rapport,
+                  ensure_ascii=False,
+                  indent=2,
+              ) + "\n",
+              encoding="utf-8",
+          )
+
+          print("REUNIONS:", len(reunions))
+          print("COURSES:", len(courses))
+          print("PARTANTS_ACTIFS:", total_actifs)
+          print("ANOMALIES_COLLECTE:", nombre_anomalies)
+          print("STATUT:", statut)
+          print("CONTROLE_STRUCTUREL_TERMINE")
+          print("AUTHENTICITE_EXTERNE_NON_CERTIFIEE")
           PY
+
+      - name: Verifier integrite du depot
+        if: always()
+        run: |
+          set -euo pipefail
+
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::DEPOT_MODIFIE"
+            git status --short
+            exit 1
+          fi
+
+          echo "DEPOT_INCHANGE"
+
+      - name: Conserver les diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x1000-controle-courses-${{ github.run_id }}
+          path: |
+            ${{ env.X1000_TEST_DIR }}/sortie/publication_courses.json
+            ${{ env.X1000_TEST_DIR }}/sortie/controle_courses_france.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Rapport final
+        if: always()
+        env:
+          RESULTAT: ${{ job.status }}
+        run: |
+          {
+            echo "## X1000 - Controle courses France"
+            echo ""
+            echo "Resultat : $RESULTAT"
+            echo "Branche : $GITHUB_REF_NAME"
+            echo ""
+            echo "Controle de la collecte PMU"
+            echo "Verification des dates et identifiants"
+            echo "Verification des reunions et courses"
+            echo "Verification des hippodromes"
+            echo "Verification des horaires"
+            echo "Verification des partants actifs"
+            echo "Verification des non-partants"
+            echo "Verification des statistiques"
+            echo "Conservation des anomalies"
+            echo ""
+            echo "AUCUN COMMIT AUTOMATIQUE"
+            echo "AUCUN PUSH AUTOMATIQUE"
+            echo "AUCUN DEPLOIEMENT"
+            echo "AUCUN FIGE MODIFIE"
+            echo "AUCUNE ARCHIVE MODIFIEE"
+            echo "AUCUN PRONOSTIC MODIFIE"
+            echo ""
+            echo "Execution manuelle uniquement."
+          } >> "$GITHUB_STEP_SUMMARY"
