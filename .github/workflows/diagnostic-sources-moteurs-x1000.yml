@@ -1,0 +1,237 @@
+name: "X1000 - Diagnostic sources reelles M1-M5"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostic:
+    name: "Verifier moteurs et coordination"
+    if: >-
+      github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
+      github.ref_name == 'fix/audit-general-pmu-20261118'
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Recuperer la branche
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Diagnostiquer les sources reelles
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import ast
+          import json
+          import urllib.request
+          from pathlib import Path
+
+          sources = {
+              "M1": (
+                  "x1000-intelligence-hippique-v2",
+                  "m1.py"
+              ),
+              "M2": (
+                  "x1000-intelligence-hippique-v2",
+                  "m2.py"
+              ),
+              "M3": (
+                  "x1000-intelligence-hippique-v2",
+                  "m3.py"
+              ),
+              "M4": (
+                  "x1000-intelligence-hippique-v2",
+                  "m4.py"
+              ),
+              "M5": (
+                  "x1000-intelligence-hippique-v2",
+                  "m5.py"
+              ),
+              "NOYAU": (
+                  "x1000-intelligence-hippique-v2",
+                  "noyau_commun.py"
+              ),
+              "X1000": (
+                  "x1000-pmu-courses",
+                  "coordination_x1000.py"
+              ),
+              "INTEGRATION": (
+                  "x1000-pmu-courses",
+                  "integration_x1000.py"
+              ),
+          }
+
+          rapport = {
+              "controle": "LECTURE_SEULE",
+              "sources": {},
+              "publication_autorisee": False,
+              "deploiement_autorise": False,
+          }
+
+          for nom, (depot, fichier) in sources.items():
+              url = (
+                  "https://raw.githubusercontent.com/"
+                  "yadcaf-cloud/"
+                  + depot
+                  + "/HEAD/"
+                  + fichier
+              )
+
+              resultat = {
+                  "depot": depot,
+                  "fichier": fichier,
+                  "accessible": False,
+                  "syntaxe_valide": False,
+              }
+
+              try:
+                  req = urllib.request.Request(
+                      url,
+                      headers={
+                          "User-Agent": "X1000-Diagnostic"
+                      }
+                  )
+
+                  with urllib.request.urlopen(
+                      req, timeout=15
+                  ) as reponse:
+                      contenu = reponse.read(
+                          2_000_001
+                      )
+
+                  if len(contenu) > 2_000_000:
+                      raise ValueError(
+                          "SOURCE_TROP_VOLUMINEUSE"
+                      )
+
+                  code = contenu.decode("utf-8")
+                  arbre = ast.parse(code)
+
+                  fonctions = sorted({
+                      node.name
+                      for node in arbre.body
+                      if isinstance(
+                          node,
+                          (ast.FunctionDef,
+                           ast.AsyncFunctionDef)
+                      )
+                  })
+
+                  resultat.update({
+                      "accessible": True,
+                      "syntaxe_valide": True,
+                      "fonctions": fonctions,
+                  })
+
+                  if nom == "INTEGRATION":
+                      verrou = None
+
+                      for node in arbre.body:
+                          if not isinstance(
+                              node, ast.Assign
+                          ):
+                              continue
+
+                          for cible in node.targets:
+                              if (
+                                  isinstance(cible, ast.Name)
+                                  and cible.id ==
+                                  "ANALYSE_REELLE_AUTORISEE"
+                              ):
+                                  verrou = ast.literal_eval(
+                                      node.value
+                                  )
+
+                      resultat[
+                          "analyse_reelle_autorisee"
+                      ] = verrou
+
+              except Exception as exc:
+                  resultat["erreur"] = (
+                      type(exc).__name__
+                      + ": "
+                      + str(exc)[:200]
+                  )
+
+              rapport["sources"][nom] = resultat
+
+              print(
+                  nom,
+                  "OK" if resultat[
+                      "syntaxe_valide"
+                  ] else "ECHEC"
+              )
+
+          adaptateur = Path(
+              "raccorder_moteurs_x1000.py"
+          )
+
+          rapport["adaptateur_present"] = (
+              adaptateur.is_file()
+          )
+
+          if adaptateur.is_file():
+              try:
+                  ast.parse(
+                      adaptateur.read_text(
+                          encoding="utf-8"
+                      )
+                  )
+                  rapport[
+                      "adaptateur_syntaxe_valide"
+                  ] = True
+              except SyntaxError as exc:
+                  rapport[
+                      "adaptateur_syntaxe_valide"
+                  ] = False
+                  rapport[
+                      "adaptateur_erreur"
+                  ] = str(exc)
+
+          rapport["sources_sorties_identifiees"] = False
+          rapport["pronostics_authentifies"] = False
+          rapport["figes_authentifies"] = False
+
+          Path("diagnostic-x1000.json").write_text(
+              json.dumps(
+                  rapport,
+                  indent=2,
+                  ensure_ascii=False
+              ) + "\n",
+              encoding="utf-8"
+          )
+
+          print("=== BILAN X1000 ===")
+          print(
+              json.dumps(
+                  rapport,
+                  indent=2,
+                  ensure_ascii=False
+              )
+          )
+
+          print("AUCUN_PRONOSTIC_CREE")
+          print("AUCUN_FIGE_MODIFIE")
+          print("AUCUN_DEPLOIEMENT")
+          PY
+
+      - name: Archiver le diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostic-sources-x1000
+          path: diagnostic-x1000.json
+          if-no-files-found: warn
+          retention-days: 7
