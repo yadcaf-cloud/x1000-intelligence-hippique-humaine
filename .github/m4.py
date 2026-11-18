@@ -1,4 +1,3 @@
-
 """M4 — X1000 Intelligence Hippique Humaine.
 Forme récente, ferrure, préparation et informations tardives.
 Python >= 3.10, bibliothèque standard, aucun accès réseau ni pari réel.
