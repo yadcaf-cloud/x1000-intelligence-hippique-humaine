@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""X1000 PHOENIX M1–M5 V1.1 — calcul expérimental, publication contrôlée.
+"""X1000 PHOENIX M1-M5 V1.2 - Reparation controlee.
 
-python x1000_moteurs.py --self-test
-python x1000_moteurs.py --dry-run
-python x1000_moteurs.py --publish
+Commandes :
+ python x1000_moteurs.py --self-test
+ python x1000_moteurs.py --dry-run
+ python x1000_moteurs.py --publish
 
-Ne modifie jamais les FIGÉs existants. La publication n'est pas transactionnelle
-entre GitHub et le système de fichiers : un seul processus éditeur est requis.
+Source : data/publication_courses.json
+Sortie : data/publication_moteurs.json
+
+Aucun FIGE, archive, audit ou pronostic officiel modifie.
+Aucun commit, push ou deploiement.
 """
+from __future__ import annotations
+
 import argparse
 import datetime as dt
 import hashlib
@@ -26,28 +32,23 @@ ROOT = Path(__file__).resolve().parent
 DATA = ROOT / "data"
 SOURCE = DATA / "publication_courses.json"
 OUTPUT = DATA / "publication_moteurs.json"
-ARCHIVES = DATA / "figes_moteurs"
-VERSION = "X1000-M1M5-1.1"
+VERSION = "X1000-M1M5-1.2"
 
 MOTEURS = {
-    "M1": "regularite globale",
+    "M1": "regularite des performances",
     "M2": "forme recente ponderee",
     "M3": "frequence des places",
-    "M4": "progression recente",
+    "M4": "progression des performances",
     "M5": "robustesse des performances",
 }
 
-COURSE_ID = re.compile(
-    r"\d{4}-\d{2}-\d{2}-R[1-9]\d*-C[1-9]\d*"
-)
-MUSIQUE_TOKEN = re.compile(
-    r"(\d{1,2}|[A-Za-z])([pamhsc])", re.I
-)
-
-MIN_HISTORY = 5
+MIN_HISTORY = 3
 MIN_CANDIDATES = 5
-MIN_BEFORE_START = dt.timedelta(seconds=60)
+MAX_HISTORY = 10
 MAX_SOURCE_AGE = dt.timedelta(hours=3)
+MIN_BEFORE_START = dt.timedelta(seconds=60)
+
+TOKEN = re.compile(r"(\d{1,2}|D|A|T)([pamhsc])", re.I)
 
 
 def utc_now():
@@ -55,45 +56,33 @@ def utc_now():
 
 
 def instant(value):
-    if (
-        not isinstance(value, str)
-        or not re.search(
-            r"(?:Z|[+-]\d{2}:\d{2})$", value
-        )
-    ):
-        raise ValueError(
-            "Horodatage ISO avec fuseau requis"
-        )
+    if not isinstance(value, str):
+        raise ValueError("Horodatage non textuel")
 
-    parsed = dt.datetime.fromisoformat(
+    if not re.search(r"(Z|[+-]\d{2}:\d{2})$", value):
+        raise ValueError("Fuseau horaire obligatoire")
+
+    result = dt.datetime.fromisoformat(
         value.replace("Z", "+00:00")
     )
 
-    if parsed.utcoffset() is None:
-        raise ValueError(
-            "Fuseau horaire manquant"
-        )
+    if result.utcoffset() is None:
+        raise ValueError("Fuseau absent")
 
-    return parsed.astimezone(dt.timezone.utc)
+    return result.astimezone(dt.timezone.utc)
 
 
 def unique_keys(pairs):
     result = {}
-
     for key, value in pairs:
         if key in result:
-            raise ValueError(
-                f"Cle JSON dupliquee : {key}"
-            )
+            raise ValueError("Cle JSON dupliquee : " + key)
         result[key] = value
-
     return result
 
 
 def reject_constant(value):
-    raise ValueError(
-        f"Constante JSON interdite : {value}"
-    )
+    raise ValueError("Constante JSON interdite : " + value)
 
 
 def strict_json(raw):
@@ -116,252 +105,280 @@ def encode(value):
 
 
 def musique_positions(value):
-    """Retenir les rangs explicites sans inventer les incidents."""
-    if (
-        not isinstance(value, str)
-        or not value.strip()
-    ):
+    """Extrait uniquement les rangs explicites.
+
+    Les incidents restent inconnus et ne sont pas
+    transformes en resultats sportifs inventes.
+    """
+    if not isinstance(value, str):
         return []
 
-    clean = re.sub(
-        r"\([^)]*\)", "", value
-    ).replace(" ", "")
+    clean = re.sub(r"\([^)]*\)", "", value)
+    clean = re.sub(r"\s+", "", clean)
 
-    tokens = list(
-        MUSIQUE_TOKEN.finditer(clean)
+    if not clean:
+        return []
+
+    matches = list(TOKEN.finditer(clean))
+
+    if not matches:
+        return []
+
+    reconstructed = "".join(
+        match.group(0) for match in matches
     )
 
-    if (
-        not tokens
-        or "".join(
-            m.group(0) for m in tokens
-        ).lower() != clean.lower()
-    ):
+    if reconstructed.lower() != clean.lower():
         return []
 
     positions = []
 
-    for match in tokens[:10]:
+    for match in matches[:MAX_HISTORY]:
         rank = match.group(1)
 
         if not rank.isdigit():
-            return []
+            positions.append(None)
+            continue
 
         number = int(rank)
 
-        if number < 1 or number > 20:
+        if number == 0:
+            positions.append(None)
+        elif 1 <= number <= 20:
+            positions.append(number)
+        else:
             return []
-
-        positions.append(number)
 
     return positions
 
 
 def scores(horse):
-    positions = musique_positions(
-        horse.get("musique")
-    )
+    history = musique_positions(horse.get("musique"))
 
-    if len(positions) < MIN_HISTORY:
-        return None
-
-    inv = [1 / p for p in positions]
-
-    weights = [
-        1 / (i + 1)
-        for i in range(len(positions))
+    known = [
+        (index, rank)
+        for index, rank in enumerate(history)
+        if rank is not None
     ]
 
-    recent = positions[:3]
-    older = positions[3:]
+    if len(known) < MIN_HISTORY:
+        return None
 
-    mean = sum(positions) / len(positions)
+    ranks = [rank for _, rank in known]
+    inverse = [1.0 / rank for rank in ranks]
 
+    mean = sum(ranks) / len(ranks)
     variance = sum(
-        (p - mean) ** 2
-        for p in positions
-    ) / len(positions)
+        (rank - mean) ** 2 for rank in ranks
+    ) / len(ranks)
 
-    return {
-        "M1": sum(inv) / len(inv),
+    weights = [
+        1.0 / (index + 1)
+        for index, _ in known
+    ]
 
-        "M2": sum(
-            v * w
-            for v, w in zip(inv, weights)
-        ) / sum(weights),
+    recent = ranks[:3]
+    older = ranks[3:]
 
-        "M3": sum(
-            p <= 3 for p in positions
-        ) / len(positions),
+    progression = None
 
-        "M4": (
+    if len(older) >= 2:
+        progression = (
             sum(older) / len(older)
             - sum(recent) / len(recent)
-        ),
+        )
 
-        "M5": 1 / (
-            1 + mean + math.sqrt(variance)
+    result = {
+        "M1": sum(inverse) / len(inverse),
+        "M2": sum(
+            (1.0 / rank) * weight
+            for (_, rank), weight in zip(known, weights)
+        ) / sum(weights),
+        "M3": sum(
+            rank <= 3 for rank in ranks
+        ) / len(ranks),
+        "M4": progression,
+        "M5": 1.0 / (
+            1.0 + mean + math.sqrt(variance)
         ),
+    }
+
+    return {
+        key: value
+        for key, value in result.items()
+        if value is not None and math.isfinite(value)
     }
 
 
 def analyse_moteur(course, moteur):
-    ranked = []
+    candidates = []
 
     for horse in course["partants"]:
         if horse["non_partant"]:
             continue
 
-        result = scores(horse)
+        values = scores(horse)
 
-        if result is None:
+        if values is None or moteur not in values:
             continue
 
-        score = result[moteur]
+        candidates.append({
+            "numero": horse["numero"],
+            "score": values[moteur],
+        })
 
-        if math.isfinite(score):
-            ranked.append(
-                (score, horse["numero"])
-            )
-
-    if len(ranked) < MIN_CANDIDATES:
+    if len(candidates) < MIN_CANDIDATES:
         return None
 
-    ranked.sort(
+    candidates.sort(
         key=lambda item: (
-            -item[0],
-            item[1],
+            -item["score"],
+            item["numero"],
         )
     )
 
-    return [
-        numero
-        for _, numero in ranked[:5]
-    ]
+    return {
+        "positions": [
+            item["numero"] for item in candidates[:5]
+        ],
+        "scores": [
+            {
+                "numero": item["numero"],
+                "score": round(item["score"], 8),
+            }
+            for item in candidates[:5]
+        ],
+        "candidats_evalues": len(candidates),
+    }
+
+
+def coordination(decisions):
+    """Consensus indicatif, sans remplacer les moteurs."""
+    points = {}
+
+    for decision in decisions.values():
+        for position, numero in enumerate(
+            decision["positions"]
+        ):
+            points[numero] = (
+                points.get(numero, 0)
+                + 5 - position
+            )
+
+    ordered = sorted(
+        points.items(),
+        key=lambda item: (-item[1], item[0]),
+    )
+
+    return {
+        "statut": "CONSENSUS_EXPERIMENTAL",
+        "moteurs_participants": len(decisions),
+        "positions": [
+            numero for numero, _ in ordered[:5]
+        ],
+        "methode": "Borda indicatif sur les top 5",
+        "pari": None,
+        "fige": None,
+    }
 
 
 def build(payload, raw, timestamp):
     date = validate(payload)
-    collected = instant(
-        payload["collecte_a"]
-    )
+    collected = instant(payload["collecte_a"])
 
-    if (
-        collected > timestamp + dt.timedelta(minutes=5)
-        or timestamp - collected > MAX_SOURCE_AGE
-    ):
-        raise ValueError(
-            "Collecte PMU trop ancienne ou datee dans le futur"
-        )
+    if collected > timestamp + dt.timedelta(minutes=5):
+        raise ValueError("Collecte datee dans le futur")
+
+    if timestamp - collected > MAX_SOURCE_AGE:
+        raise ValueError("Collecte PMU trop ancienne")
 
     seen = set()
     output = []
+    diagnostics = []
 
     for course in payload["courses"]:
-        cid = validate_course(
-            course, date
-        )
+        cid = validate_course(course, date)
 
         if cid in seen:
-            raise ValueError(
-                f"Course en doublon : {cid}"
-            )
+            raise ValueError("Course en doublon : " + cid)
 
         seen.add(cid)
 
-        if (
-            timestamp + MIN_BEFORE_START
-            >= instant(course["depart"])
-        ):
+        depart = instant(course["depart"])
+
+        if timestamp + MIN_BEFORE_START >= depart:
+            diagnostics.append({
+                "course_id": cid,
+                "motif": "DEPART_TROP_PROCHE_OU_PASSE",
+            })
             continue
 
         decisions = {}
 
         for moteur, method in MOTEURS.items():
-            positions = analyse_moteur(
-                course, moteur
-            )
+            result = analyse_moteur(course, moteur)
 
-            if positions is None:
+            if result is None:
                 continue
 
             decisions[moteur] = {
                 "course_id": cid,
-                "statut": "FIGE",
+                "statut": "PROVISOIRE",
                 "version": VERSION,
-                "fige_a": timestamp.isoformat(),
-                "positions": positions,
+                "calcule_a": timestamp.isoformat(),
+                "positions": result["positions"],
+                "scores": result["scores"],
+                "candidats_evalues": result[
+                    "candidats_evalues"
+                ],
                 "justification": (
-                    "Classement experimental issu "
-                    "uniquement de la musique; "
-                    "methode : " + method
+                    "Evaluation experimentale fondee "
+                    "uniquement sur la musique : " + method
                 ),
+                "pari": None,
+                "fige": None,
             }
 
-        if decisions:
-            output.append({
-                "id": cid,
-                "moteurs": decisions,
+        if not decisions:
+            diagnostics.append({
+                "course_id": cid,
+                "motif": "DONNEES_INSUFFISANTES",
             })
+            continue
+
+        output.append({
+            "id": cid,
+            "depart": course["depart"],
+            "statut": "ANALYSE_PROVISOIRE",
+            "moteurs": decisions,
+            "coordination_x1000": coordination(decisions),
+        })
 
     return {
         "version": VERSION,
-        "statut": "PUBLICATION_MOTEURS",
+        "date": date,
+        "statut": "PUBLICATION_PROVISOIRE",
         "source": "data/publication_courses.json",
-        "source_sha256": hashlib.sha256(
-            raw
-        ).hexdigest(),
+        "source_sha256": hashlib.sha256(raw).hexdigest(),
+        "collecte_a": payload["collecte_a"],
         "publie_a": timestamp.isoformat(),
         "courses": output,
+        "diagnostics": diagnostics,
+        "figes_modifies": False,
+        "archives_modifiees": False,
+        "publication_publique": False,
     }
 
 
-def archive_path(course_id, moteur):
-    if (
-        not COURSE_ID.fullmatch(course_id)
-        or moteur not in MOTEURS
-    ):
-        raise ValueError(
-            "Identifiant de FIGE invalide"
-        )
-
-    return (
-        ARCHIVES
-        / course_id
-        / f"{moteur}.json"
-    )
-
-
-def exclusive_write(path, raw):
-    path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    fd = os.open(
-        path,
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-        0o600,
-    )
-
-    with os.fdopen(fd, "wb") as stream:
-        stream.write(raw)
-        stream.flush()
-        os.fsync(stream.fileno())
-
-
 def atomic_replace(path, raw):
-    path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
+    path.parent.mkdir(parents=True, exist_ok=True)
     temp = None
 
     try:
         with tempfile.NamedTemporaryFile(
             dir=path.parent,
             prefix=".x1000-",
+            suffix=".tmp",
             delete=False,
         ) as stream:
             temp = Path(stream.name)
@@ -370,6 +387,7 @@ def atomic_replace(path, raw):
             os.fsync(stream.fileno())
 
         os.replace(temp, path)
+        temp = None
 
     finally:
         if temp is not None:
@@ -377,91 +395,63 @@ def atomic_replace(path, raw):
 
 
 def publish(result):
-    stamp = instant(
-        result["publie_a"]
-    )
+    """Publication locale provisoire uniquement.
 
-    if abs(
-        (utc_now() - stamp).total_seconds()
-    ) > 30:
-        raise ValueError(
-            "Decision trop ancienne pour publication"
-        )
+    Refuse de remplacer une sortie inconnue ou
+    contenant des decisions figees.
+    """
+    stamp = instant(result["publie_a"])
 
-    if hashlib.sha256(
-        SOURCE.read_bytes()
-    ).hexdigest() != result["source_sha256"]:
-        raise ValueError(
-            "La source PMU a change depuis le calcul"
-        )
+    if abs((utc_now() - stamp).total_seconds()) > 30:
+        raise ValueError("Calcul devenu trop ancien")
+
+    current_raw = SOURCE.read_bytes()
+
+    if hashlib.sha256(current_raw).hexdigest() != (
+        result["source_sha256"]
+    ):
+        raise ValueError("Source PMU modifiee")
+
+    if OUTPUT.is_symlink():
+        raise ValueError("Lien symbolique de sortie interdit")
 
     if OUTPUT.exists():
-        raise FileExistsError(
-            "Publication existante : revision manuelle requise"
-        )
+        existing = strict_json(OUTPUT.read_bytes())
 
-    jobs = []
+        if not isinstance(existing, dict):
+            raise ValueError("Publication existante invalide")
 
+        if existing.get("version") != VERSION:
+            raise ValueError(
+                "Ancienne publication conservee : "
+                "migration manuelle necessaire"
+            )
+
+        if existing.get("statut") != "PUBLICATION_PROVISOIRE":
+            raise ValueError(
+                "Publication non provisoire protegee"
+            )
+
+        if existing.get("figes_modifies") is not False:
+            raise ValueError(
+                "Protection des FIGEs non verifiable"
+            )
+
+    # Nouvelle verification juste avant l'ecriture.
     for course in result["courses"]:
-        for moteur, decision in course["moteurs"].items():
-            if (
-                decision["fige_a"] != result["publie_a"]
-                or decision["course_id"] != course["id"]
-            ):
-                raise ValueError(
-                    "Decision incoherente"
-                )
-
-            source_course = next(
-                (
-                    c
-                    for c in strict_json(
-                        SOURCE.read_bytes()
-                    )["courses"]
-                    if c["id"] == course["id"]
-                ),
-                None,
+        if utc_now() + MIN_BEFORE_START >= instant(
+            course["depart"]
+        ):
+            raise ValueError(
+                "Depart trop proche : " + course["id"]
             )
 
-            if (
-                source_course is None
-                or utc_now() + MIN_BEFORE_START
-                >= instant(source_course["depart"])
-            ):
-                raise ValueError(
-                    "Depart trop proche : FIGE interdit"
-                )
+    if hashlib.sha256(SOURCE.read_bytes()).hexdigest() != (
+        result["source_sha256"]
+    ):
+        raise ValueError("Source changee avant publication")
 
-            path = archive_path(
-                course["id"], moteur
-            )
-
-            if (
-                path.exists()
-                or path.is_symlink()
-            ):
-                raise FileExistsError(
-                    f"FIGE existant : {path}"
-                )
-
-            jobs.append(
-                (path, encode(decision))
-            )
-
-    for path, raw in jobs:
-        exclusive_write(path, raw)
-
-    if hashlib.sha256(
-        SOURCE.read_bytes()
-    ).hexdigest() != result["source_sha256"]:
-        raise ValueError(
-            "Source PMU modifiee pendant la publication"
-        )
-
-    exclusive_write(
-        OUTPUT,
-        encode(result),
-    )
+    atomic_replace(OUTPUT, encode(result))
 
 
 def self_test():
@@ -471,15 +461,13 @@ def self_test():
 
     assert musique_positions(
         "0p1p2p3p4p"
-    ) == []
+    ) == [None, 1, 2, 3, 4]
 
     assert musique_positions(
         "Da1a2a3a4a"
-    ) == []
+    ) == [None, 1, 2, 3, 4]
 
-    assert musique_positions(
-        "1p texte 2p"
-    ) == []
+    assert musique_positions("texte") == []
 
     assert scores({
         "musique": "1p2p3p4p5p"
@@ -493,13 +481,38 @@ def self_test():
         "musique": "1p2p3p4p5p"
     })) == set(MOTEURS)
 
-    assert len({
-        "M1", "M2", "M3", "M4", "M5"
-    }) == 5
+    sample = {
+        "partants": [
+            {
+                "numero": i,
+                "non_partant": False,
+                "musique": (
+                    "1p2p3p4p5p"
+                    if i % 2 else "5p4p3p2p1p"
+                ),
+            }
+            for i in range(1, 7)
+        ]
+    }
+
+    decisions = {}
+
+    for moteur in MOTEURS:
+        result = analyse_moteur(sample, moteur)
+        assert result is not None
+        assert len(result["positions"]) == 5
+        assert len(set(result["positions"])) == 5
+        decisions[moteur] = result
+
+    central = coordination(decisions)
+
+    assert central["moteurs_participants"] == 5
+    assert len(central["positions"]) == 5
+    assert central["fige"] is None
 
     print(
-        "SELF-TEST OK : cinq methodes, "
-        "abstention et musique"
+        "SELF-TEST OK : M1-M5, consensus, "
+        "abstention et protection des FIGEs"
     )
 
 
@@ -513,18 +526,13 @@ def main():
     )
 
     modes.add_argument(
-        "--self-test",
-        action="store_true",
+        "--self-test", action="store_true"
     )
-
     modes.add_argument(
-        "--dry-run",
-        action="store_true",
+        "--dry-run", action="store_true"
     )
-
     modes.add_argument(
-        "--publish",
-        action="store_true",
+        "--publish", action="store_true"
     )
 
     args = parser.parse_args()
@@ -533,6 +541,11 @@ def main():
         if args.self_test:
             self_test()
             return 0
+
+        if not SOURCE.is_file():
+            raise FileNotFoundError(
+                "Source PMU absente : " + str(SOURCE)
+            )
 
         raw = SOURCE.read_bytes()
         payload = strict_json(raw)
@@ -549,20 +562,18 @@ def main():
         print(json.dumps({
             "version": VERSION,
             "mode": (
-                "PUBLICATION"
-                if args.publish
-                else "DRY_RUN"
+                "PUBLICATION_PROVISOIRE"
+                if args.publish else "DRY_RUN"
             ),
-            "courses": len(
-                result["courses"]
-            ),
+            "courses": len(result["courses"]),
             "decisions": sum(
                 len(c["moteurs"])
                 for c in result["courses"]
             ),
-            "source_sha256": result[
-                "source_sha256"
-            ],
+            "diagnostics": result["diagnostics"],
+            "source_sha256": result["source_sha256"],
+            "figes_modifies": False,
+            "archives_modifiees": False,
         }, indent=2, ensure_ascii=False))
 
         return 0
@@ -574,10 +585,7 @@ def main():
         KeyError,
         AssertionError,
     ) as exc:
-        print(
-            f"ERREUR : {exc}",
-            file=sys.stderr,
-        )
+        print("ERREUR : " + str(exc), file=sys.stderr)
         return 1
 
 
