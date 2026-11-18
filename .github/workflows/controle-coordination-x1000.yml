@@ -1,0 +1,183 @@
+name: "X1000 - Controle coordination M1-M5"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-coordination-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  controle:
+    name: "Diagnostic des cinq moteurs et coordination"
+
+    if: >-
+      github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
+      github.ref == 'refs/heads/fix/audit-general-pmu-20261118' &&
+      github.event_name == 'workflow_dispatch'
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONNOUSERSITE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONUTF8: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+    steps:
+      - name: Recuperer la branche autorisee
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Installer Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verifier Python et branche
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
+
+          test "$GITHUB_REF" = \
+            "refs/heads/fix/audit-general-pmu-20261118"
+
+          python -B - <<'PY'
+          import sys
+
+          print("Python:", sys.version)
+
+          if sys.version_info[:2] != (3, 11):
+              raise SystemExit(
+                  "ERREUR: Python 3.11 requis"
+              )
+
+          print("VERSION PYTHON OK")
+          PY
+
+      - name: Verifier tous les fichiers requis
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          fichiers=(
+            diagnostic_coordination_x1000.py
+            raccorder_moteurs_x1000.py
+            verifier_raccordement_moteurs.py
+            moteurs/__init__.py
+            moteurs/m1.py
+            moteurs/m2.py
+            moteurs/m3.py
+            moteurs/m4.py
+            moteurs/m5.py
+          )
+
+          for fichier in "${fichiers[@]}"; do
+            if [[ ! -s "$fichier" ]]; then
+              echo "::error::Fichier absent ou vide: $fichier"
+              exit 1
+            fi
+
+            echo "FICHIER OK: $fichier"
+          done
+
+          echo "TOUS LES FICHIERS SONT PRESENTS"
+
+      - name: Controler la syntaxe Python
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -B - <<'PY'
+          import ast
+          from pathlib import Path
+
+          fichiers = [
+              Path("diagnostic_coordination_x1000.py"),
+              Path("raccorder_moteurs_x1000.py"),
+              Path("verifier_raccordement_moteurs.py"),
+              Path("moteurs/__init__.py"),
+          ]
+
+          fichiers.extend(
+              Path("moteurs") / f"m{i}.py"
+              for i in range(1, 6)
+          )
+
+          for fichier in fichiers:
+              source = fichier.read_text(
+                  encoding="utf-8"
+              )
+
+              ast.parse(
+                  source,
+                  filename=str(fichier),
+              )
+
+              print(f"SYNTAXE OK: {fichier}")
+
+          print("DIAGNOSTIC SYNTAXIQUE REUSSI")
+          PY
+
+      - name: Diagnostic structurel M1-M5 et X1000
+        id: structure
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -B diagnostic_coordination_x1000.py
+
+      - name: Autotests independants M1-M5
+        id: autotests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -B diagnostic_coordination_x1000.py \
+            --self-tests
+
+      - name: Bilan final
+        if: always()
+        shell: bash
+        env:
+          STRUCTURE_RESULT: ${{ steps.structure.outcome }}
+          AUTOTESTS_RESULT: ${{ steps.autotests.outcome }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+
+          echo "=================================="
+          echo "X1000 - BILAN COORDINATION"
+          echo "=================================="
+
+          echo "Diagnostic structurel: $STRUCTURE_RESULT"
+          echo "Autotests M1-M5: $AUTOTESTS_RESULT"
+          echo "Statut du job: $JOB_STATUS"
+
+          echo "Raccordement PMU reel: NON CERTIFIE"
+          echo "Publication officielle: NON"
+          echo "Commit automatique: NON"
+          echo "Push automatique: NON"
+          echo "Deploiement automatique: NON"
+
+          echo "=================================="
+
+          {
+            echo "## X1000 - Controle coordination M1-M5"
+            echo ""
+            echo "- Structure: $STRUCTURE_RESULT"
+            echo "- Autotests: $AUTOTESTS_RESULT"
+            echo "- Job: $JOB_STATUS"
+            echo "- Raccordement PMU reel: non certifie"
+            echo "- Deploiement: aucun"
+          } >> "$GITHUB_STEP_SUMMARY"
