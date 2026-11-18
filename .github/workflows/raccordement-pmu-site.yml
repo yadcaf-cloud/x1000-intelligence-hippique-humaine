@@ -1,36 +1,40 @@
-name: "X1000 - Raccordement PMU vers site - controle"
+name: "X1000 - Audit general raccordement PMU site"
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - "fix/audit-general-pmu-20261118"
     paths:
       - ".github/workflows/raccordement-pmu-site.yml"
-      - "preparer_site_pmu.py"
       - "collecte_pmu.py"
       - "adapter_collecte_tableau.py"
+      - "preparer_site_pmu.py"
       - "index.html"
       - "tableau-pmu.html"
-
-  workflow_dispatch:
+      - "data/publication_moteurs.json"
 
 permissions:
   contents: read
 
 concurrency:
-  group: x1000-raccordement-controle-${{ github.ref }}
+  group: x1000-audit-raccordement-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  verifier-publication:
-    name: "Collecte PMU - Adaptation - Verification site"
+  audit-raccordement:
+    name: "X1000 - Controle complet PMU et site"
 
     if: >-
       github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
       github.ref_name == 'fix/audit-general-pmu-20261118'
 
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
+
+    env:
+      X1000_SORTIE: sortie
+      PYTHONDONTWRITEBYTECODE: "1"
 
     steps:
       - name: Recuperer la branche de reparation
@@ -43,47 +47,76 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Verifier les fichiers necessaires
+      - name: Verifier le depot et la branche
         shell: bash
         run: |
           set -euo pipefail
 
-          test -f collecte_pmu.py
-          test -f adapter_collecte_tableau.py
-          test -f preparer_site_pmu.py
-          test -f index.html
-          test -f tableau-pmu.html
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
 
-          echo "Tous les fichiers necessaires sont presents"
+          test "$GITHUB_REF_NAME" = \
+            "fix/audit-general-pmu-20261118"
+
+          echo "DEPOT_ET_BRANCHE_OK"
+
+      - name: Verifier les fichiers du raccordement
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for fichier in \
+            collecte_pmu.py \
+            adapter_collecte_tableau.py \
+            preparer_site_pmu.py \
+            index.html \
+            tableau-pmu.html
+          do
+            if [ ! -s "$fichier" ]; then
+              echo "::error::Fichier absent ou vide: $fichier"
+              exit 1
+            fi
+          done
+
+          echo "FICHIERS_PRESENTS"
 
       - name: Verifier la syntaxe Python
         shell: bash
         run: |
           set -euo pipefail
 
-          python -m py_compile \
-            collecte_pmu.py \
-            adapter_collecte_tableau.py \
-            preparer_site_pmu.py
+          python - <<'PY'
+          import ast
+          from pathlib import Path
 
-          echo "Syntaxe Python valide"
+          fichiers = [
+              "collecte_pmu.py",
+              "adapter_collecte_tableau.py",
+              "preparer_site_pmu.py",
+          ]
+
+          for nom in fichiers:
+              source = Path(nom).read_text(
+                  encoding="utf-8"
+              )
+              ast.parse(source, filename=nom)
+              print("SYNTAXE_OK:", nom)
+          PY
 
       - name: Collecter les donnees reelles PMU
         shell: bash
-        env:
-          X1000_SORTIE: sortie
-          PYTHONDONTWRITEBYTECODE: "1"
         run: |
           set -euo pipefail
 
           mkdir -p sortie
+
           python collecte_pmu.py
 
           test -s sortie/publication_courses.json
 
-          echo "Collecte PMU terminee"
+          echo "COLLECTE_PMU_OK"
 
-      - name: Adapter les donnees au tableau
+      - name: Adapter les donnees du tableau
         shell: bash
         run: |
           set -euo pipefail
@@ -92,23 +125,32 @@ jobs:
 
           test -s sortie/recherche_courses_du_jour.json
 
-          echo "Adaptation terminee"
+          echo "ADAPTATION_OK"
 
-      - name: Preparer le site PMU
+      - name: Preparer le site
         shell: bash
         run: |
           set -euo pipefail
 
           python preparer_site_pmu.py
 
-          test -s site_pmu/index.html
-          test -s site_pmu/tableau-pmu.html
-          test -s site_pmu/data/publication_courses.json
-          test -s site_pmu/sortie/recherche_courses_du_jour.json
+          for fichier in \
+            site_pmu/index.html \
+            site_pmu/tableau-pmu.html \
+            site_pmu/data/publication_courses.json \
+            site_pmu/data/etat_publication.json \
+            site_pmu/sortie/recherche_courses_du_jour.json
+          do
+            test -s "$fichier" || {
+              echo "::error::Publication absente: $fichier"
+              exit 1
+            }
+          done
 
-          echo "Site PMU prepare"
+          echo "PREPARATION_SITE_OK"
 
-      - name: Verifier les donnees publiees
+      - name: Auditer les donnees et les moteurs
+        id: audit
         shell: bash
         run: |
           set -euo pipefail
@@ -119,72 +161,197 @@ jobs:
           from pathlib import Path
           from zoneinfo import ZoneInfo
 
-          chemin = Path(
-              "site_pmu/data/publication_courses.json"
-          )
+          base = Path("site_pmu")
+          dossier = Path("sortie")
+          dossier.mkdir(exist_ok=True)
 
-          data = json.loads(
-              chemin.read_text(encoding="utf-8")
-          )
-
-          aujourd_hui = datetime.now(
+          today = datetime.now(
               ZoneInfo("Europe/Paris")
           ).date().isoformat()
 
-          if data.get("date_pmu") != aujourd_hui:
-              raise SystemExit(
-                  "ERREUR : donnees PMU non actuelles"
-              )
+          def lire(chemin):
+              with chemin.open(encoding="utf-8") as f:
+                  return json.load(f)
 
-          courses = data.get("courses", [])
+          courses = lire(
+              base / "data/publication_courses.json"
+          )
+          candidats = lire(
+              base / "sortie/recherche_courses_du_jour.json"
+          )
+          etat = lire(
+              base / "data/etat_publication.json"
+          )
 
-          if not courses:
-              raise SystemExit(
-                  "ERREUR : aucune course verifiee"
-              )
+          erreurs = []
+          alertes = []
 
-          for course in courses:
+          if courses.get("date_pmu") != today:
+              erreurs.append("DATE_PMU_INVALIDE")
+
+          if courses.get("schema") != "x1000-pmu-france-v1":
+              erreurs.append("SCHEMA_COURSES_INVALIDE")
+
+          if courses.get("source") != "PMU TurfInfo":
+              erreurs.append("SOURCE_PMU_INVALIDE")
+
+          liste = courses.get("courses", [])
+          if not isinstance(liste, list) or not liste:
+              erreurs.append("AUCUNE_COURSE_VERIFIEE")
+              liste = []
+
+          ids = set()
+
+          for course in liste:
+              if not isinstance(course, dict):
+                  erreurs.append("COURSE_MAL_FORMEE")
+                  continue
+
+              cid = course.get("course_id")
+              if not isinstance(cid, str) or cid in ids:
+                  erreurs.append("ID_COURSE_INVALIDE")
+              else:
+                  ids.add(cid)
+
               if course.get("pays_verifie") != "FR":
-                  raise SystemExit(
-                      "ERREUR : course hors France"
-                  )
+                  erreurs.append("COURSE_HORS_FRANCE")
+
+              if course.get("date") != today:
+                  erreurs.append("DATE_COURSE_INVALIDE")
 
               if not course.get("partants"):
-                  raise SystemExit(
-                      "ERREUR : partants absents"
-                  )
+                  erreurs.append("PARTANTS_ABSENTS")
 
-          print("Date PMU :", aujourd_hui)
-          print("Courses verifiees :", len(courses))
-          print("Controle termine avec succes")
+          candidats_liste = candidats.get(
+              "courses_candidates", []
+          )
+
+          if not isinstance(candidats_liste, list):
+              erreurs.append("CANDIDATS_INVALIDES")
+              candidats_liste = []
+
+          ids_candidats = [
+              c.get("course_id")
+              for c in candidats_liste
+              if isinstance(c, dict)
+          ]
+
+          if (
+              len(ids_candidats) != len(ids)
+              or set(ids_candidats) != ids
+          ):
+              erreurs.append("CANDIDATS_NON_RACCORDES")
+
+          moteurs_path = (
+              base / "data/publication_moteurs.json"
+          )
+
+          moteurs_presents = moteurs_path.is_file()
+          moteurs_json_valide = False
+
+          if moteurs_presents:
+              try:
+                  moteurs = lire(moteurs_path)
+                  moteurs_json_valide = isinstance(
+                      moteurs, dict
+                  )
+                  if not moteurs_json_valide:
+                      alertes.append(
+                          "PUBLICATION_MOTEURS_STRUCTURE_INCONNUE"
+                      )
+              except (ValueError, UnicodeError):
+                  alertes.append(
+                      "PUBLICATION_MOTEURS_JSON_INVALIDE"
+                  )
+          else:
+              alertes.append(
+                  "PUBLICATION_MOTEURS_ABSENTE_HTTP_404_POSSIBLE"
+              )
+
+          if etat.get("date_pmu") != today:
+              erreurs.append("ETAT_PUBLICATION_PERIME")
+
+          rapport = {
+              "date_audit": datetime.now(
+                  ZoneInfo("Europe/Paris")
+              ).isoformat(),
+              "date_pmu": today,
+              "courses_verifiees": len(liste),
+              "candidats": len(candidats_liste),
+              "moteurs_fichier_present": moteurs_presents,
+              "moteurs_json_valide": moteurs_json_valide,
+              "figes_authentifies": False,
+              "erreurs": erreurs,
+              "alertes": alertes,
+              "deploiement_effectue": False,
+              "modification_archives": False,
+          }
+
+          destination = dossier / "audit_raccordement.json"
+          destination.write_text(
+              json.dumps(
+                  rapport,
+                  ensure_ascii=False,
+                  indent=2
+              ) + "\n",
+              encoding="utf-8"
+          )
+
+          print(json.dumps(
+              rapport,
+              ensure_ascii=False,
+              indent=2
+          ))
+
+          if erreurs:
+              raise SystemExit(
+                  "ECHEC_AUDIT_RACCORDEMENT"
+              )
           PY
 
-      - name: Conserver les fichiers du site
+      - name: Conserver le site prepare
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: x1000-site-pmu-valide-${{ github.run_id }}
+          name: x1000-site-controle-${{ github.run_id }}
           path: site_pmu/
           if-no-files-found: error
           retention-days: 7
           include-hidden-files: true
 
-      - name: Rapport final
+      - name: Conserver le rapport de diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x1000-audit-${{ github.run_id }}
+          path: |
+            sortie/audit_raccordement.json
+            sortie/publication_courses.json
+            sortie/recherche_courses_du_jour.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Rapport final GitHub Actions
         if: always()
         shell: bash
         run: |
           {
-            echo "## X1000 - Raccordement PMU vers site"
+            echo "## X1000 - Audit general raccordement"
             echo ""
-            echo "Branche : $GITHUB_REF_NAME"
             echo "Depot : $GITHUB_REPOSITORY"
+            echo "Branche : $GITHUB_REF_NAME"
             echo "Execution : $GITHUB_RUN_ID"
             echo ""
-            echo "Controle des donnees PMU France"
-            echo "Preparation du tableau de bord"
-            echo "Aucun commit automatique"
-            echo "Aucun push automatique"
-            echo "Aucun deploiement automatique"
-            echo "Aucune modification des FIGEs"
-            echo "Aucune modification des archives"
-            echo "Aucune modification des pronostics"
+            echo "### Securite"
+            echo "- Aucun commit automatique"
+            echo "- Aucun push automatique"
+            echo "- Aucun deploiement automatique"
+            echo "- Aucun FIGE cree ou modifie"
+            echo "- Aucune archive historique modifiee"
+            echo "- Aucun pronostic cree"
+            echo ""
+            echo "### Diagnostic"
+            echo "Consulter l'artefact x1000-audit."
+            echo "Verifier la presence du JSON des moteurs."
+            echo "Le succes ne certifie pas GitHub Pages."
           } >> "$GITHUB_STEP_SUMMARY"
