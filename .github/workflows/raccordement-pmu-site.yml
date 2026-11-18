@@ -1,6 +1,17 @@
 name: "X1000 - Raccordement PMU vers site - controle"
 
 on:
+  push:
+    branches:
+      - "fix/audit-general-pmu-20261118"
+    paths:
+      - ".github/workflows/raccordement-pmu-site.yml"
+      - "preparer_site_pmu.py"
+      - "collecte_pmu.py"
+      - "adapter_collecte_tableau.py"
+      - "index.html"
+      - "tableau-pmu.html"
+
   workflow_dispatch:
 
 permissions:
@@ -12,14 +23,17 @@ concurrency:
 
 jobs:
   verifier-publication:
+    name: "Collecte PMU - Adaptation - Verification site"
+
     if: >-
       github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
       github.ref_name == 'fix/audit-general-pmu-20261118'
+
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
-      - name: Recuperer la branche
+      - name: Recuperer la branche de reparation
         uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -29,14 +43,30 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Verifier les scripts
+      - name: Verifier les fichiers necessaires
         shell: bash
         run: |
           set -euo pipefail
+
+          test -f collecte_pmu.py
+          test -f adapter_collecte_tableau.py
+          test -f preparer_site_pmu.py
+          test -f index.html
+          test -f tableau-pmu.html
+
+          echo "Tous les fichiers necessaires sont presents"
+
+      - name: Verifier la syntaxe Python
+        shell: bash
+        run: |
+          set -euo pipefail
+
           python -m py_compile \
             collecte_pmu.py \
             adapter_collecte_tableau.py \
             preparer_site_pmu.py
+
+          echo "Syntaxe Python valide"
 
       - name: Collecter les donnees reelles PMU
         shell: bash
@@ -45,37 +75,116 @@ jobs:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
           set -euo pipefail
+
+          mkdir -p sortie
           python collecte_pmu.py
 
-      - name: Adapter les donnees pour le tableau
+          test -s sortie/publication_courses.json
+
+          echo "Collecte PMU terminee"
+
+      - name: Adapter les donnees au tableau
         shell: bash
         run: |
           set -euo pipefail
+
           python adapter_collecte_tableau.py
 
-      - name: Preparer et valider le site
+          test -s sortie/recherche_courses_du_jour.json
+
+          echo "Adaptation terminee"
+
+      - name: Preparer le site PMU
         shell: bash
         run: |
           set -euo pipefail
+
           python preparer_site_pmu.py
-          test -s site_pmu/data/publication_courses.json
-          test -s site_pmu/sortie/recherche_courses_du_jour.json
+
           test -s site_pmu/index.html
           test -s site_pmu/tableau-pmu.html
+          test -s site_pmu/data/publication_courses.json
+          test -s site_pmu/sortie/recherche_courses_du_jour.json
 
-      - name: Conserver le site valide
+          echo "Site PMU prepare"
+
+      - name: Verifier les donnees publiees
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          from datetime import datetime
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          chemin = Path(
+              "site_pmu/data/publication_courses.json"
+          )
+
+          data = json.loads(
+              chemin.read_text(encoding="utf-8")
+          )
+
+          aujourd_hui = datetime.now(
+              ZoneInfo("Europe/Paris")
+          ).date().isoformat()
+
+          if data.get("date_pmu") != aujourd_hui:
+              raise SystemExit(
+                  "ERREUR : donnees PMU non actuelles"
+              )
+
+          courses = data.get("courses", [])
+
+          if not courses:
+              raise SystemExit(
+                  "ERREUR : aucune course verifiee"
+              )
+
+          for course in courses:
+              if course.get("pays_verifie") != "FR":
+                  raise SystemExit(
+                      "ERREUR : course hors France"
+                  )
+
+              if not course.get("partants"):
+                  raise SystemExit(
+                      "ERREUR : partants absents"
+                  )
+
+          print("Date PMU :", aujourd_hui)
+          print("Courses verifiees :", len(courses))
+          print("Controle termine avec succes")
+          PY
+
+      - name: Conserver les fichiers du site
         uses: actions/upload-artifact@v4
         with:
           name: x1000-site-pmu-valide-${{ github.run_id }}
           path: site_pmu/
           if-no-files-found: error
           retention-days: 7
+          include-hidden-files: true
 
-      - name: Rapport de controle
+      - name: Rapport final
         if: always()
         shell: bash
         run: |
-          echo "## Raccordement PMU vers site" >> "$GITHUB_STEP_SUMMARY"
-          echo "Branche : $GITHUB_REF_NAME" >> "$GITHUB_STEP_SUMMARY"
-          echo "Mode : controle sans deploiement automatique" >> "$GITHUB_STEP_SUMMARY"
-          echo "Aucun FIGE, archive ou pronostic modifie" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## X1000 - Raccordement PMU vers site"
+            echo ""
+            echo "Branche : $GITHUB_REF_NAME"
+            echo "Depot : $GITHUB_REPOSITORY"
+            echo "Execution : $GITHUB_RUN_ID"
+            echo ""
+            echo "Controle des donnees PMU France"
+            echo "Preparation du tableau de bord"
+            echo "Aucun commit automatique"
+            echo "Aucun push automatique"
+            echo "Aucun deploiement automatique"
+            echo "Aucune modification des FIGEs"
+            echo "Aucune modification des archives"
+            echo "Aucune modification des pronostics"
+          } >> "$GITHUB_STEP_SUMMARY"
