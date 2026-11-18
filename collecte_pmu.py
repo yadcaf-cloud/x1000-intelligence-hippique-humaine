@@ -1,289 +1,662 @@
 #!/usr/bin/env python3
-"""Collecte PMU France, lecture seule; aucune décision sportive créée."""
+"""X1000 - Collecte PMU France renforcee.
+
+Lecture seule de PMU TurfInfo.
+Ratissage large, validation des courses et partants.
+Aucun pronostic, FIGE, commit ou deploiement.
+"""
+
 import json
 import os
 import re
 import sys
+import time
+import tempfile
+import urllib.error
 import urllib.request
+
 from datetime import datetime, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
-BASE = 'https://online.turfinfo.api.pmu.fr/rest/client/1/programme'
-TODAY = datetime.now(ZoneInfo('Europe/Paris'))
-DATE = TODAY.strftime('%d%m%Y')
-OUT = os.environ.get('X1000_SORTIE', 'sortie')
+BASE = (
+    "https://online.turfinfo.api.pmu.fr"
+    "/rest/client/1/programme"
+)
+
+PARIS = ZoneInfo("Europe/Paris")
+TODAY = datetime.now(PARIS)
+DATE = TODAY.strftime("%d%m%Y")
+ISO_DATE = TODAY.date().isoformat()
+
+OUT = Path(os.environ.get("X1000_SORTIE", "sortie"))
+
+TIMEOUT = 18
+RETRIES = 3
+MAX_BYTES = 8_000_000
+MAX_DIAGNOSTICS = 1000
+
+
+def diagnostic(message):
+    print("DIAGNOSTIC:", message, flush=True)
+
+
+def erreur(message):
+    print("ERREUR:", message, file=sys.stderr, flush=True)
 
 
 def get(path):
+    """Lecture HTTP PMU avec tentatives limitees."""
     url = BASE + path
-    req = urllib.request.Request(
-        url,
-        headers={
-            'Accept': 'application/json',
-            'User-Agent': 'X1000-PMU-Controle/1.0'
-        }
+    derniere = None
+
+    for tentative in range(1, RETRIES + 1):
+        try:
+            request = urllib.request.Request(
+                url,
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "X1000-PMU-Audit/3.0",
+                },
+                method="GET",
+            )
+
+            with urllib.request.urlopen(
+                request, timeout=TIMEOUT
+            ) as response:
+                if response.status != 200:
+                    raise RuntimeError(
+                        f"HTTP_{response.status}"
+                    )
+
+                if response.geturl() != url:
+                    raise RuntimeError(
+                        "REDIRECTION_INATTENDUE"
+                    )
+
+                raw = response.read(MAX_BYTES + 1)
+
+            if len(raw) > MAX_BYTES:
+                raise RuntimeError(
+                    "REPONSE_TROP_VOLUMINEUSE"
+                )
+
+            data = json.loads(
+                raw.decode("utf-8-sig")
+            )
+
+            if not isinstance(data, (dict, list)):
+                raise RuntimeError(
+                    "FORMAT_JSON_INATTENDU"
+                )
+
+            return data
+
+        except urllib.error.HTTPError as exc:
+            derniere = f"HTTP_{exc.code}"
+
+            # Une erreur 404 n'est pas transitoire.
+            if exc.code in (400, 401, 403, 404):
+                break
+
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            OSError,
+            ValueError,
+            UnicodeError,
+            RuntimeError,
+        ) as exc:
+            derniere = (
+                f"{type(exc).__name__}: {exc}"
+            )
+
+        if tentative < RETRIES:
+            time.sleep(tentative)
+
+    raise RuntimeError(
+        f"ECHEC_SOURCE_PMU {path}: {derniere}"
     )
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        if resp.status != 200 or resp.geturl() != url:
-            raise RuntimeError('Réponse ou redirection inattendue')
-        raw = resp.read(8_000_001)
-        if len(raw) > 8_000_000:
-            raise RuntimeError('Réponse trop volumineuse')
-        return json.loads(raw.decode('utf-8-sig'))
 
 
 def pick(obj, *keys):
     if not isinstance(obj, dict):
         return None
+
     for key in keys:
-        v = obj.get(key)
-        if v is not None and v != '':
-            return v
+        value = obj.get(key)
+        if value is not None and value != "":
+            return value
+
     return None
 
 
-def label(v):
-    if isinstance(v, dict):
-        return str(
-            pick(v, 'libelleCourt', 'libelleLong',
-                 'nom', 'libelle', 'code') or ''
-        ).strip()
-    return str(v or '').strip()
+def label(value):
+    if isinstance(value, dict):
+        value = pick(
+            value,
+            "libelleCourt",
+            "libelleLong",
+            "nom",
+            "libelle",
+            "code",
+        )
+
+    if isinstance(value, (dict, list)):
+        return ""
+
+    return str(value or "").strip()
 
 
-def country(reunion):
-    hip = reunion.get('hippodrome')
-    sources = [reunion] + (
-        [hip] if isinstance(hip, dict) else []
-    )
-    vals = []
-    for source in sources:
-        for k in (
-            'pays', 'codePays', 'nomPays',
-            'country', 'countryCode',
-            'codePaysHippodrome'
-        ):
-            v = source.get(k)
-            if v is not None:
-                vals.append(label(v).upper())
-    vals = [x for x in vals if x]
-    return bool(vals) and all(
-        x in ('FR', 'FRA', 'FRANCE',
-              'FRANCAISE', 'FRANÇAISE')
-        for x in vals
-    )
-
-
-def positive(v):
-    if isinstance(v, bool):
+def positive(value):
+    if isinstance(value, bool):
         return None
-    s = str(v or '')
-    return int(s) if re.fullmatch(
-        r'[1-9][0-9]*', s
-    ) else None
+
+    if isinstance(value, int) and value > 0:
+        return value
+
+    if isinstance(value, str):
+        value = value.strip()
+        if re.fullmatch(r"[1-9][0-9]*", value):
+            return int(value)
+
+    return None
 
 
-def depart(v):
-    if isinstance(v, (int, float)) and v > 0:
-        try:
-            timestamp = v / 1000 if v > 10**11 else v
-            return datetime.fromtimestamp(
-                timestamp, ZoneInfo('Europe/Paris')
-            ).isoformat()
-        except (ValueError, OverflowError, OSError):
+def normaliser_pays(value):
+    text = label(value).upper().strip()
+
+    if text in (
+        "FR", "FRA", "FRANCE",
+        "FRANCAISE", "FRANÇAISE",
+    ):
+        return "FR"
+
+    return text
+
+
+def pays_france(reunion):
+    """Accepter uniquement une France explicite."""
+    hip = reunion.get("hippodrome")
+
+    sources = [reunion]
+
+    if isinstance(hip, dict):
+        sources.append(hip)
+
+    valeurs = []
+
+    for source in sources:
+        for key in (
+            "pays",
+            "codePays",
+            "nomPays",
+            "country",
+            "countryCode",
+            "codePaysHippodrome",
+        ):
+            value = source.get(key)
+
+            if value is not None:
+                normalise = normaliser_pays(value)
+
+                if normalise:
+                    valeurs.append(normalise)
+
+    return bool(valeurs) and all(
+        value == "FR" for value in valeurs
+    )
+
+
+def heure_depart(value):
+    """Convertir un horaire en ISO Europe/Paris."""
+    if isinstance(value, bool):
+        return None
+
+    try:
+        if isinstance(value, (int, float)):
+            if not 0 < value < 10**16:
+                return None
+
+            timestamp = (
+                value / 1000
+                if value >= 10**11
+                else value
+            )
+
+            dt = datetime.fromtimestamp(
+                timestamp, PARIS
+            )
+
+        elif isinstance(value, str):
+            value = value.strip()
+
+            if re.fullmatch(
+                r"\d{2}:\d{2}(:\d{2})?", value
+            ):
+                dt = datetime.fromisoformat(
+                    ISO_DATE + "T" + value
+                ).replace(tzinfo=PARIS)
+
+            else:
+                dt = datetime.fromisoformat(
+                    value.replace("Z", "+00:00")
+                )
+
+                if dt.tzinfo is None:
+                    return None
+
+                dt = dt.astimezone(PARIS)
+
+        else:
             return None
 
-    if isinstance(v, str) and re.fullmatch(
-        r'\d{2}:\d{2}(:\d{2})?', v
-    ):
-        return TODAY.strftime('%Y-%m-%d') + 'T' + v
+        if dt.date().isoformat() != ISO_DATE:
+            return None
+
+        return dt.isoformat()
+
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def non_partant(value):
+    """Reconnaissance prudente des non-partants."""
+    if value is True:
+        return True
+
+    if value is False or value is None:
+        return False
+
+    if isinstance(value, (str, int)):
+        text = str(value).strip().lower()
+
+        if text in ("1", "true", "oui", "np"):
+            return True
+
+        if text in ("0", "false", "non", ""):
+            return False
 
     return None
 
 
-def collect():
-    data = get('/' + DATE)
-    programme = pick(data, 'programme') or data
-    reunions = pick(programme, 'reunions')
+def extraire_partants(raw):
+    if isinstance(raw, list):
+        return raw
+
+    return pick(
+        raw,
+        "participants",
+        "partants",
+        "listeParticipants",
+    )
+
+
+def traiter_partants(participants):
+    if not isinstance(participants, list):
+        raise ValueError("LISTE_PARTANTS_INVALIDE")
+
+    if not participants:
+        raise ValueError("LISTE_PARTANTS_VIDE")
+
+    chevaux = []
+    numeros = set()
+
+    for participant in participants:
+        if not isinstance(participant, dict):
+            raise ValueError("PARTANT_MAL_FORME")
+
+        numero = positive(
+            pick(
+                participant,
+                "numPmu",
+                "numero",
+                "num",
+            )
+        )
+
+        nom = label(
+            pick(
+                participant,
+                "nom",
+                "nomCheval",
+                "cheval",
+            )
+        )
+
+        if not numero or not nom:
+            raise ValueError(
+                "NUMERO_OU_NOM_PARTANT_ABSENT"
+            )
+
+        if numero in numeros:
+            raise ValueError(
+                f"DOUBLON_PARTANT_{numero}"
+            )
+
+        numeros.add(numero)
+
+        np = non_partant(
+            pick(
+                participant,
+                "nonPartant",
+                "non_partant",
+            )
+        )
+
+        if np is None:
+            raise ValueError(
+                f"STATUT_PARTANT_INCONNU_{numero}"
+            )
+
+        chevaux.append({
+            "numero": numero,
+            "nom": nom,
+            "non_partant": np,
+        })
+
+    if not any(
+        not cheval["non_partant"]
+        for cheval in chevaux
+    ):
+        raise ValueError(
+            "AUCUN_PARTANT_ACTIF"
+        )
+
+    return sorted(
+        chevaux,
+        key=lambda cheval: cheval["numero"]
+    )
+
+
+def collecter():
+    diagnostic(
+        f"DEBUT_COLLECTE_PMU date={ISO_DATE}"
+    )
+
+    programme_brut = get("/" + DATE)
+
+    programme = (
+        pick(programme_brut, "programme")
+        or programme_brut
+    )
+
+    reunions = pick(programme, "reunions")
 
     if not isinstance(reunions, list):
         raise RuntimeError(
-            'Programme PMU : réunions absentes '
-            'ou format inconnu'
+            "REUNIONS_ABSENTES_OU_FORMAT_INCONNU"
         )
 
-    result = []
+    if not reunions:
+        raise RuntimeError(
+            "PROGRAMME_PMU_SANS_REUNION"
+        )
+
+    courses_valides = []
     diagnostics = []
+    identifiants = set()
 
-    for r in reunions[:30]:
-        if not isinstance(r, dict) or not country(r):
-            continue
+    reunions_france = 0
+    courses_examinees = 0
 
-        nr = positive(
-            pick(r, 'numOfficiel', 'numReunion', 'numero')
-        )
-        hippodrome = label(
-            pick(r, 'hippodrome', 'nomHippodrome')
-        )
-        courses = pick(r, 'courses', 'listeCourses')
-
-        if not nr or not hippodrome or not isinstance(
-            courses, list
-        ):
+    # Aucune limite artificielle de 30 reunions.
+    for reunion in reunions:
+        if not isinstance(reunion, dict):
             diagnostics.append(
-                'Réunion française incomplète'
+                "REUNION_MAL_FORMEE"
             )
             continue
 
-        for c in courses[:40]:
-            if not isinstance(c, dict):
+        if not pays_france(reunion):
+            continue
+
+        reunions_france += 1
+
+        nr = positive(
+            pick(
+                reunion,
+                "numOfficiel",
+                "numeroReunion",
+                "numReunion",
+                "numero",
+            )
+        )
+
+        hippodrome = label(
+            pick(
+                reunion,
+                "hippodrome",
+                "nomHippodrome",
+            )
+        )
+
+        courses = pick(
+            reunion,
+            "courses",
+            "listeCourses",
+        )
+
+        if (
+            not nr
+            or not hippodrome
+            or not isinstance(courses, list)
+        ):
+            diagnostics.append(
+                "REUNION_FRANCAISE_INCOMPLETE"
+            )
+            continue
+
+        diagnostic(
+            f"REUNION_FRANCE R{nr} {hippodrome}"
+        )
+
+        # Aucune limite artificielle de 40 courses.
+        for course in courses:
+            courses_examinees += 1
+
+            if not isinstance(course, dict):
+                diagnostics.append(
+                    f"R{nr}: COURSE_MAL_FORMEE"
+                )
                 continue
 
             nc = positive(
-                pick(c, 'numOrdre', 'numCourse', 'numero')
-            )
-            heure = depart(
-                pick(c, 'heureDepart',
-                     'heure_depart', 'depart')
+                pick(
+                    course,
+                    "numOrdre",
+                    "numeroCourse",
+                    "numCourse",
+                    "numero",
+                )
             )
 
-            if not nc or not heure:
+            if not nc:
                 diagnostics.append(
-                    f'R{nr}: course sans numéro '
-                    'ou départ vérifiable'
+                    f"R{nr}: NUMERO_COURSE_ABSENT"
+                )
+                continue
+
+            cid = f"{ISO_DATE}-R{nr}-C{nc}"
+
+            if cid in identifiants:
+                diagnostics.append(
+                    f"{cid}: COURSE_EN_DOUBLE"
+                )
+                continue
+
+            identifiants.add(cid)
+
+            depart = heure_depart(
+                pick(
+                    course,
+                    "heureDepart",
+                    "heureDepartInitiale",
+                    "heureDepartPrevue",
+                    "heure_depart",
+                    "depart",
+                )
+            )
+
+            if not depart:
+                diagnostics.append(
+                    f"{cid}: HORAIRE_INVALIDE"
                 )
                 continue
 
             try:
-                raw = get(
-                    f'/{DATE}/R{nr}/C{nc}/participants'
+                participants = extraire_partants(
+                    get(
+                        f"/{DATE}/R{nr}/C{nc}/participants"
+                    )
                 )
-            except Exception as exc:
+
+                chevaux = traiter_partants(
+                    participants
+                )
+
+            except (RuntimeError, ValueError) as exc:
                 diagnostics.append(
-                    f'R{nr}C{nc}: participants '
-                    f'indisponibles ({type(exc).__name__})'
+                    f"{cid}: {exc}"
                 )
                 continue
 
-            participants = (
-                raw if isinstance(raw, list)
-                else pick(
-                    raw, 'participants', 'partants',
-                    'listeParticipants'
-                )
-            )
-
-            if not isinstance(
-                participants, list
-            ) or not participants:
-                diagnostics.append(
-                    f'R{nr}C{nc}: aucun partant confirmé'
-                )
-                continue
-
-            chevaux = []
-            seen = set()
-
-            for p in participants:
-                if not isinstance(p, dict):
-                    continue
-
-                n = positive(
-                    pick(p, 'numPmu', 'numero', 'num')
-                )
-                nom = label(
-                    pick(p, 'nom', 'nomCheval', 'cheval')
-                )
-
-                if not n or not nom or n in seen:
-                    continue
-
-                seen.add(n)
-                chevaux.append({
-                    'numero': n,
-                    'nom': nom,
-                    'non_partant': pick(
-                        p, 'nonPartant', 'non_partant'
-                    ) is True
-                })
-
-            if not chevaux:
-                diagnostics.append(
-                    f'R{nr}C{nc}: partants invalides'
-                )
-                continue
-
-            result.append({
-                'course_id':
-                    f'{TODAY:%Y-%m-%d}-R{nr}-C{nc}',
-                'reunion': f'R{nr}',
-                'course': f'C{nc}',
-                'hippodrome': hippodrome,
-                'date': TODAY.strftime('%Y-%m-%d'),
-                'depart': heure,
-                'nom_course': label(
-                    pick(c, 'libelle', 'nomCourse')
+            courses_valides.append({
+                "course_id": cid,
+                "reunion": f"R{nr}",
+                "course": f"C{nc}",
+                "hippodrome": hippodrome,
+                "date": ISO_DATE,
+                "depart": depart,
+                "nom_course": label(
+                    pick(
+                        course,
+                        "libelle",
+                        "nomCourse",
+                    )
                 ),
-                'partants': sorted(
-                    chevaux,
-                    key=lambda x: x['numero']
-                ),
-                'source': 'PMU TurfInfo',
-                'pays_verifie': 'FR'
+                "partants": chevaux,
+                "source": "PMU TurfInfo",
+                "pays_verifie": "FR",
             })
 
-    return result, diagnostics
+            diagnostic(
+                f"COURSE_VALIDEE {cid} "
+                f"partants={len(chevaux)}"
+            )
+
+    courses_valides.sort(
+        key=lambda c: (
+            c["depart"],
+            c["course_id"],
+        )
+    )
+
+    statistiques = {
+        "reunions_programme": len(reunions),
+        "reunions_france": reunions_france,
+        "courses_examinees": courses_examinees,
+        "courses_validees": len(courses_valides),
+        "anomalies": len(diagnostics),
+    }
+
+    return (
+        courses_valides,
+        diagnostics,
+        statistiques,
+    )
+
+
+def enregistrer_atomiquement(path, document):
+    """Ne jamais laisser un JSON partiellement ecrit."""
+    path.parent.mkdir(
+        parents=True, exist_ok=True
+    )
+
+    contenu = json.dumps(
+        document,
+        ensure_ascii=False,
+        indent=2,
+    ) + "\n"
+
+    temporaire = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=".x1000-",
+            suffix=".tmp",
+            delete=False,
+        ) as fichier:
+            temporaire = Path(fichier.name)
+            fichier.write(contenu)
+            fichier.flush()
+            os.fsync(fichier.fileno())
+
+        os.replace(temporaire, path)
+
+    finally:
+        if (
+            temporaire is not None
+            and temporaire.exists()
+        ):
+            temporaire.unlink()
 
 
 def main():
-    os.makedirs(OUT, exist_ok=True)
-    courses, diagnostics = collect()
-
-    document = {
-        'schema': 'x1000-pmu-france-v1',
-        'date_publication':
-            datetime.now(timezone.utc).isoformat(),
-        'date_pmu': TODAY.strftime('%Y-%m-%d'),
-        'source': 'PMU TurfInfo',
-        'statut': (
-            'DONNEES_VERIFIEES'
-            if courses else 'AUCUNE_COURSE_VALIDEE'
-        ),
-        'courses': courses,
-        'diagnostics': diagnostics[:100]
-    }
-
-    path = os.path.join(
-        OUT, 'publication_courses.json'
-    )
-
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(
-            document, f,
-            ensure_ascii=False, indent=2
-        )
-
-    print(
-        f'Courses françaises vérifiées: '
-        f'{len(courses)}; fichier: {path}'
-    )
-
-    for msg in diagnostics[:20]:
-        print('ATTENTION:', msg)
+    courses, diagnostics, stats = collecter()
 
     if not courses:
         raise RuntimeError(
-            'Aucune course vérifiée : '
-            'aucune publication exploitable'
+            "AUCUNE_COURSE_FRANCAISE_VALIDEE"
         )
 
+    document = {
+        "schema": "x1000-pmu-france-v1",
+        "date_publication": datetime.now(
+            timezone.utc
+        ).isoformat(),
+        "date_pmu": ISO_DATE,
+        "source": "PMU TurfInfo",
+        "statut": "DONNEES_VERIFIEES",
+        "courses": courses,
+        "diagnostics": diagnostics[:MAX_DIAGNOSTICS],
+        "statistiques": stats,
+    }
 
-if __name__ == '__main__':
+    destination = (
+        OUT / "publication_courses.json"
+    )
+
+    enregistrer_atomiquement(
+        destination, document
+    )
+
+    print("\n=== X1000 BILAN COLLECTE ===")
+    print(json.dumps(
+        stats,
+        ensure_ascii=False,
+        indent=2,
+    ))
+
+    for message in diagnostics[:50]:
+        diagnostic(message)
+
+    print("PUBLICATION_COURSES_OK")
+    print("FICHIER:", destination)
+    print("AUCUN_PRONOSTIC_CREE")
+    print("AUCUN_FIGE_MODIFIE")
+    print("AUCUNE_ARCHIVE_MODIFIEE")
+
+
+if __name__ == "__main__":
     try:
         main()
+
     except Exception as exc:
-        print(
-            'ECHEC COLLECTE:', exc,
-            file=sys.stderr
+        erreur(
+            f"ECHEC_COLLECTE_PMU: {exc}"
         )
         sys.exit(1)
