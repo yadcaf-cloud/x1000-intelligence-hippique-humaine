@@ -1,4 +1,4 @@
-name: "X1000 - Controle raccordement M1-M5"
+name: "X1000 - Controle raccordement reel M1-M5"
 
 on:
   workflow_dispatch:
@@ -12,49 +12,57 @@ concurrency:
 
 jobs:
   controle-moteurs:
-    name: "Validation PMU et moteurs M1-M5"
+    name: "PMU France - M1-M5 - X1000 - Site isole"
 
     if: >-
       github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
-      github.ref_name == 'fix/audit-general-pmu-20261118'
+      github.ref == 'refs/heads/fix/audit-general-pmu-20261118' &&
+      github.event_name == 'workflow_dispatch'
 
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 35
+
+    permissions:
+      contents: read
+
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONNOUSERSITE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONUTF8: "1"
+      X1000_ENTREES_MOTEURS: "entrees_moteurs"
+
+    defaults:
+      run:
+        shell: bash
 
     steps:
-      - name: Recuperer la branche
+      - name: Recuperer la branche de reparation
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 1
 
       - name: Installer Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Verifier les fichiers
-        shell: bash
+      - name: Verifier le depot et la branche
         run: |
           set -euo pipefail
 
-          for fichier in \
-            collecte_pmu.py \
-            adapter_collecte_tableau.py \
-            preparer_site_pmu.py \
-            verifier_raccordement_moteurs.py \
-            index.html \
-            tableau-pmu.html
-          do
-            test -s "$fichier" || {
-              echo "::error::Fichier absent: $fichier"
-              exit 1
-            }
-          done
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
 
-          echo "FICHIERS_OK"
+          test "$GITHUB_REF" = \
+            "refs/heads/fix/audit-general-pmu-20261118"
 
-      - name: Verifier syntaxe Python
-        shell: bash
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+
+          echo "BRANCHE_REPARATION_AUTORISEE"
+
+      - name: Verifier les scripts et leur syntaxe
         run: |
           set -euo pipefail
 
@@ -62,58 +70,282 @@ jobs:
           import ast
           from pathlib import Path
 
-          fichiers = [
+          scripts = (
               "collecte_pmu.py",
               "adapter_collecte_tableau.py",
-              "preparer_site_pmu.py",
+              "raccorder_moteurs_x1000.py",
               "verifier_raccordement_moteurs.py",
-          ]
+              "preparer_site_pmu.py",
+          )
 
-          for fichier in fichiers:
-              ast.parse(
-                  Path(fichier).read_text(encoding="utf-8"),
-                  filename=fichier
-              )
-              print("SYNTAXE_OK:", fichier)
+          for name in scripts:
+              path = Path(name)
+              if not path.is_file() or not path.stat().st_size:
+                  raise SystemExit(f"SCRIPT_ABSENT: {name}")
+              ast.parse(path.read_text(encoding="utf-8"), filename=name)
+              print("SCRIPT_OK:", name)
+
+          for name in ("index.html", "tableau-pmu.html"):
+              path = Path(name)
+              if not path.is_file() or not path.stat().st_size:
+                  raise SystemExit(f"PAGE_ABSENTE: {name}")
+              print("PAGE_OK:", name)
           PY
 
-      - name: Collecter les courses PMU
-        shell: bash
+      - name: Proteger les donnees existantes
         run: |
           set -euo pipefail
+
+          for fichier in \
+            sortie/publication_courses.json \
+            sortie/recherche_courses_du_jour.json \
+            sortie/publication_moteurs.json
+          do
+            if [ -e "$fichier" ] || [ -L "$fichier" ]; then
+              echo "::error::SORTIE_EXISTANTE: $fichier"
+              echo "::error::Aucun remplacement autorise"
+              exit 1
+            fi
+          done
+
+          if [ -e site_pmu ] || [ -L site_pmu ]; then
+            echo "::error::DOSSIER_SITE_EXISTANT"
+            echo "::error::Preparation sans remplacement interdite"
+            exit 1
+          fi
+
+          echo "DESTINATIONS_LIBRES"
+
+      - name: Collecter les courses PMU France
+        run: |
+          set -euo pipefail
+
           python collecte_pmu.py
 
-      - name: Adapter les courses
-        shell: bash
+          test -s sortie/publication_courses.json || {
+            echo "::error::COLLECTE_PMU_ABSENTE"
+            exit 1
+          }
+
+          echo "COLLECTE_PMU_TERMINEE"
+
+      - name: Adapter les courses au tableau
         run: |
           set -euo pipefail
+
           python adapter_collecte_tableau.py
 
-      - name: Verifier raccordement M1-M5
-        shell: bash
+          test -s sortie/recherche_courses_du_jour.json || {
+            echo "::error::ADAPTATION_COURSES_ABSENTE"
+            exit 1
+          }
+
+          echo "ADAPTATION_COURSES_TERMINEE"
+
+      - name: Verifier les six sources de decisions
         run: |
           set -euo pipefail
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          base = Path(os.environ["X1000_ENTREES_MOTEURS"])
+
+          for nom in ("M1", "M2", "M3", "M4", "M5", "X1000"):
+              path = base / f"{nom}.json"
+
+              if not path.is_file() or not path.stat().st_size:
+                  raise SystemExit(f"SOURCE_REELLE_ABSENTE: {path}")
+
+              data = json.loads(path.read_text(encoding="utf-8"))
+
+              if not isinstance(data, dict) or data.get("moteur") != nom:
+                  raise SystemExit(f"IDENTITE_SOURCE_INVALIDE: {nom}")
+
+              decisions = data.get("decisions")
+              if not isinstance(decisions, list) or not decisions:
+                  raise SystemExit(f"DECISIONS_ABSENTES: {nom}")
+
+              print(f"SOURCE_DECLAREE_PRESENTE: {nom}, {len(decisions)} decisions")
+
+          print("SIX_SOURCES_STRUCTURELLEMENT_PRESENTES")
+          print("AUTHENTICITE_EXTERNE_NON_CERTIFIEE")
+          PY
+
+      - name: Produire le JSON M1-M5 et X1000
+        run: |
+          set -euo pipefail
+
+          python raccorder_moteurs_x1000.py
+
+          test -s sortie/publication_moteurs.json || {
+            echo "::error::PUBLICATION_MOTEURS_NON_PRODUITE"
+            exit 1
+          }
+
+          echo "PUBLICATION_MOTEURS_PRODUITE"
+
+      - name: Valider le raccordement M1-M5
+        run: |
+          set -euo pipefail
+
           python verifier_raccordement_moteurs.py
 
-      - name: Preparer le site controle
-        shell: bash
+          echo "VALIDATION_M1_M5_TERMINEE"
+
+      - name: Preparer le site isole
         run: |
           set -euo pipefail
+
           python preparer_site_pmu.py
 
-          test -s site_pmu/data/publication_courses.json
-          test -s site_pmu/data/publication_moteurs.json
-          test -s site_pmu/index.html
-          test -s site_pmu/tableau-pmu.html
+          for fichier in \
+            site_pmu/index.html \
+            site_pmu/tableau-pmu.html \
+            site_pmu/data/publication_courses.json \
+            site_pmu/data/publication_moteurs.json \
+            site_pmu/data/etat_publication.json \
+            site_pmu/sortie/recherche_courses_du_jour.json
+          do
+            test -s "$fichier" || {
+              echo "::error::SITE_INCOMPLET: $fichier"
+              exit 1
+            }
+          done
 
-          echo "SITE_PREPARE_OK"
+          echo "SITE_ISOLE_PREPARE"
+
+      - name: Comparer les publications sources et site
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          correspondances = (
+              (
+                  "sortie/publication_courses.json",
+                  "site_pmu/data/publication_courses.json",
+              ),
+              (
+                  "sortie/publication_moteurs.json",
+                  "site_pmu/data/publication_moteurs.json",
+              ),
+              (
+                  "sortie/recherche_courses_du_jour.json",
+                  "site_pmu/sortie/recherche_courses_du_jour.json",
+              ),
+          )
+
+          for original, copie in correspondances:
+              a = Path(original).read_bytes()
+              b = Path(copie).read_bytes()
+
+              if hashlib.sha256(a).digest() != hashlib.sha256(b).digest():
+                  raise SystemExit(f"PUBLICATION_DIFFERENTE: {copie}")
+
+              print("COPIE_IDENTIQUE:", copie)
+
+          etat = json.loads(
+              Path("site_pmu/data/etat_publication.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+
+          if etat.get("deploiement_effectue") is not False:
+              raise SystemExit("DEPLOIEMENT_INATTENDU")
+
+          if etat.get("publication_moteurs_presente") is not True:
+              raise SystemExit("PUBLICATION_MOTEURS_NON_RECONNUE")
+
+          if etat.get("authenticite_figes_verifiee") is not False:
+              raise SystemExit("AUTHENTICITE_FIGES_INCOHERENTE")
+
+          moteurs = json.loads(
+              Path("site_pmu/data/publication_moteurs.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+
+          if moteurs.get("schema") != "x1000-moteurs-v1":
+              raise SystemExit("SCHEMA_MOTEURS_INVALIDE")
+
+          courses = moteurs.get("courses")
+          if not isinstance(courses, list) or not courses:
+              raise SystemExit("DECISIONS_PAR_COURSE_ABSENTES")
+
+          attendus = {"M1", "M2", "M3", "M4", "M5"}
+
+          for course in courses:
+              if not isinstance(course, dict):
+                  raise SystemExit("COURSE_PUBLICATION_INVALIDE")
+
+              noms = course.get("moteurs")
+              if not isinstance(noms, dict) or set(noms) != attendus:
+                  raise SystemExit("MOTEURS_INCOMPLETS")
+
+              if not isinstance(course.get("arbitre_x1000"), dict):
+                  raise SystemExit("ARBITRE_X1000_ABSENT")
+
+          print("SITE_STRUCTURELLEMENT_VALIDE")
+          print("NAVIGATEUR_NON_TESTE")
+          print("AUCUN_DEPLOIEMENT")
+          PY
+
+      - name: Verifier absence de modification des fichiers suivis
+        if: always()
+        run: |
+          set -euo pipefail
+
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+            echo "::error::FICHIERS_SUIVIS_MODIFIES"
+            git status --short --untracked-files=no
+            exit 1
+          fi
+
+          echo "FICHIERS_GIT_SUIVIS_INCHANGES"
+
+      - name: Archiver les diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x1000-controle-moteurs-${{ github.run_id }}
+          path: |
+            sortie/publication_courses.json
+            sortie/recherche_courses_du_jour.json
+            sortie/publication_moteurs.json
+            site_pmu/data/etat_publication.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Rapport final
-        shell: bash
+        if: always()
+        env:
+          RESULTAT: ${{ job.status }}
         run: |
-          echo "CONTROLES_TERMINES"
-          echo "AUCUN_COMMIT"
-          echo "AUCUN_PUSH"
-          echo "AUCUN_DEPLOIEMENT"
-          echo "AUCUN_FIGE_MODIFIE"
-          echo "AUCUNE_ARCHIVE_MODIFIEE"
+          {
+            echo "## X1000 - Controle raccordement M1-M5"
+            echo ""
+            echo "Resultat : $RESULTAT"
+            echo "Branche : $GITHUB_REF_NAME"
+            echo ""
+            echo "Controle des sources M1-M5 et X1000"
+            echo "Collecte des courses PMU France"
+            echo "Production des publications par course"
+            echo "Validation structurelle et chronologique"
+            echo "Verification des copies du site isole"
+            echo ""
+            echo "AUCUN COMMIT AUTOMATIQUE"
+            echo "AUCUN PUSH AUTOMATIQUE"
+            echo "AUCUN DEPLOIEMENT"
+            echo "AUCUN FIGE MODIFIE"
+            echo "AUCUNE ARCHIVE MODIFIEE"
+            echo "AUCUN PRONOSTIC INVENTE"
+            echo ""
+            echo "La presence de fichiers ne prouve pas"
+            echo "l'execution autonome des moteurs."
+          } >> "$GITHUB_STEP_SUMMARY"
