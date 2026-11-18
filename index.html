@@ -7,149 +7,268 @@
 <meta name="referrer" content="no-referrer">
 <meta name="description" content="X1000 — Intelligence Hippique Humaine. Observation, analyse et apprentissage des courses hippiques françaises.">
 <title>🇸🇳🧠🔥 X1000 — Intelligence Hippique Humaine</title>
+
 <style>
 :root{
  color-scheme:dark;
- --bg:#07131f;--panel:#102637;--panel2:#173344;
- --border:#315263;--text:#eff8f7;--muted:#aec3cb;
- --green:#75dfaf;--gold:#eac977;--blue:#9bd8ff;
- --red:#ff9b9b
+ --bg:#07131f;
+ --panel:#102637;
+ --panel2:#173344;
+ --border:#315263;
+ --text:#eff8f7;
+ --muted:#aec3cb;
+ --green:#75dfaf;
+ --gold:#eac977;
+ --blue:#9bd8ff;
+ --red:#ff9b9b;
 }
 *{box-sizing:border-box}
-html{scroll-behavior:smooth;scroll-padding-top:150px}
+html{
+ scroll-behavior:smooth;
+ scroll-padding-top:155px;
+}
 body{
- margin:0;min-height:100vh;color:var(--text);
- background:radial-gradient(ellipse at 85% 0%,#17483e,transparent 38%),
- linear-gradient(160deg,#07131f,#0b1c2b);
+ margin:0;
+ min-height:100vh;
+ color:var(--text);
+ background:
+  radial-gradient(ellipse at 85% 0%,#17483e,transparent 38%),
+  linear-gradient(160deg,#07131f,#0b1c2b);
  font:15px/1.7 system-ui,-apple-system,Arial,sans-serif;
- overflow-wrap:break-word
+ overflow-wrap:break-word;
 }
 a{color:var(--blue);text-decoration:none}
 a:hover{text-decoration:underline}
 button,input{font:inherit}
 button{cursor:pointer}
-button:focus-visible,a:focus-visible,input:focus-visible{
- outline:2px solid var(--gold);outline-offset:3px
+button:focus-visible,
+a:focus-visible,
+input:focus-visible{
+ outline:2px solid var(--gold);
+ outline-offset:3px;
 }
-.container{max-width:1200px;margin:auto;padding:18px}
+.container{
+ max-width:1200px;
+ margin:auto;
+ padding:18px;
+}
 header{
- position:sticky;top:0;z-index:20;background:#07131ff5;
- border-bottom:2px solid var(--gold)
+ position:sticky;
+ top:0;
+ z-index:20;
+ background:#07131ff5;
+ border-bottom:2px solid var(--gold);
 }
 .header-inner{
- max-width:1200px;margin:auto;padding:12px 18px;
- display:flex;justify-content:space-between;
- align-items:center;flex-wrap:wrap;gap:12px
+ max-width:1200px;
+ margin:auto;
+ padding:12px 18px;
+ display:flex;
+ justify-content:space-between;
+ align-items:center;
+ flex-wrap:wrap;
+ gap:12px;
 }
-.brand{font-weight:900;font-size:19px;color:var(--gold)}
-.brand small{display:block;font-size:11px;color:var(--muted)}
-nav{display:flex;flex-wrap:wrap;gap:7px}
+.brand{
+ font-weight:900;
+ font-size:19px;
+ color:var(--gold);
+}
+.brand small{
+ display:block;
+ font-size:11px;
+ color:var(--muted);
+}
+nav{
+ display:flex;
+ flex-wrap:wrap;
+ gap:7px;
+}
 nav a{
- padding:6px 10px;border:1px solid var(--border);
- border-radius:9px;color:var(--text);font-size:12px
+ padding:6px 10px;
+ border:1px solid var(--border);
+ border-radius:9px;
+ color:var(--text);
+ font-size:12px;
 }
-nav a:hover{background:var(--panel2);text-decoration:none}
-section{scroll-margin-top:150px}
+nav a:hover{
+ background:var(--panel2);
+ text-decoration:none;
+}
+section{scroll-margin-top:155px}
 .hero{
- margin-top:18px;padding:55px 22px;
- border:1px solid var(--border);border-radius:20px;
+ margin-top:18px;
+ padding:55px 22px;
+ border:1px solid var(--border);
+ border-radius:20px;
  background:linear-gradient(140deg,#123c38,#102637 55%,#132a43);
- text-align:center
+ text-align:center;
 }
 .hero h1{
- color:var(--gold);font-size:clamp(27px,5vw,46px);
- line-height:1.2
+ color:var(--gold);
+ font-size:clamp(27px,5vw,46px);
+ line-height:1.2;
 }
-.hero p{max-width:800px;margin:15px auto}
+.hero p{
+ max-width:800px;
+ margin:15px auto;
+}
 .eyebrow{
- color:var(--green);letter-spacing:2px;
- font-weight:800;font-size:12px
+ color:var(--green);
+ letter-spacing:2px;
+ font-weight:800;
+ font-size:12px;
 }
 .quote{
- border-left:4px solid var(--gold);background:#eac97712;
- border-radius:8px;padding:18px;margin:20px 0;
- color:var(--gold);font-weight:700
+ border-left:4px solid var(--gold);
+ background:#eac97712;
+ border-radius:8px;
+ padding:18px;
+ margin:20px 0;
+ color:var(--gold);
+ font-weight:700;
 }
-.hero .quote{max-width:850px;margin:24px auto}
+.hero .quote{
+ max-width:850px;
+ margin:24px auto;
+}
 .actions{
- display:flex;justify-content:center;
- flex-wrap:wrap;gap:10px;margin-top:22px
+ display:flex;
+ justify-content:center;
+ flex-wrap:wrap;
+ gap:10px;
+ margin-top:22px;
 }
 .btn{
- display:inline-block;border:1px solid var(--gold);
- border-radius:10px;padding:11px 16px;
- background:var(--gold);color:var(--bg);font-weight:800
+ display:inline-block;
+ border:1px solid var(--gold);
+ border-radius:10px;
+ padding:11px 16px;
+ background:var(--gold);
+ color:var(--bg);
+ font-weight:800;
 }
-.btn.secondary{background:transparent;color:var(--gold)}
-.btn:hover{text-decoration:none;filter:brightness(1.1)}
+.btn.secondary{
+ background:transparent;
+ color:var(--gold);
+}
+.btn:hover{
+ text-decoration:none;
+ filter:brightness(1.1);
+}
 h2.section-title{
- color:var(--gold);margin:38px 0 15px;font-size:24px
+ color:var(--gold);
+ margin:38px 0 15px;
+ font-size:24px;
 }
 .grid{
  display:grid;
  grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));
- gap:15px
+ gap:15px;
 }
 .card,.principle{
- background:var(--panel);border:1px solid var(--border);
- border-radius:15px;padding:20px;min-width:0
+ background:var(--panel);
+ border:1px solid var(--border);
+ border-radius:15px;
+ padding:20px;
+ min-width:0;
 }
-.card h3,.principle h3{color:var(--green);margin-top:0}
+.card h3,.principle h3{
+ color:var(--green);
+ margin-top:0;
+}
 .card p,.principle p{margin:10px 0}
 .principle{margin-bottom:15px}
 .principle h3{
- padding-bottom:10px;border-bottom:1px solid var(--border)
+ padding-bottom:10px;
+ border-bottom:1px solid var(--border);
 }
 .principle strong{color:var(--gold)}
 .principle ul{padding-left:23px}
 .principle li{margin:6px 0}
 .muted{color:var(--muted)}
 .status{
- background:var(--panel2);border:1px solid var(--border);
- border-radius:12px;padding:15px;margin:15px 0
+ background:var(--panel2);
+ border:1px solid var(--border);
+ border-radius:12px;
+ padding:15px;
+ margin:15px 0;
 }
 .status strong{color:var(--gold)}
 .searchbar{
- width:100%;display:block;background:#071c2a;
- color:var(--text);border:1px solid var(--border);
- border-radius:12px;padding:14px;margin:12px 0
+ width:100%;
+ display:block;
+ background:#071c2a;
+ color:var(--text);
+ border:1px solid var(--border);
+ border-radius:12px;
+ padding:14px;
+ margin:12px 0;
 }
 .searchbar::placeholder{color:var(--muted)}
 .toolbar{
- display:flex;gap:10px;align-items:center;
- flex-wrap:wrap;margin-bottom:15px
+ display:flex;
+ gap:10px;
+ align-items:center;
+ flex-wrap:wrap;
+ margin-bottom:15px;
 }
 .small-btn{
- background:var(--panel2);border:1px solid var(--border);
- color:var(--text);border-radius:9px;padding:9px 14px
+ background:var(--panel2);
+ border:1px solid var(--border);
+ color:var(--text);
+ border-radius:9px;
+ padding:9px 14px;
 }
 .small-btn:hover{border-color:var(--gold)}
-.small-btn:disabled{opacity:.55;cursor:wait}
+.small-btn:disabled{
+ opacity:.55;
+ cursor:wait;
+}
 .manifesto{
  background:linear-gradient(150deg,#163b35,#112d42);
- border:1px solid var(--gold);border-radius:20px;padding:28px
+ border:1px solid var(--gold);
+ border-radius:20px;
+ padding:28px;
 }
-.manifesto h2{color:var(--gold);text-align:center}
+.manifesto h2{
+ color:var(--gold);
+ text-align:center;
+}
 .manifesto p{font-size:16px}
 footer{
- text-align:center;border-top:1px solid var(--border);
- color:var(--muted);margin-top:40px;padding:30px 15px
+ text-align:center;
+ border-top:1px solid var(--border);
+ color:var(--muted);
+ margin-top:40px;
+ padding:30px 15px;
 }
 footer strong{color:var(--gold)}
 [hidden]{display:none!important}
 #topBtn{
- position:fixed;right:15px;bottom:15px;z-index:30;
- background:var(--panel2);color:var(--gold);
- border:1px solid var(--gold);border-radius:12px;
- padding:10px 15px
+ position:fixed;
+ right:15px;
+ bottom:15px;
+ z-index:30;
+ background:var(--panel2);
+ color:var(--gold);
+ border:1px solid var(--gold);
+ border-radius:12px;
+ padding:10px 15px;
 }
 @media(max-width:600px){
  html{scroll-padding-top:185px}
  section{scroll-margin-top:185px}
- .header-inner{justify-content:center;padding:10px}
+ .header-inner{
+  justify-content:center;
+  padding:10px;
+ }
  .brand{text-align:center}
  nav{justify-content:center}
- nav a{font-size:11px;padding:5px 8px}
+ nav a{
+  font-size:11px;
+  padding:5px 8px;
+ }
  .container{padding:12px}
  .hero{padding:35px 15px}
  .card,.principle{padding:16px}
@@ -161,6 +280,7 @@ footer strong{color:var(--gold)}
 }
 </style>
 </head>
+
 <body>
 
 <header>
@@ -172,6 +292,7 @@ footer strong{color:var(--gold)}
   <nav aria-label="Navigation principale">
    <a href="#accueil">Accueil</a>
    <a href="#mission">Mission</a>
+   <a href="#courses-du-jour">Courses du jour</a>
    <a href="#hippique">Hippique</a>
    <a href="#moteurs">Moteurs</a>
    <a href="#pronostics-officiels">Pronostics</a>
@@ -184,20 +305,31 @@ footer strong{color:var(--gold)}
 <main class="container">
 
 <section id="accueil" class="hero">
- <div class="eyebrow">OBSERVATION • DISCERNEMENT • APPRENTISSAGE</div>
- <h1>🇸🇳🧠🔥 X1000<br>INTELLIGENCE HIPPIQUE HUMAINE</h1>
- <p>Une nouvelle vision de l'analyse hippique,
- inspirée de l'intelligence humaine, de l'expérience,
- de l'observation et de la compréhension des courses.</p>
- <div class="quote">
- « Observer comme un passionné, réfléchir comme un expert,
- analyser comme un professionnel, décider avec intelligence
- et apprendre de chaque course. »
+ <div class="eyebrow">
+  OBSERVATION • DISCERNEMENT • APPRENTISSAGE
  </div>
- <p>Comprendre avant de prédire. Étudier chaque cheval.
- Déjouer les apparences. Apprendre des résultats.</p>
+ <h1>
+  🇸🇳🧠🔥 X1000
+  <br>
+  INTELLIGENCE HIPPIQUE HUMAINE
+ </h1>
+ <p>
+  Une nouvelle vision de l'analyse hippique,
+  inspirée de l'intelligence humaine, de l'expérience,
+  de l'observation et de la compréhension des courses.
+ </p>
+ <div class="quote">
+  « Observer comme un passionné, réfléchir comme un expert,
+  analyser comme un professionnel, décider avec intelligence
+  et apprendre de chaque course. »
+ </div>
+ <p>
+  Comprendre avant de prédire. Étudier chaque cheval.
+  Déjouer les apparences. Apprendre des résultats.
+ </p>
  <div class="actions">
-  <a class="btn" href="#moteurs">Tableau des moteurs</a>
+  <a class="btn" href="#courses-du-jour">Courses du jour</a>
+  <a class="btn secondary" href="#moteurs">Tableau des moteurs</a>
   <a class="btn secondary" href="#pronostics-officiels">Pronostics officiels</a>
   <a class="btn secondary" href="#principes">Découvrir les 16 principes</a>
   <a class="btn secondary" href="#hippique">Espace hippique</a>
@@ -207,29 +339,107 @@ footer strong{color:var(--gold)}
 <section id="mission">
  <h2 class="section-title">🧠 Notre mission</h2>
  <div class="grid">
-  <article class="card"><h3>👁️ Observer</h3><p>Voir les informations importantes, y compris celles que d'autres pourraient négliger.</p></article>
-  <article class="card"><h3>🔍 Comprendre</h3><p>Rechercher les causes, les relations et les circonstances qui expliquent les performances.</p></article>
-  <article class="card"><h3>⚖️ Raisonner</h3><p>Comparer plusieurs possibilités, confronter les arguments et éviter les conclusions précipitées.</p></article>
-  <article class="card"><h3>🎯 Anticiper</h3><p>Construire des scénarios sportifs plausibles et établir des prévisions avant les départs.</p></article>
-  <article class="card"><h3>📚 Apprendre</h3><p>Examiner les résultats officiels, comprendre les erreurs et améliorer progressivement les analyses.</p></article>
+  <article class="card">
+   <h3>👁️ Observer</h3>
+   <p>Voir les informations importantes, y compris celles que d'autres pourraient négliger.</p>
+  </article>
+  <article class="card">
+   <h3>🔍 Comprendre</h3>
+   <p>Rechercher les causes, les relations et les circonstances qui expliquent les performances.</p>
+  </article>
+  <article class="card">
+   <h3>⚖️ Raisonner</h3>
+   <p>Comparer plusieurs possibilités, confronter les arguments et éviter les conclusions précipitées.</p>
+  </article>
+  <article class="card">
+   <h3>🎯 Anticiper</h3>
+   <p>Construire des scénarios sportifs plausibles et établir des prévisions avant les départs.</p>
+  </article>
+  <article class="card">
+   <h3>📚 Apprendre</h3>
+   <p>Examiner les résultats officiels, comprendre les erreurs et améliorer progressivement les analyses.</p>
+  </article>
  </div>
+</section>
+
+<!-- COLLECTE PMU : CANDIDATES UNIQUEMENT -->
+<section id="courses-du-jour" aria-labelledby="titre-candidates">
+ <h2 id="titre-candidates" class="section-title">
+  🏇 Courses PMU du jour — candidates à analyser
+ </h2>
+ <div class="status">
+  <strong>État de la collecte :</strong>
+  <span id="candidatesStatus" role="status" aria-live="polite">
+   Chargement non effectué.
+  </span>
+  <p id="candidatesDate" class="muted">
+   Dernière collecte : non renseignée.
+  </p>
+ </div>
+ <div class="toolbar">
+  <button id="candidatesRefresh" class="small-btn" type="button">
+   🔄 Actualiser les courses candidates
+  </button>
+ </div>
+ <p class="muted">
+  Cette rubrique présente uniquement les courses candidates issues
+  d'une collecte publiée et datée. Les moteurs M1 à M5 doivent
+  ensuite les analyser indépendamment.
+  Une course candidate n'est ni un pronostic officiel,
+  ni un FIGÉ, ni une recommandation de pari validée.
+ </p>
+ <div id="candidatesList" class="grid" aria-live="polite"></div>
 </section>
 
 <section id="hippique">
  <h2 class="section-title">🏇 Espace intelligence hippique</h2>
  <div class="status">
   <strong>État du site :</strong>
-  <span id="siteStatus">Interface active. Raccordement des données à vérifier.</span>
+  <span id="siteStatus" role="status" aria-live="polite">
+   Interface active. Raccordement des données à vérifier.
+  </span>
  </div>
  <div class="grid">
-  <article class="card"><h3>🏟️ Courses françaises</h3><p>Rechercher largement les courses PMU physiquement disputées en France.</p><p class="muted">Données réelles uniquement.</p></article>
-  <article class="card"><h3>🐎 Étude des chevaux</h3><p>Examiner la forme, l'endurance, la vitesse, le parcours, le terrain, l'entourage et l'opposition.</p><p class="muted">Analyses vérifiables.</p></article>
-  <article class="card"><h3>🔎 Chevaux cachés</h3><p>Rechercher les concurrents négligés présentant de véritables arguments sportifs.</p><p class="muted">Aucune sélection fictive.</p></article>
-  <article class="card"><h3>⚠️ Faux favoris</h3><p>Étudier les forces et les faiblesses des favoris et leurs adversaires potentiels.</p><p class="muted">Évaluation critique.</p></article>
-  <article class="card"><h3>📋 Prévisions argumentées</h3><p>Présenter des décisions expliquées, datées et établies avant les départs.</p><p class="muted">Aucune prévision simulée.</p></article>
-  <article class="card"><h3>🔐 Décisions historiques</h3><p>Conserver les décisions originales et leurs révisions justifiées.</p><p class="muted">Archives en lecture seule.</p></article>
-  <article class="card"><h3>📊 Résultats officiels</h3><p>Comparer les prévisions aux résultats officiellement publiés après les courses.</p><p class="muted">Aucun résultat inventé.</p></article>
-  <article class="card"><h3>📈 Apprentissage</h3><p>Comprendre les réussites, identifier les erreurs et améliorer les analyses futures.</p><p class="muted">Historique non destructif.</p></article>
+  <article class="card">
+   <h3>🏟️ Courses françaises</h3>
+   <p>Rechercher largement les courses PMU physiquement disputées en France.</p>
+   <p class="muted">Données réelles uniquement.</p>
+  </article>
+  <article class="card">
+   <h3>🐎 Étude des chevaux</h3>
+   <p>Examiner la forme, l'endurance, la vitesse, le parcours, le terrain, l'entourage et l'opposition.</p>
+   <p class="muted">Analyses vérifiables.</p>
+  </article>
+  <article class="card">
+   <h3>🔎 Chevaux cachés</h3>
+   <p>Rechercher les concurrents négligés présentant de véritables arguments sportifs.</p>
+   <p class="muted">Aucune sélection fictive.</p>
+  </article>
+  <article class="card">
+   <h3>⚠️ Faux favoris</h3>
+   <p>Étudier les forces et les faiblesses des favoris et leurs adversaires potentiels.</p>
+   <p class="muted">Évaluation critique.</p>
+  </article>
+  <article class="card">
+   <h3>📋 Prévisions argumentées</h3>
+   <p>Présenter des décisions expliquées, datées et établies avant les départs.</p>
+   <p class="muted">Aucune prévision simulée.</p>
+  </article>
+  <article class="card">
+   <h3>🔐 Décisions historiques</h3>
+   <p>Conserver les décisions originales et leurs révisions justifiées.</p>
+   <p class="muted">Archives en lecture seule.</p>
+  </article>
+  <article class="card">
+   <h3>📊 Résultats officiels</h3>
+   <p>Comparer les prévisions aux résultats officiellement publiés après les courses.</p>
+   <p class="muted">Aucun résultat inventé.</p>
+  </article>
+  <article class="card">
+   <h3>📈 Apprentissage</h3>
+   <p>Comprendre les réussites, identifier les erreurs et améliorer les analyses futures.</p>
+   <p class="muted">Historique non destructif.</p>
+  </article>
  </div>
 </section>
 
@@ -237,21 +447,36 @@ footer strong{color:var(--gold)}
  <h2 class="section-title">🧠 X1000 — Moteurs M1 à M5</h2>
  <div class="status">
   <strong>Connexion :</strong>
-  <span id="connexion-x1000" role="status" aria-live="polite">API non configurée</span>
-  <p id="lastCheck" class="muted">Aucune vérification effectuée.</p>
+  <span id="connexion-x1000" role="status" aria-live="polite">
+   API non configurée
+  </span>
+  <p id="lastCheck" class="muted">
+   Aucune vérification effectuée.
+  </p>
  </div>
 
  <article class="card">
   <h3>🔗 Connexion à l'API X1000</h3>
   <label for="apiUrl">Adresse HTTPS de l'API</label>
-  <input id="apiUrl" class="searchbar" type="url"
-   autocomplete="url" placeholder="https://adresse-de-votre-api">
+  <input
+   id="apiUrl"
+   class="searchbar"
+   type="url"
+   autocomplete="url"
+   placeholder="https://adresse-de-votre-api"
+  >
   <div class="toolbar">
-   <button id="connectBtn" class="small-btn" type="button">Vérifier la connexion</button>
-   <button id="refreshBtn" class="small-btn" type="button">Actualiser les moteurs</button>
+   <button id="connectBtn" class="small-btn" type="button">
+    Vérifier la connexion
+   </button>
+   <button id="refreshBtn" class="small-btn" type="button">
+    Actualiser les moteurs
+   </button>
   </div>
-  <p class="muted">Cette interface consulte l'API Python X1000 en lecture seule.
-  Elle ne démarre pas les moteurs et ne modifie aucun fichier.</p>
+  <p class="muted">
+   Cette interface consulte l'API Python X1000 en lecture seule.
+   Elle ne démarre pas les moteurs et ne modifie aucun fichier.
+  </p>
  </article>
 
  <h2 class="section-title">⚙️ Tableau des cinq moteurs</h2>
@@ -261,42 +486,63 @@ footer strong{color:var(--gold)}
  <div class="status">
   <strong>Coordination :</strong>
   <span id="coordinationStatus">Non vérifiée</span>
-  <p class="muted">Chaque moteur conserve son identité, ses critères
-  et son classement indépendant.</p>
+  <p class="muted">
+   Chaque moteur conserve son identité, ses critères
+   et son classement indépendant.
+  </p>
  </div>
 
  <h2 class="section-title">🏟️ Courses disponibles</h2>
- <div class="status"><strong>État :</strong> <span id="coursesStatus">Non connecté</span></div>
+ <div class="status">
+  <strong>État :</strong>
+  <span id="coursesStatus">Non connecté</span>
+ </div>
  <div id="coursesList" class="grid"></div>
 
  <h2 class="section-title">📋 Sélections des moteurs</h2>
- <div class="status"><strong>État :</strong> <span id="selectionsStatus">Non connecté</span></div>
+ <div class="status">
+  <strong>État :</strong>
+  <span id="selectionsStatus">Non connecté</span>
+ </div>
  <div id="selectionsList" class="grid"></div>
 
  <h2 class="section-title">🔐 Archives et audits</h2>
  <div class="grid">
-  <article class="card"><h3>FIGÉs historiques</h3><p id="figesStatus">Non connecté</p></article>
-  <article class="card"><h3>Audits officiels</h3><p id="auditsStatus">Non connecté</p></article>
+  <article class="card">
+   <h3>FIGÉs historiques</h3>
+   <p id="figesStatus">Non connecté</p>
+  </article>
+  <article class="card">
+   <h3>Audits officiels</h3>
+   <p id="auditsStatus">Non connecté</p>
+  </article>
  </div>
 </section>
 
-<!-- TABLEAU OFFICIEL : UNE SEULE VERSION -->
+<!-- TABLEAU OFFICIEL : UNE SEULE VERSION, LECTURE SEULE -->
 <section id="pronostics-officiels" aria-labelledby="titre-pronostics">
- <h2 id="titre-pronostics" class="section-title">🏆 Tableau officiel des pronostics X1000</h2>
+ <h2 id="titre-pronostics" class="section-title">
+  🏆 Tableau officiel des pronostics X1000
+ </h2>
  <div class="status">
   <strong>État des données :</strong>
   <span id="x1000-officiel-etat" role="status" aria-live="polite">
    En attente de données vérifiées.
   </span>
-  <p id="x1000-officiel-date" class="muted">Dernière publication : non renseignée</p>
+  <p id="x1000-officiel-date" class="muted">
+   Dernière publication : non renseignée.
+  </p>
  </div>
  <div class="toolbar">
   <button id="x1000-officiel-refresh" class="small-btn" type="button">
    🔄 Actualiser le tableau officiel
   </button>
  </div>
- <p class="muted">Courses PMU physiquement disputées en France uniquement.
- Chaque moteur M1 à M5 conserve son propre classement et sa propre décision sportive.</p>
+ <p class="muted">
+  Courses PMU physiquement disputées en France uniquement.
+  Chaque moteur M1 à M5 conserve son propre classement
+  et sa propre décision sportive.
+ </p>
  <div id="x1000-officiel-courses" aria-live="polite"></div>
 
  <h2 class="section-title">⚖️ Arbitre central X1000</h2>
@@ -307,20 +553,33 @@ footer strong{color:var(--gold)}
 
  <div class="status">
   <strong>Protection historique :</strong>
-  <p>Lecture seule. Aucun classement fictif. Aucun FIGÉ automatique.
-  Aucune réécriture des décisions historiques ou des audits.</p>
+  <p>
+   Lecture seule. Aucun classement fictif.
+   Aucun FIGÉ automatique. Aucune réécriture
+   des décisions historiques ou des audits.
+  </p>
  </div>
 </section>
 
 <section id="principes">
  <h2 class="section-title">📜 Les 16 principes fondateurs</h2>
- <p class="muted">Recherchez une idée ou un mot dans la philosophie de X1000.</p>
- <input id="search" class="searchbar" type="search"
-  autocomplete="off" placeholder="Favori, cheval, apprentissage..."
-  aria-label="Rechercher dans les principes" aria-controls="principlesList">
+ <p class="muted">
+  Recherchez une idée ou un mot dans la philosophie de X1000.
+ </p>
+ <input
+  id="search"
+  class="searchbar"
+  type="search"
+  autocomplete="off"
+  placeholder="Favori, cheval, apprentissage..."
+  aria-label="Rechercher dans les principes"
+  aria-controls="principlesList"
+ >
  <div class="toolbar">
   <span id="searchCount" class="muted" role="status" aria-live="polite"></span>
-  <button id="clearSearch" class="small-btn" type="button">Effacer la recherche</button>
+  <button id="clearSearch" class="small-btn" type="button">
+   Effacer la recherche
+  </button>
  </div>
 
  <div id="principlesList">
@@ -520,6 +779,7 @@ footer strong{color:var(--gold)}
  </article>
 
  </div>
+
  <p id="noResults" class="status" role="status" hidden>
   Aucun principe ne correspond à votre recherche. Essayez un autre mot.
  </p>
@@ -556,378 +816,864 @@ footer strong{color:var(--gold)}
 </main>
 
 <footer>
- <strong>🇸🇳🧠🔥 X1000 — INTELLIGENCE HIPPIQUE HUMAINE</strong>
+ <strong>
+  🇸🇳🧠🔥 X1000 — INTELLIGENCE HIPPIQUE HUMAINE
+ </strong>
  <p>L'intelligence au service de la compréhension des courses hippiques.</p>
  <p>Document fondateur — 1er novembre 2026</p>
  <p>Aucune prévision ne garantit un gain. Aucune donnée hippique fictive.</p>
  <p>© <span id="year"></span> X1000</p>
 </footer>
 
-<button id="topBtn" type="button" aria-label="Retour en haut" hidden>↑ Haut</button>
+<button id="topBtn" type="button" aria-label="Retour en haut" hidden>
+ ↑ Haut
+</button>
 
 <script>
 (function(){
 "use strict";
 
 const $ = id => document.getElementById(id);
+
 const NOMS = ["M1","M2","M3","M4","M5"];
+
 const DEFINITIONS = {
  M1:"Statistiques et performances",
- M2:"Décision sportive",
- M3:"Entourage",
- M4:"Aptitude au parcours",
- M5:"Endurance et potentiel"
+ M2:"Lecture de course et stratégie",
+ M3:"Profils, entourage et aptitudes",
+ M4:"Forme et informations récentes",
+ M5:"Analyse critique et chevaux cachés"
 };
+
 const SOURCE = "./pronostics-officiels.json";
+const SOURCE_CANDIDATES =
+ "./sortie/recherche_courses_du_jour.json";
+
 let apiBase = "";
 let controller = null;
 let generationAPI = 0;
 let generationOfficielle = 0;
+let generationCandidates = 0;
 
 function objet(v){
- return v !== null && typeof v === "object" && !Array.isArray(v);
+ return v !== null &&
+  typeof v === "object" &&
+  !Array.isArray(v);
 }
+
 function valeur(v,defaut="Non renseigné"){
- if(typeof v === "string" && v.trim()) return v.trim();
- if(typeof v === "number" && Number.isFinite(v)) return String(v);
+ if(typeof v === "string" && v.trim()){
+  return v.trim();
+ }
+ if(typeof v === "number" && Number.isFinite(v)){
+  return String(v);
+ }
  return defaut;
 }
+
 function ajouter(parent,tag,contenu,classe){
- const el=document.createElement(tag);
- el.textContent=String(contenu ?? "");
- if(classe) el.className=classe;
+ const el = document.createElement(tag);
+ el.textContent = String(contenu ?? "");
+ if(classe) el.className = classe;
  parent.append(el);
  return el;
 }
+
 function carte(titre,lignes){
- const article=document.createElement("article");
- article.className="card";
+ const article = document.createElement("article");
+ article.className = "card";
  ajouter(article,"h3",titre);
- lignes.forEach(l=>ajouter(article,"p",l));
+ lignes.forEach(l => ajouter(article,"p",l));
  return article;
 }
+
 function classement(liste){
- if(!Array.isArray(liste)||liste.length!==5)
+ if(!Array.isArray(liste) || liste.length !== 5){
   return "Classement indisponible";
- const n=liste.map(x=>{
-  if(Number.isSafeInteger(x)&&x>0)return x;
-  if(typeof x==="string"&&/^[1-9][0-9]*$/.test(x)){
-   const y=Number(x);
-   return Number.isSafeInteger(y)?y:null;
+ }
+
+ const numeros = liste.map(x => {
+  if(Number.isSafeInteger(x) && x > 0){
+   return x;
+  }
+  if(typeof x === "string" &&
+     /^[1-9][0-9]*$/.test(x)){
+   const n = Number(x);
+   return Number.isSafeInteger(n) ? n : null;
   }
   return null;
  });
- if(n.some(x=>x===null)||new Set(n).size!==5)
+
+ if(numeros.some(x => x === null) ||
+    new Set(numeros).size !== 5){
   return "Classement non validé";
- return n.join(" - ");
+ }
+
+ return numeros.join(" - ");
 }
+
 function estClassementValide(liste){
- return Array.isArray(liste)&&liste.length===5&&
+ return Array.isArray(liste) &&
+  liste.length === 5 &&
   !classement(liste).startsWith("Classement ");
 }
 
-$("year").textContent=String(new Date().getFullYear());
+function dateParis(){
+ const morceaux = new Intl.DateTimeFormat("en-GB",{
+  timeZone:"Europe/Paris",
+  year:"numeric",
+  month:"2-digit",
+  day:"2-digit"
+ }).formatToParts(new Date());
+
+ const d = {};
+ morceaux.forEach(p => {
+  if(p.type !== "literal") d[p.type] = p.value;
+ });
+
+ return d.year+"-"+d.month+"-"+d.day;
+}
+
+function erreurHTTP(reponse){
+ if(reponse.status === 404){
+  return "HTTP 404 — fichier ou service introuvable";
+ }
+ if(reponse.status === 403){
+  return "HTTP 403 — accès refusé";
+ }
+ return "HTTP "+reponse.status;
+}
+
+async function lireJSON(url,options={}){
+ const reponse = await fetch(url,{
+  method:"GET",
+  cache:"no-store",
+  headers:{Accept:"application/json"},
+  ...options
+ });
+
+ if(!reponse.ok){
+  throw new Error(erreurHTTP(reponse));
+ }
+
+ return reponse.json();
+}
+
+/* INITIALISATION */
+$("year").textContent =
+ String(new Date().getFullYear());
 
 /* RECHERCHE DES 16 PRINCIPES */
 function normaliser(v){
- return String(v||"").normalize("NFD")
+ return String(v || "")
+  .normalize("NFD")
   .replace(/[\u0300-\u036f]/g,"")
-  .toLowerCase().trim().replace(/\s+/g," ");
+  .toLowerCase()
+  .trim()
+  .replace(/\s+/g," ");
 }
-const principes=Array.from(
+
+const principes = Array.from(
  document.querySelectorAll("#principlesList .principle")
 );
+
 function filtrerPrincipes(){
- const termes=normaliser($("search").value).split(" ").filter(Boolean);
- let visibles=0;
- principes.forEach(article=>{
-  const ok=termes.every(t=>normaliser(article.textContent).includes(t));
-  article.hidden=!ok;
-  if(ok)visibles++;
+ const termes = normaliser($("search").value)
+  .split(" ")
+  .filter(Boolean);
+
+ let visibles = 0;
+
+ principes.forEach(article => {
+  const contenu = normaliser(article.textContent);
+  const ok = termes.every(t => contenu.includes(t));
+  article.hidden = !ok;
+  if(ok) visibles++;
  });
- $("searchCount").textContent=
+
+ $("searchCount").textContent =
   visibles+" principe(s) affiché(s) sur "+principes.length;
- $("noResults").hidden=visibles!==0;
+
+ $("noResults").hidden = visibles !== 0;
 }
+
 $("search").addEventListener("input",filtrerPrincipes);
+
 $("clearSearch").addEventListener("click",()=>{
- $("search").value="";
+ $("search").value = "";
  filtrerPrincipes();
  $("search").focus();
 });
 
 /* RETOUR EN HAUT */
 function majHaut(){
- $("topBtn").hidden=window.scrollY<350;
+ $("topBtn").hidden = window.scrollY < 350;
 }
-window.addEventListener("scroll",majHaut,{passive:true});
-$("topBtn").addEventListener("click",()=>{
- const reduit=window.matchMedia("(prefers-reduced-motion: reduce)").matches;
- window.scrollTo({top:0,behavior:reduit?"auto":"smooth"});
+
+window.addEventListener("scroll",majHaut,{
+ passive:true
 });
 
-/* ETAT DES MOTEURS */
-function afficherMoteurs(donnees={}){
- const zone=$("tableau-moteurs");
- zone.replaceChildren();
- NOMS.forEach(nom=>{
-  const m=objet(donnees[nom])?donnees[nom]:{};
-  zone.append(carte(nom+" — "+DEFINITIONS[nom],[
-   "État : "+valeur(m.etat,"NON_CONNECTE"),
-   "Analyse disponible : "+(m.analyse_disponible===true?"Oui":"Non"),
-   "Dernière actualisation : "+valeur(m.derniere_actualisation)
-  ]));
+$("topBtn").addEventListener("click",()=>{
+ const reduit = window.matchMedia(
+  "(prefers-reduced-motion: reduce)"
+ ).matches;
+
+ window.scrollTo({
+  top:0,
+  behavior:reduit ? "auto" : "smooth"
  });
-}
-function resetAPI(message="Non connecté"){
- $("coursesList").replaceChildren();
- $("selectionsList").replaceChildren();
- $("coursesStatus").textContent=message;
- $("selectionsStatus").textContent=message;
- $("figesStatus").textContent=message;
- $("auditsStatus").textContent=message;
- $("coordinationStatus").textContent="Non vérifiée";
- afficherMoteurs();
-}
-async function lireAPI(chemin,signal){
- const reponse=await fetch(apiBase+chemin,{
-  method:"GET",cache:"no-store",mode:"cors",signal,
-  headers:{Accept:"application/json"}
- });
- if(!reponse.ok)throw new Error("HTTP "+reponse.status);
- return reponse.json();
-}
-function extraireCollection(reponse){
- if(objet(reponse)&&reponse.disponible===true&&
-    Array.isArray(reponse.donnees))return reponse.donnees;
- return null;
-}
-function afficherCollection(reponse,listeId,statutId,type){
- const zone=$(listeId);
- zone.replaceChildren();
- const elements=extraireCollection(reponse);
- if(!elements){
-  $(statutId).textContent="Format de données non reconnu";
-  return;
+});
+
+/* COLLECTE DES COURSES DU JOUR */
+async function actualiserCandidates(){
+ const numero = ++generationCandidates;
+ const bouton = $("candidatesRefresh");
+
+ bouton.disabled = true;
+ $("candidatesStatus").textContent = "Chargement...";
+ $("candidatesDate").textContent =
+  "Dernière collecte : non renseignée";
+ $("candidatesList").replaceChildren();
+
+ try{
+  const d = await lireJSON(SOURCE_CANDIDATES,{
+   credentials:"same-origin"
+  });
+
+  if(numero !== generationCandidates) return;
+
+  if(!objet(d) ||
+     !Array.isArray(d.courses_candidates) ||
+     d.courses_candidates.length > 1000){
+   throw new Error("Format de collecte non conforme");
+  }
+
+  if(d.date !== dateParis()){
+   throw new Error(
+    "Rapport absent ou périmé pour la date du jour"
+   );
+  }
+
+  if(d.statut === "ECHEC_COLLECTE"){
+   throw new Error("La collecte a échoué");
+  }
+
+  $("candidatesDate").textContent =
+   "Collecte : "+valeur(d.recherche_a);
+
+  let total = 0;
+
+  for(const course of d.courses_candidates){
+   if(!objet(course) ||
+      typeof course.course_id !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}-R\d+-C\d+$/.test(
+       course.course_id
+      ) ||
+      !course.course_id.startsWith(d.date+"-") ||
+      course.pays_verifie !== "FR" ||
+      !Array.isArray(course.partants)){
+    continue;
+   }
+
+   const partants = course.partants.filter(p =>
+    objet(p) &&
+    Number.isSafeInteger(p.numero) &&
+    p.numero > 0 &&
+    typeof p.nom === "string" &&
+    p.nom.trim()
+   );
+
+   if(!partants.length) continue;
+
+   const actifs = partants.filter(p =>
+    p.non_partant !== true
+   );
+
+   const article = carte(
+    "🏇 "+course.course_id,
+    [
+     "Hippodrome : "+valeur(course.hippodrome),
+     "Départ (valeur source) : "+
+      valeur(course.depart_source),
+     "Distance : "+valeur(course.distance),
+     "Discipline : "+valeur(course.discipline),
+     "Chevaux identifiés : "+partants.length,
+     "Partants non déclarés non-partants : "+actifs.length,
+     "Statut : candidat à analyser",
+     "M1–M5 : analyses non vérifiées",
+     "Pari : aucun pari validé"
+    ]
+   );
+
+   $("candidatesList").append(article);
+   total++;
+  }
+
+  $("candidatesStatus").textContent =
+   total+" course(s) candidate(s) affichée(s).";
+
+  if(!total){
+   ajouter(
+    $("candidatesList"),
+    "p",
+    "Aucune course candidate exploitable dans le rapport publié.",
+    "status"
+   );
+  }
+
+ }catch(e){
+  if(numero !== generationCandidates) return;
+
+  $("candidatesList").replaceChildren();
+
+  $("candidatesStatus").textContent =
+   "Collecte indisponible : "+e.message;
+
+  ajouter(
+   $("candidatesList"),
+   "p",
+   "Le rapport quotidien doit être publié sur le site à "+
+   SOURCE_CANDIDATES+
+   ". Un artefact GitHub Actions seul ne suffit pas.",
+   "status"
+  );
+
+ }finally{
+  if(numero === generationCandidates){
+   bouton.disabled = false;
+  }
  }
- $(statutId).textContent=elements.length+" entrée(s) reçue(s)";
- elements.slice(0,30).forEach(e=>{
-  if(!objet(e))return;
-  const champs=type==="course"
-   ?["hippodrome","date","heure_depart","statut"]
-   :["moteur","statut","date_selection"];
-  const lignes=champs.filter(k=>e[k]!=null)
-   .map(k=>k+" : "+valeur(e[k]));
-  if(type==="selection"&&Array.isArray(e.classement))
-   lignes.push("Classement : "+classement(e.classement));
+}
+
+$("candidatesRefresh").addEventListener(
+ "click",
+ actualiserCandidates
+);
+
+/* MOTEURS M1 A M5 */
+function afficherMoteurs(donnees={}){
+ const zone = $("tableau-moteurs");
+ zone.replaceChildren();
+
+ NOMS.forEach(nom => {
+  const m = objet(donnees[nom])
+   ? donnees[nom]
+   : {};
+
   zone.append(carte(
-   valeur(e.course_id||e.id,type==="course"?"Course":"Sélection"),
-   lignes.length?lignes:["Détails non disponibles"]
+   nom+" — "+DEFINITIONS[nom],
+   [
+    "État : "+valeur(m.etat,"NON_CONNECTE"),
+    "Analyse disponible : "+
+     (m.analyse_disponible === true ? "Oui" : "Non"),
+    "Dernière actualisation : "+
+     valeur(m.derniere_actualisation)
+   ]
   ));
  });
 }
+
+function resetAPI(message="Non connecté"){
+ $("coursesList").replaceChildren();
+ $("selectionsList").replaceChildren();
+
+ $("coursesStatus").textContent = message;
+ $("selectionsStatus").textContent = message;
+ $("figesStatus").textContent = message;
+ $("auditsStatus").textContent = message;
+ $("coordinationStatus").textContent =
+  "Non vérifiée";
+
+ afficherMoteurs();
+}
+
+async function lireAPI(chemin,signal){
+ return lireJSON(apiBase+chemin,{
+  mode:"cors",
+  signal
+ });
+}
+
+function extraireCollection(reponse){
+ if(objet(reponse) &&
+    reponse.disponible === true &&
+    Array.isArray(reponse.donnees)){
+  return reponse.donnees;
+ }
+ return null;
+}
+
+function afficherCollection(
+ reponse,
+ listeId,
+ statutId,
+ type
+){
+ const zone = $(listeId);
+ zone.replaceChildren();
+
+ const elements = extraireCollection(reponse);
+
+ if(!elements){
+  $(statutId).textContent =
+   "Format de données non reconnu";
+  return;
+ }
+
+ $(statutId).textContent =
+  elements.length+" entrée(s) reçue(s)";
+
+ elements.slice(0,30).forEach(e => {
+  if(!objet(e)) return;
+
+  const champs = type === "course"
+   ? ["hippodrome","date","heure_depart","statut"]
+   : ["moteur","statut","date_selection"];
+
+  const lignes = champs
+   .filter(k => e[k] != null)
+   .map(k => k+" : "+valeur(e[k]));
+
+  if(type === "selection" &&
+     Array.isArray(e.classement)){
+   lignes.push(
+    "Classement : "+classement(e.classement)
+   );
+  }
+
+  zone.append(carte(
+   valeur(
+    e.course_id || e.id,
+    type === "course" ? "Course" : "Sélection"
+   ),
+   lignes.length
+    ? lignes
+    : ["Détails non disponibles"]
+  ));
+ });
+}
+
 async function actualiserAPI(){
- const numero=++generationAPI;
- if(controller)controller.abort();
- controller=new AbortController();
- const signal=controller.signal;
- const adresse=$("apiUrl").value.trim().replace(/\/+$/,"");
+ const numero = ++generationAPI;
+
+ if(controller) controller.abort();
+
+ controller = new AbortController();
+ const signal = controller.signal;
+
+ const adresse = $("apiUrl").value
+  .trim()
+  .replace(/\/+$/,"");
+
  if(!adresse){
-  apiBase="";
-  $("connexion-x1000").textContent="API non configurée";
-  $("siteStatus").textContent="Interface active. API non configurée.";
+  apiBase = "";
+  $("connexion-x1000").textContent =
+   "API non configurée";
+  $("siteStatus").textContent =
+   "Interface active. API non configurée.";
   resetAPI();
   return;
  }
+
  try{
-  const u=new URL(adresse);
-  if(u.protocol!=="https:"&&
-   !(location.protocol==="http:"&&u.protocol==="http:"))
+  const u = new URL(adresse);
+
+  const localHTTP =
+   u.protocol === "http:" &&
+   location.protocol === "http:";
+
+  if(u.protocol !== "https:" && !localHTTP){
    throw new Error("HTTPS requis");
-  if(u.username||u.password||u.search||u.hash)
+  }
+
+  if(u.username || u.password ||
+     u.search || u.hash){
    throw new Error("Adresse API non conforme");
-  apiBase=u.href.replace(/\/+$/,"");
+  }
+
+  apiBase = u.href.replace(/\/+$/,"");
+
  }catch(e){
-  $("connexion-x1000").textContent="Adresse invalide : "+e.message;
+  $("connexion-x1000").textContent =
+   "Adresse invalide : "+e.message;
   resetAPI();
   return;
  }
- $("connexion-x1000").textContent="Connexion en cours...";
+
+ $("connexion-x1000").textContent =
+  "Connexion en cours...";
+
  resetAPI("Lecture en cours...");
+
  try{
-  const status=await lireAPI("/api/status",signal);
-  if(numero!==generationAPI)return;
-  if(!objet(status)||!objet(status.moteurs))
-   throw new Error("Format de /api/status non conforme");
+  const status = await lireAPI(
+   "/api/status",
+   signal
+  );
+
+  if(numero !== generationAPI) return;
+
+  if(!objet(status) || !objet(status.moteurs)){
+   throw new Error(
+    "Format de /api/status non conforme"
+   );
+  }
+
   afficherMoteurs(status.moteurs);
-  const actifs=NOMS.filter(n=>
-   status.moteurs[n]?.etat==="OPERATIONNEL"
+
+  const actifs = NOMS.filter(n =>
+   status.moteurs[n]?.etat === "OPERATIONNEL"
   ).length;
-  $("connexion-x1000").textContent="API accessible — états reçus";
-  $("coordinationStatus").textContent=
-   actifs+"/5 moteur(s) déclarés opérationnels. Arbitrage non vérifié.";
-  $("lastCheck").textContent=
-   "Vérification : "+new Date().toLocaleString("fr-FR");
-  $("siteStatus").textContent=
+
+  $("connexion-x1000").textContent =
+   "API accessible — états reçus";
+
+  $("coordinationStatus").textContent =
+   actifs+"/5 moteur(s) déclarés opérationnels. "+
+   "Arbitrage non vérifié.";
+
+  $("lastCheck").textContent =
+   "Vérification : "+
+   new Date().toLocaleString("fr-FR");
+
+  $("siteStatus").textContent =
    "API accessible. Provenance des données à vérifier.";
 
-  const chemins=[
-   "/api/courses","/api/selections","/api/figes","/api/audits"
+  const chemins = [
+   "/api/courses",
+   "/api/selections",
+   "/api/figes",
+   "/api/audits"
   ];
-  const resultats=await Promise.allSettled(
-   chemins.map(p=>lireAPI(p,signal))
-  );
-  if(numero!==generationAPI)return;
 
-  const c=resultats[0],s=resultats[1];
-  if(c.status==="fulfilled")
-   afficherCollection(c.value,"coursesList","coursesStatus","course");
-  else{
+  const resultats = await Promise.allSettled(
+   chemins.map(p => lireAPI(p,signal))
+  );
+
+  if(numero !== generationAPI) return;
+
+  const c = resultats[0];
+  const s = resultats[1];
+
+  if(c.status === "fulfilled"){
+   afficherCollection(
+    c.value,
+    "coursesList",
+    "coursesStatus",
+    "course"
+   );
+  }else{
    $("coursesList").replaceChildren();
-   $("coursesStatus").textContent="Lecture impossible";
+   $("coursesStatus").textContent =
+    "Lecture impossible";
   }
-  if(s.status==="fulfilled")
-   afficherCollection(s.value,"selectionsList","selectionsStatus","selection");
-  else{
+
+  if(s.status === "fulfilled"){
+   afficherCollection(
+    s.value,
+    "selectionsList",
+    "selectionsStatus",
+    "selection"
+   );
+  }else{
    $("selectionsList").replaceChildren();
-   $("selectionsStatus").textContent="Lecture impossible";
+   $("selectionsStatus").textContent =
+    "Lecture impossible";
   }
+
   ["figesStatus","auditsStatus"].forEach((id,i)=>{
-   const r=resultats[i+2];
-   if(r.status!=="fulfilled"){
-    $(id).textContent="Lecture impossible";
+   const r = resultats[i+2];
+
+   if(r.status !== "fulfilled"){
+    $(id).textContent = "Lecture impossible";
    }else{
-    const d=extraireCollection(r.value);
-    $(id).textContent=d
-     ?d.length+" enregistrement(s) accessibles en lecture seule"
-     :"Format de données non reconnu";
+    const d = extraireCollection(r.value);
+    $(id).textContent = d
+     ? d.length+" enregistrement(s) accessibles en lecture seule"
+     : "Format de données non reconnu";
    }
   });
+
  }catch(e){
-  if(numero!==generationAPI||e.name==="AbortError")return;
-  $("connexion-x1000").textContent=
+  if(numero !== generationAPI ||
+     e.name === "AbortError"){
+   return;
+  }
+
+  $("connexion-x1000").textContent =
    "Connexion impossible : "+e.message;
-  $("siteStatus").textContent="Site actif, API indisponible";
+
+  $("siteStatus").textContent =
+   "Site actif, API indisponible";
+
   resetAPI();
  }
 }
-$("connectBtn").addEventListener("click",actualiserAPI);
-$("refreshBtn").addEventListener("click",actualiserAPI);
+
+$("connectBtn").addEventListener(
+ "click",
+ actualiserAPI
+);
+
+$("refreshBtn").addEventListener(
+ "click",
+ actualiserAPI
+);
 
 /* TABLEAU OFFICIEL : LECTURE SEULE */
 function afficherDecision(parent,decision,titre){
  parent.replaceChildren();
  ajouter(parent,"h3",titre);
+
  if(!objet(decision)){
-  ajouter(parent,"p","Aucune décision publiée.");
+  ajouter(
+   parent,
+   "p",
+   "Aucune décision publiée."
+  );
   return;
  }
- ajouter(parent,"p","Classement : "+classement(decision.classement));
- ajouter(parent,"p","Statut : "+valeur(decision.statut));
- ajouter(parent,"p","Pari : "+valeur(decision.pari,"Non proposé"));
- ajouter(parent,"p","Justification : "+
-  valeur(decision.justification,"Non disponible"));
- ajouter(parent,"p","Date : "+valeur(decision.date));
- if(!estClassementValide(decision.classement))
-  ajouter(parent,"p","Classement absent ou non validé.","muted");
-}
-function afficherCourseOfficielle(course){
- if(!objet(course)||typeof course.course_id!=="string"||
-    !course.course_id.trim())return false;
 
- const article=document.createElement("article");
- article.className="card";
- article.style.marginBottom="16px";
- ajouter(article,"h3","🏇 "+course.course_id);
- ajouter(article,"p","Hippodrome : "+valeur(course.hippodrome));
- ajouter(article,"p","Départ : "+
-  valeur(course.depart||course.heure_depart));
- ajouter(article,"p","Date : "+valeur(course.date));
- ajouter(article,"p","Source : "+
-  valeur(course.source,"Non vérifiée"),"muted");
+ ajouter(
+  parent,
+  "p",
+  "Classement : "+classement(decision.classement)
+ );
 
- ajouter(article,"h3","Classements indépendants M1–M5");
- const grille=document.createElement("div");
- grille.className="grid";
- NOMS.forEach(nom=>{
-  const m=objet(course.moteurs)?course.moteurs[nom]:null;
-  const lignes=objet(m)?[
-   "Classement : "+classement(m.classement),
-   "Statut : "+valeur(m.statut),
-   "Pari : "+valeur(m.pari,"Non proposé"),
-   "Analyse : "+valeur(m.analyse,"Non disponible")
-  ]:["Aucune analyse publiée."];
-  grille.append(carte("🧠 "+nom+" — "+DEFINITIONS[nom],lignes));
- });
- article.append(grille);
+ ajouter(
+  parent,
+  "p",
+  "Statut : "+valeur(decision.statut)
+ );
 
- const bloc=document.createElement("div");
- bloc.className="status";
- afficherDecision(bloc,course.arbitre_x1000,
-  "⚖️ Arbitrage central X1000");
- article.append(bloc);
- $("x1000-officiel-courses").append(article);
- return true;
-}
-async function actualiserOfficiel(){
- const numero=++generationOfficielle;
- const bouton=$("x1000-officiel-refresh");
- bouton.disabled=true;
- $("x1000-officiel-etat").textContent="Chargement...";
- $("x1000-officiel-date").textContent=
-  "Dernière publication : non renseignée";
- $("x1000-officiel-courses").replaceChildren();
- afficherDecision($("x1000-arbitre"),null,
-  "⚖️ Arbitre central X1000");
+ ajouter(
+  parent,
+  "p",
+  "Pari : "+valeur(decision.pari,"Non proposé")
+ );
 
- try{
-  const r=await fetch(SOURCE,{
-   method:"GET",cache:"no-store",credentials:"same-origin",
-   headers:{Accept:"application/json"}
-  });
-  if(!r.ok)throw new Error("HTTP "+r.status);
-  const d=await r.json();
-  if(numero!==generationOfficielle)return;
-  if(!objet(d)||!Array.isArray(d.courses))
-   throw new Error("Format JSON non conforme");
-  if(d.courses.length>500)
-   throw new Error("Nombre de courses inattendu");
+ ajouter(
+  parent,
+  "p",
+  "Justification : "+
+   valeur(decision.justification,"Non disponible")
+ );
 
-  let total=0;
-  d.courses.forEach(c=>{
-   if(afficherCourseOfficielle(c))total++;
-  });
-  if(!total)ajouter($("x1000-officiel-courses"),"p",
-   "Aucune course identifiable publiée.","status");
+ ajouter(
+  parent,
+  "p",
+  "Date : "+valeur(decision.date)
+ );
 
-  afficherDecision($("x1000-arbitre"),d.arbitre_x1000,
-   "⚖️ Arbitre central X1000");
-  $("x1000-officiel-date").textContent=
-   "Dernière publication : "+valeur(d.date_publication);
-  $("x1000-officiel-etat").textContent=
-   total+" course(s) reçue(s). Authenticité à vérifier à la source.";
- }catch(e){
-  if(numero!==generationOfficielle)return;
-  $("x1000-officiel-courses").replaceChildren();
-  $("x1000-officiel-etat").textContent=
-   "Données indisponibles : "+e.message;
-  ajouter($("x1000-officiel-courses"),"p",
-   "Le fichier pronostics-officiels.json doit être publié "+
-   "avec des données réelles vérifiées.","status");
- }finally{
-  if(numero===generationOfficielle)bouton.disabled=false;
+ if(!estClassementValide(decision.classement)){
+  ajouter(
+   parent,
+   "p",
+   "Classement absent ou non validé.",
+   "muted"
+  );
  }
 }
-$("x1000-officiel-refresh")
- .addEventListener("click",actualiserOfficiel);
 
-/* INITIALISATION */
+function afficherCourseOfficielle(course){
+ if(!objet(course) ||
+    typeof course.course_id !== "string" ||
+    !course.course_id.trim()){
+  return false;
+ }
+
+ const article = document.createElement("article");
+ article.className = "card";
+ article.style.marginBottom = "16px";
+
+ ajouter(
+  article,
+  "h3",
+  "🏇 "+course.course_id
+ );
+
+ ajouter(
+  article,
+  "p",
+  "Hippodrome : "+valeur(course.hippodrome)
+ );
+
+ ajouter(
+  article,
+  "p",
+  "Départ : "+
+   valeur(course.depart || course.heure_depart)
+ );
+
+ ajouter(
+  article,
+  "p",
+  "Date : "+valeur(course.date)
+ );
+
+ ajouter(
+  article,
+  "p",
+  "Source : "+valeur(course.source,"Non vérifiée"),
+  "muted"
+ );
+
+ ajouter(
+  article,
+  "h3",
+  "Classements indépendants M1–M5"
+ );
+
+ const grille = document.createElement("div");
+ grille.className = "grid";
+
+ NOMS.forEach(nom => {
+  const m = objet(course.moteurs)
+   ? course.moteurs[nom]
+   : null;
+
+  const lignes = objet(m)
+   ? [
+      "Classement : "+classement(m.classement),
+      "Statut : "+valeur(m.statut),
+      "Pari : "+valeur(m.pari,"Non proposé"),
+      "Analyse : "+valeur(m.analyse,"Non disponible")
+     ]
+   : ["Aucune analyse publiée."];
+
+  grille.append(
+   carte(
+    "🧠 "+nom+" — "+DEFINITIONS[nom],
+    lignes
+   )
+  );
+ });
+
+ article.append(grille);
+
+ const bloc = document.createElement("div");
+ bloc.className = "status";
+
+ afficherDecision(
+  bloc,
+  course.arbitre_x1000,
+  "⚖️ Arbitrage central X1000"
+ );
+
+ article.append(bloc);
+
+ $("x1000-officiel-courses").append(article);
+
+ return true;
+}
+
+async function actualiserOfficiel(){
+ const numero = ++generationOfficielle;
+ const bouton = $("x1000-officiel-refresh");
+
+ bouton.disabled = true;
+
+ $("x1000-officiel-etat").textContent =
+  "Chargement...";
+
+ $("x1000-officiel-date").textContent =
+  "Dernière publication : non renseignée";
+
+ $("x1000-officiel-courses").replaceChildren();
+
+ afficherDecision(
+  $("x1000-arbitre"),
+  null,
+  "⚖️ Arbitre central X1000"
+ );
+
+ try{
+  const d = await lireJSON(SOURCE,{
+   credentials:"same-origin"
+  });
+
+  if(numero !== generationOfficielle) return;
+
+  if(!objet(d) || !Array.isArray(d.courses)){
+   throw new Error("Format JSON non conforme");
+  }
+
+  if(d.courses.length > 500){
+   throw new Error(
+    "Nombre de courses inattendu"
+   );
+  }
+
+  let total = 0;
+
+  d.courses.forEach(c => {
+   if(afficherCourseOfficielle(c)){
+    total++;
+   }
+  });
+
+  if(!total){
+   ajouter(
+    $("x1000-officiel-courses"),
+    "p",
+    "Aucune course identifiable publiée.",
+    "status"
+   );
+  }
+
+  afficherDecision(
+   $("x1000-arbitre"),
+   d.arbitre_x1000,
+   "⚖️ Arbitre central X1000"
+  );
+
+  $("x1000-officiel-date").textContent =
+   "Dernière publication : "+
+   valeur(d.date_publication);
+
+  $("x1000-officiel-etat").textContent =
+   total+" course(s) reçue(s). "+
+   "Authenticité à vérifier à la source.";
+
+ }catch(e){
+  if(numero !== generationOfficielle) return;
+
+  $("x1000-officiel-courses").replaceChildren();
+
+  $("x1000-officiel-etat").textContent =
+   "Données indisponibles : "+e.message;
+
+  ajouter(
+   $("x1000-officiel-courses"),
+   "p",
+   "Le fichier pronostics-officiels.json doit être "+
+   "publié avec des données réelles vérifiées. "+
+   "Aucun pronostic fictif n'est affiché.",
+   "status"
+  );
+
+ }finally{
+  if(numero === generationOfficielle){
+   bouton.disabled = false;
+  }
+ }
+}
+
+$("x1000-officiel-refresh").addEventListener(
+ "click",
+ actualiserOfficiel
+);
+
+/* DEMARRAGE DE L'INTERFACE */
 afficherMoteurs();
 filtrerPrincipes();
 majHaut();
+actualiserCandidates();
 actualiserOfficiel();
 
 })();
 </script>
+
 </body>
 </html>
