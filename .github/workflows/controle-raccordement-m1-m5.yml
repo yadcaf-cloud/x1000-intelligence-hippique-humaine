@@ -1,0 +1,119 @@
+name: "X1000 - Controle raccordement M1-M5"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-controle-moteurs-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  controle-moteurs:
+    name: "Validation PMU et moteurs M1-M5"
+
+    if: >-
+      github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
+      github.ref_name == 'fix/audit-general-pmu-20261118'
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Recuperer la branche
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Installer Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verifier les fichiers
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for fichier in \
+            collecte_pmu.py \
+            adapter_collecte_tableau.py \
+            preparer_site_pmu.py \
+            verifier_raccordement_moteurs.py \
+            index.html \
+            tableau-pmu.html
+          do
+            test -s "$fichier" || {
+              echo "::error::Fichier absent: $fichier"
+              exit 1
+            }
+          done
+
+          echo "FICHIERS_OK"
+
+      - name: Verifier syntaxe Python
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+
+          fichiers = [
+              "collecte_pmu.py",
+              "adapter_collecte_tableau.py",
+              "preparer_site_pmu.py",
+              "verifier_raccordement_moteurs.py",
+          ]
+
+          for fichier in fichiers:
+              ast.parse(
+                  Path(fichier).read_text(encoding="utf-8"),
+                  filename=fichier
+              )
+              print("SYNTAXE_OK:", fichier)
+          PY
+
+      - name: Collecter les courses PMU
+        shell: bash
+        run: |
+          set -euo pipefail
+          python collecte_pmu.py
+
+      - name: Adapter les courses
+        shell: bash
+        run: |
+          set -euo pipefail
+          python adapter_collecte_tableau.py
+
+      - name: Verifier raccordement M1-M5
+        shell: bash
+        run: |
+          set -euo pipefail
+          python verifier_raccordement_moteurs.py
+
+      - name: Preparer le site controle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python preparer_site_pmu.py
+
+          test -s site_pmu/data/publication_courses.json
+          test -s site_pmu/data/publication_moteurs.json
+          test -s site_pmu/index.html
+          test -s site_pmu/tableau-pmu.html
+
+          echo "SITE_PREPARE_OK"
+
+      - name: Rapport final
+        shell: bash
+        run: |
+          echo "CONTROLES_TERMINES"
+          echo "AUCUN_COMMIT"
+          echo "AUCUN_PUSH"
+          echo "AUCUN_DEPLOIEMENT"
+          echo "AUCUN_FIGE_MODIFIE"
+          echo "AUCUNE_ARCHIVE_MODIFIEE"
