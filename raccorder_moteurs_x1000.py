@@ -1,30 +1,16 @@
 #!/usr/bin/env python3
-"""X1000 - Raccordement controle M1-M5 et arbitre.
+"""X1000 - Raccordement controle des decisions M1-M5 et X1000.
 
-Lecture seule des decisions existantes.
-Aucune simulation, aucun pronostic invente.
-Aucun FIGE, archive ou historique modifie.
-Aucun commit, push ou deploiement.
-
-Entrees :
-  sortie/publication_courses.json
-  X1000_ENTREES_MOTEURS/M1.json ... M5.json
-  X1000_ENTREES_MOTEURS/X1000.json
-
-Sortie :
-  sortie/publication_moteurs.json
-
-La sortie n'est creee que si toutes les
-verifications sont satisfaites.
+Sources existantes uniquement. Aucun calcul de pronostic, aucun FIGE,
+aucune modification d'archives, aucun commit/push/deploiement.
+La publication est creee exclusivement si elle n'existe pas deja.
 """
-
 import json
 import os
 import re
 import sys
 import tempfile
-
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -32,377 +18,190 @@ ROOT = Path(__file__).resolve().parent
 PARIS = ZoneInfo("Europe/Paris")
 NOW = datetime.now(PARIS)
 TODAY = NOW.date().isoformat()
-
 COURSES = ROOT / "sortie/publication_courses.json"
-ENTREES = Path(
-    os.environ.get(
-        "X1000_ENTREES_MOTEURS",
-        str(ROOT / "entrees_moteurs")
-    )
-).resolve()
-
+ENTREES = Path(os.environ.get("X1000_ENTREES_MOTEURS", str(ROOT / "entrees_moteurs"))).resolve()
 DEST = ROOT / "sortie/publication_moteurs.json"
-
 MOTEURS = ("M1", "M2", "M3", "M4", "M5")
+SOURCES = (*MOTEURS, "X1000")
+ID_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-R[1-9]\d*-C[1-9]\d*$")
+TOLERANCE = timedelta(minutes=5)
 
-ID_RE = re.compile(
-    r"^\d{4}-\d{2}-\d{2}-R[1-9]\d*-C[1-9]\d*$"
-)
 
-
-def erreur(message):
-    raise RuntimeError(message)
+def exiger(condition, message):
+    if not condition:
+        raise ValueError(message)
 
 
 def lire(path):
-    if not path.is_file():
-        erreur(f"SOURCE_ABSENTE: {path}")
-
-    if not path.stat().st_size:
-        erreur(f"SOURCE_VIDE: {path}")
-
+    exiger(path.is_file(), f"SOURCE_ABSENTE: {path}")
+    exiger(path.stat().st_size > 0, f"SOURCE_VIDE: {path}")
     try:
-        data = json.loads(
-            path.read_text(encoding="utf-8")
-        )
+        document = json.loads(path.read_text(encoding="utf-8"))
     except (ValueError, UnicodeError) as exc:
-        erreur(f"JSON_INVALIDE: {path}: {exc}")
-
-    if not isinstance(data, dict):
-        erreur(f"FORMAT_INVALIDE: {path}")
-
-    return data
+        raise ValueError(f"JSON_INVALIDE: {path}: {exc}") from exc
+    exiger(isinstance(document, dict), f"OBJET_ATTENDU: {path}")
+    return document
 
 
-def date_valide(value):
-    if not isinstance(value, str):
-        return False
-
+def date_heure(value, contexte, future_interdite=False):
+    exiger(isinstance(value, str) and bool(value.strip()), f"DATE_ABSENTE: {contexte}")
     try:
-        dt = datetime.fromisoformat(
-            value.replace("Z", "+00:00")
-        )
-    except ValueError:
-        return False
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"DATE_INVALIDE: {contexte}") from exc
+    exiger(dt.tzinfo is not None and dt.utcoffset() is not None,
+           f"FUSEAU_ABSENT: {contexte}")
+    dt = dt.astimezone(PARIS)
+    exiger(dt.date().isoformat() == TODAY, f"DATE_HORS_JOUR: {contexte}")
+    if future_interdite:
+        exiger(dt <= NOW + TOLERANCE, f"DATE_FUTURE: {contexte}")
+    return dt
 
-    return (
-        dt.tzinfo is not None
-        and dt.astimezone(PARIS).date().isoformat()
-        == TODAY
-    )
+
+def verifier_courses():
+    doc = lire(COURSES)
+    exiger(doc.get("schema") == "x1000-pmu-france-v1", "SCHEMA_PMU_INVALIDE")
+    exiger(doc.get("date_pmu") == TODAY, "DATE_PMU_OBSOLETE")
+    exiger(doc.get("source") == "PMU TurfInfo", "SOURCE_PMU_INVALIDE")
+    liste = doc.get("courses")
+    exiger(isinstance(liste, list) and bool(liste), "AUCUNE_COURSE_PMU")
+    resultat = {}
+    for course in liste:
+        exiger(isinstance(course, dict), "COURSE_MAL_FORMEE")
+        cid = course.get("course_id")
+        exiger(isinstance(cid, str) and ID_RE.fullmatch(cid) is not None,
+               f"COURSE_ID_INVALIDE: {cid}")
+        exiger(cid.startswith(TODAY + "-") and cid not in resultat,
+               f"COURSE_DATE_OU_DOUBLON: {cid}")
+        exiger(course.get("pays_verifie") == "FR", f"HORS_FRANCE: {cid}")
+        hippodrome = course.get("hippodrome")
+        exiger(isinstance(hippodrome, str) and hippodrome.strip(),
+               f"HIPPODROME_ABSENT: {cid}")
+        depart = date_heure(course.get("depart"), f"DEPART {cid}")
+        partants = course.get("partants")
+        exiger(isinstance(partants, list) and bool(partants), f"PARTANTS_ABSENTS: {cid}")
+        numeros, actifs = set(), set()
+        for cheval in partants:
+            exiger(isinstance(cheval, dict), f"PARTANT_INVALIDE: {cid}")
+            numero = cheval.get("numero")
+            exiger(type(numero) is int and numero > 0 and numero not in numeros,
+                   f"NUMERO_PARTANT_INVALIDE: {cid}")
+            numeros.add(numero)
+            exiger(isinstance(cheval.get("nom"), str) and cheval["nom"].strip(),
+                   f"NOM_PARTANT_ABSENT: {cid}")
+            exiger(type(cheval.get("non_partant")) is bool,
+                   f"STATUT_PARTANT_INVALIDE: {cid}")
+            if not cheval["non_partant"]:
+                actifs.add(numero)
+        resultat[cid] = {"hippodrome": hippodrome.strip(), "depart": depart,
+                         "actifs": actifs}
+    return resultat
 
 
-def verifier_classement(decision, actifs, contexte):
+def lire_sorties(nom):
+    doc = lire(ENTREES / f"{nom}.json")
+    exiger(doc.get("moteur") == nom, f"IDENTITE_SOURCE_INVALIDE: {nom}")
+    decisions = doc.get("decisions")
+    exiger(isinstance(decisions, list), f"DECISIONS_ABSENTES: {nom}")
+    resultat = {}
+    for decision in decisions:
+        exiger(isinstance(decision, dict), f"DECISION_MAL_FORMEE: {nom}")
+        cid = decision.get("course_id")
+        exiger(isinstance(cid, str) and ID_RE.fullmatch(cid) is not None,
+               f"COURSE_ID_INVALIDE: {nom}: {cid}")
+        exiger(cid not in resultat, f"DECISION_DUPLIQUEE: {nom}: {cid}")
+        resultat[cid] = decision
+    return resultat
+
+
+def verifier_decision(decision, cid, course, nom):
+    contexte = f"{nom} {cid}"
+    exiger(decision.get("course_id") == cid, f"COURSE_INCOHERENTE: {contexte}")
     classement = decision.get("classement")
-
-    if not isinstance(classement, list):
-        erreur(f"CLASSEMENT_ABSENT: {contexte}")
-
-    if len(classement) != 5:
-        erreur(f"CLASSEMENT_NON_CINQ: {contexte}")
-
-    if any(
-        type(numero) is not int or numero <= 0
-        for numero in classement
-    ):
-        erreur(f"NUMERO_INVALIDE: {contexte}")
-
-    if len(set(classement)) != 5:
-        erreur(f"DOUBLON_CLASSEMENT: {contexte}")
-
-    if not set(classement).issubset(actifs):
-        erreur(f"CHEVAL_NON_PARTANT: {contexte}")
-
-    return classement
-
-
-def verifier_decision(data, cid, actifs, origine):
-    if data.get("course_id") != cid:
-        erreur(f"COURSE_INCOHERENTE: {origine}")
-
-    classement = verifier_classement(
-        data, actifs, origine
-    )
-
-    analyse = data.get("analyse")
-
-    if not isinstance(analyse, str):
-        erreur(f"ANALYSE_ABSENTE: {origine}")
-
-    if len(analyse.strip()) < 30:
-        erreur(f"ANALYSE_INSUFFISANTE: {origine}")
-
-    source = data.get("source")
-
-    if not isinstance(source, str) or not source.strip():
-        erreur(f"PROVENANCE_ABSENTE: {origine}")
-
-    date = data.get("date")
-
-    if not date_valide(date):
-        erreur(f"HORODATAGE_INVALIDE: {origine}")
-
-    statut = data.get("statut")
-
-    if not isinstance(statut, str) or not statut.strip():
-        erreur(f"STATUT_ABSENT: {origine}")
-
-    pari = data.get("pari")
-
-    if pari is not None and not isinstance(pari, str):
-        erreur(f"PARI_INVALIDE: {origine}")
-
+    exiger(isinstance(classement, list) and len(classement) == 5,
+           f"CLASSEMENT_NON_CINQ: {contexte}")
+    exiger(all(type(n) is int and n > 0 for n in classement),
+           f"NUMERO_INVALIDE: {contexte}")
+    exiger(len(set(classement)) == 5, f"DOUBLON_CLASSEMENT: {contexte}")
+    exiger(set(classement).issubset(course["actifs"]),
+           f"CHEVAL_NON_PARTANT: {contexte}")
+    analyse = decision.get("analyse")
+    exiger(isinstance(analyse, str) and len(analyse.strip()) >= 30,
+           f"ANALYSE_INSUFFISANTE: {contexte}")
+    source = decision.get("source")
+    exiger(isinstance(source, str) and source.strip(),
+           f"PROVENANCE_ABSENTE: {contexte}")
+    date = date_heure(decision.get("date"), contexte, future_interdite=True)
+    exiger(date.astimezone(timezone.utc) < course["depart"].astimezone(timezone.utc),
+           f"DECISION_APRES_DEPART: {contexte}")
+    statut = decision.get("statut")
+    exiger(isinstance(statut, str) and statut.strip(), f"STATUT_ABSENT: {contexte}")
+    pari = decision.get("pari")
+    exiger(pari is None or isinstance(pari, str), f"PARI_INVALIDE: {contexte}")
     return {
         "classement": classement,
         "analyse": analyse.strip(),
         "justification": analyse.strip(),
         "source": source.strip(),
-        "date": date,
+        "date": date.isoformat(),
         "statut": statut.strip(),
         "pari": pari.strip() if pari else None,
     }
 
 
-def verifier_courses():
-    document = lire(COURSES)
-
-    if document.get("schema") != "x1000-pmu-france-v1":
-        erreur("SCHEMA_PMU_INVALIDE")
-
-    if document.get("date_pmu") != TODAY:
-        erreur("DATE_PMU_OBSOLETE")
-
-    if document.get("source") != "PMU TurfInfo":
-        erreur("SOURCE_PMU_INVALIDE")
-
-    liste = document.get("courses")
-
-    if not isinstance(liste, list) or not liste:
-        erreur("AUCUNE_COURSE_PMU")
-
-    resultat = {}
-
-    for course in liste:
-        if not isinstance(course, dict):
-            erreur("COURSE_MAL_FORMEE")
-
-        cid = course.get("course_id")
-
-        if not isinstance(cid, str):
-            erreur("ID_COURSE_ABSENT")
-
-        if not ID_RE.fullmatch(cid):
-            erreur(f"ID_COURSE_INVALIDE: {cid}")
-
-        if cid[:10] != TODAY or cid in resultat:
-            erreur(f"DATE_OU_DOUBLON: {cid}")
-
-        if course.get("pays_verifie") != "FR":
-            erreur(f"HORS_FRANCE: {cid}")
-
-        if not course.get("hippodrome"):
-            erreur(f"HIPPODROME_ABSENT: {cid}")
-
-        depart = course.get("depart")
-
-        if not date_valide(depart):
-            erreur(f"DEPART_INVALIDE: {cid}")
-
-        partants = course.get("partants")
-
-        if not isinstance(partants, list) or not partants:
-            erreur(f"PARTANTS_ABSENTS: {cid}")
-
-        actifs = set()
-        numeros = set()
-
-        for cheval in partants:
-            if not isinstance(cheval, dict):
-                erreur(f"PARTANT_MAL_FORME: {cid}")
-
-            numero = cheval.get("numero")
-
-            if type(numero) is not int or numero <= 0:
-                erreur(f"NUMERO_INVALIDE: {cid}")
-
-            if numero in numeros:
-                erreur(f"DOUBLON_PARTANT: {cid}")
-
-            numeros.add(numero)
-
-            if not isinstance(cheval.get("nom"), str):
-                erreur(f"NOM_ABSENT: {cid}")
-
-            if not cheval["nom"].strip():
-                erreur(f"NOM_VIDE: {cid}")
-
-            if type(cheval.get("non_partant")) is not bool:
-                erreur(f"STATUT_PARTANT_INVALIDE: {cid}")
-
-            if not cheval["non_partant"]:
-                actifs.add(numero)
-
-        if len(actifs) < 5:
-            print("COURSE_NON_ELIGIBLE_TOP5:", cid)
-            continue
-
-        resultat[cid] = {
-            "hippodrome": course["hippodrome"],
-            "depart": depart,
-            "actifs": actifs,
-        }
-
-    if not resultat:
-        erreur("AUCUNE_COURSE_ELIGIBLE")
-
-    return resultat
-
-
-def lire_sorties(nom):
-    path = ENTREES / f"{nom}.json"
-    data = lire(path)
-
-    if data.get("moteur") != nom:
-        erreur(f"IDENTITE_SOURCE_INVALIDE: {nom}")
-
-    decisions = data.get("decisions")
-
-    if not isinstance(decisions, list):
-        erreur(f"DECISIONS_ABSENTES: {nom}")
-
-    resultat = {}
-
-    for decision in decisions:
-        if not isinstance(decision, dict):
-            erreur(f"DECISION_MAL_FORMEE: {nom}")
-
-        cid = decision.get("course_id")
-
-        if not isinstance(cid, str):
-            erreur(f"COURSE_ID_ABSENT: {nom}")
-
-        if cid in resultat:
-            erreur(f"DECISION_DUPLIQUEE: {nom}: {cid}")
-
-        resultat[cid] = decision
-
-    return resultat
-
-
 def construire():
     courses = verifier_courses()
-
-    sources = {
-        nom: lire_sorties(nom)
-        for nom in MOTEURS
-    }
-
-    arbitrages = lire_sorties("X1000")
-
-    # Les six sources doivent correspondre
-    # exactement aux memes courses.
-    ensembles = [
-        set(decisions)
-        for decisions in (
-            *sources.values(),
-            arbitrages,
-        )
-    ]
-
-    reference = ensembles[0]
-
-    if not reference:
-        erreur("AUCUNE_DECISION_REELLE")
-
-    if any(ids != reference for ids in ensembles):
-        erreur("SOURCES_MOTEURS_NON_ALIGNEES")
-
-    if not reference.issubset(courses):
-        erreur("COURSE_NON_VERIFIEE")
-
+    sources = {nom: lire_sorties(nom) for nom in SOURCES}
+    ids = set.intersection(*(set(decisions) for decisions in sources.values()))
+    ids &= set(courses)
+    exiger(bool(ids), "AUCUNE_COURSE_AVEC_SIX_DECISIONS")
+    for cid in sorted(set.union(*(set(d) for d in sources.values())) - ids):
+        print("COURSE_NON_PUBLIEE_SOURCES_INCOMPLETES_OU_NON_VERIFIEES:", cid)
     publications = []
-
-    for cid in sorted(reference):
+    for cid in sorted(ids):
         course = courses[cid]
-        actifs = course["actifs"]
-
-        moteurs = {}
-
-        for nom in MOTEURS:
-            moteurs[nom] = verifier_decision(
-                sources[nom][cid],
-                cid,
-                actifs,
-                nom
-            )
-
-        arbitre = verifier_decision(
-            arbitrages[cid],
-            cid,
-            actifs,
-            "X1000"
-        )
-
+        if len(course["actifs"]) < 5:
+            print("COURSE_NON_PUBLIEE_MOINS_DE_CINQ_PARTANTS:", cid)
+            continue
+        moteurs = {nom: verifier_decision(sources[nom][cid], cid, course, nom)
+                   for nom in MOTEURS}
+        arbitre = verifier_decision(sources["X1000"][cid], cid, course, "X1000")
         publications.append({
             "course_id": cid,
             "hippodrome": course["hippodrome"],
-            "depart": course["depart"],
+            "depart": course["depart"].isoformat(),
             "moteurs": moteurs,
             "arbitre_x1000": arbitre,
         })
-
-    # Le tableau officiel attend une liste
-    # courses et un arbitre central racine.
-    # Aucun arbitrage global n'est deduit
-    # automatiquement des decisions par course.
-    document = {
+    exiger(bool(publications), "AUCUNE_PUBLICATION_ELIGIBLE")
+    publie_a = datetime.now(PARIS)
+    for item in publications:
+        for nom, decision in (*item["moteurs"].items(), ("X1000", item["arbitre_x1000"])):
+            dt = datetime.fromisoformat(decision["date"])
+            exiger(dt <= publie_a + TOLERANCE,
+                   f"DECISION_POSTERIEURE_PUBLICATION: {nom} {item['course_id']}")
+    return {
         "schema": "x1000-moteurs-v1",
         "date_pmu": TODAY,
-        "publie_a": NOW.isoformat(),
+        "publie_a": publie_a.isoformat(),
         "source": "Sorties M1-M5 et X1000 fournies",
         "courses": publications,
         "arbitre_x1000": None,
     }
 
-    return document
-
 
 def enregistrer(document):
-    DEST.parent.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    # Protection : aucune publication existante
-    # n'est remplacee automatiquement.
-    if DEST.exists():
-        erreur(
-            "DESTINATION_EXISTANTE: "
-            "remplacement automatique interdit"
-        )
-
-    contenu = json.dumps(
-        document,
-        ensure_ascii=False,
-        indent=2
-    ) + "\n"
-
-    # Fichier temporaire dans le meme dossier.
-    fd, nom = tempfile.mkstemp(
-        prefix=".x1000-moteurs-",
-        suffix=".tmp",
-        dir=str(DEST.parent)
-    )
-
+    DEST.parent.mkdir(parents=True, exist_ok=True)
+    exiger(not DEST.exists(), f"DESTINATION_EXISTANTE: {DEST}")
+    contenu = json.dumps(document, ensure_ascii=False, indent=2) + "\n"
+    fd, temporaire = tempfile.mkstemp(prefix=".x1000-moteurs-", suffix=".tmp",
+                                     dir=str(DEST.parent))
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(contenu)
-
-        # Creation exclusive : ne remplace jamais
-        # un fichier deja present.
-        os.link(nom, DEST)
+        with os.fdopen(fd, "w", encoding="utf-8") as fichier:
+            fichier.write(contenu)
+        os.link(temporaire, DEST)
     finally:
-        Path(nom).unlink(missing_ok=True)
+        Path(temporaire).unlink(missing_ok=True)
 
 
 def main():
@@ -410,22 +209,19 @@ def main():
     print("DATE:", TODAY)
     print("ENTREES:", ENTREES)
     print("DESTINATION:", DEST)
-
     document = construire()
     enregistrer(document)
-
-    print("COURSES:", len(document["courses"]))
-    print("M1_M5_ET_X1000_STRUCTURE_VALIDEE")
-    print("AUCUNE_DECISION_INVENTEE")
-    print("FIGES_NON_AUTHENTIFIES")
-    print("AUCUN_DEPLOIEMENT")
-    print("AUCUN_COMMIT_OU_PUSH")
-    print("RACCORDEMENT_JSON_PREPARE")
+    print("COURSES_PUBLIEES:", len(document["courses"]))
+    print("STRUCTURE_ET_CHRONOLOGIE_VALIDEES")
+    print("PROVENANCE_DECLAREE_NON_AUTHENTIFIEE")
+    print("AUCUN_PRONOSTIC_INVENTE")
+    print("AUCUN_FIGE_OU_ARCHIVE_MODIFIE")
+    print("AUCUN_COMMIT_PUSH_DEPLOIEMENT")
 
 
 if __name__ == "__main__":
     try:
         main()
-    except Exception as exc:
+    except (ValueError, OSError) as exc:
         print("ECHEC_RACCORDEMENT:", exc, file=sys.stderr)
         sys.exit(1)
