@@ -6,232 +6,563 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: x1000-sources-moteurs-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   diagnostic:
-    name: "Verifier moteurs et coordination"
+    name: "Audit statique M1-M5 et coordination"
     if: >-
       github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
-      github.ref_name == 'fix/audit-general-pmu-20261118'
+      github.ref == 'refs/heads/fix/audit-general-pmu-20261118' &&
+      github.event_name == 'workflow_dispatch'
 
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONNOUSERSITE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONUTF8: "1"
+      GH_TOKEN: ${{ github.token }}
 
     steps:
-      - name: Recuperer la branche
+      - name: Recuperer la branche autorisee
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 1
 
-      - name: Installer Python
+      - name: Installer Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Diagnostiquer les sources reelles
-        shell: bash
+      - name: Verifier depot et branche
         run: |
           set -euo pipefail
 
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
+
+          test "$GITHUB_REF" = \
+            "refs/heads/fix/audit-general-pmu-20261118"
+
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+
+          echo "BRANCHE_AUTORISEE"
+
+      - name: Diagnostiquer les sources reelles
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/x1000-sources"
+
           python - <<'PY'
           import ast
+          import base64
+          import binascii
+          import hashlib
           import json
+          import os
+          import urllib.parse
           import urllib.request
+          from datetime import datetime, timezone
           from pathlib import Path
 
-          sources = {
-              "M1": (
-                  "x1000-intelligence-hippique-v2",
-                  "m1.py"
-              ),
-              "M2": (
-                  "x1000-intelligence-hippique-v2",
-                  "m2.py"
-              ),
-              "M3": (
-                  "x1000-intelligence-hippique-v2",
-                  "m3.py"
-              ),
-              "M4": (
-                  "x1000-intelligence-hippique-v2",
-                  "m4.py"
-              ),
-              "M5": (
-                  "x1000-intelligence-hippique-v2",
-                  "m5.py"
-              ),
+          OWNER = "yadcaf-cloud"
+          MAX_BYTES = 2_000_000
+
+          DEST = (
+              Path(os.environ["RUNNER_TEMP"])
+              / "x1000-sources"
+              / "diagnostic-x1000.json"
+          )
+
+          SOURCES = {
+              "M1": ("x1000-intelligence-hippique-v2", "m1.py"),
+              "M2": ("x1000-intelligence-hippique-v2", "m2.py"),
+              "M3": ("x1000-intelligence-hippique-v2", "m3.py"),
+              "M4": ("x1000-intelligence-hippique-v2", "m4.py"),
+              "M5": ("x1000-intelligence-hippique-v2", "m5.py"),
               "NOYAU": (
                   "x1000-intelligence-hippique-v2",
-                  "noyau_commun.py"
+                  "noyau_commun.py",
               ),
               "X1000": (
                   "x1000-pmu-courses",
-                  "coordination_x1000.py"
+                  "coordination_x1000.py",
               ),
               "INTEGRATION": (
                   "x1000-pmu-courses",
-                  "integration_x1000.py"
+                  "integration_x1000.py",
               ),
           }
 
-          rapport = {
-              "controle": "LECTURE_SEULE",
-              "sources": {},
-              "publication_autorisee": False,
-              "deploiement_autorise": False,
-          }
+          def api_json(url):
+              headers = {
+                  "Accept": "application/vnd.github+json",
+                  "User-Agent": "X1000-Source-Audit/2.0",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              }
 
-          for nom, (depot, fichier) in sources.items():
-              url = (
-                  "https://raw.githubusercontent.com/"
-                  "yadcaf-cloud/"
-                  + depot
-                  + "/HEAD/"
-                  + fichier
+              token = os.environ.get("GH_TOKEN")
+              if token:
+                  headers["Authorization"] = f"Bearer {token}"
+
+              req = urllib.request.Request(
+                  url, headers=headers
               )
 
+              with urllib.request.urlopen(
+                  req, timeout=20
+              ) as response:
+                  if response.status != 200:
+                      raise RuntimeError(
+                          f"HTTP_{response.status}"
+                      )
+
+                  if response.geturl() != url:
+                      raise RuntimeError(
+                          "REDIRECTION_INATTENDUE"
+                      )
+
+                  raw = response.read(MAX_BYTES + 1)
+
+              if len(raw) > MAX_BYTES:
+                  raise RuntimeError(
+                      "REPONSE_API_TROP_VOLUMINEUSE"
+                  )
+
+              data = json.loads(raw.decode("utf-8"))
+
+              if not isinstance(data, dict):
+                  raise ValueError("REPONSE_API_INVALIDE")
+
+              return data
+
+          def url_api(depot, chemin=""):
+              return (
+                  f"https://api.github.com/repos/"
+                  f"{OWNER}/{depot}{chemin}"
+              )
+
+          def revision_depot(depot):
+              meta = api_json(url_api(depot))
+              branche = meta.get("default_branch")
+
+              if not isinstance(branche, str) or not branche:
+                  raise ValueError("BRANCHE_DEFAUT_ABSENTE")
+
+              branche_url = urllib.parse.quote(
+                  branche, safe=""
+              )
+
+              detail = api_json(
+                  url_api(
+                      depot,
+                      f"/branches/{branche_url}",
+                  )
+              )
+
+              commit = detail.get("commit")
+
+              if not isinstance(commit, dict):
+                  raise ValueError("COMMIT_ABSENT")
+
+              sha = commit.get("sha")
+
+              if (
+                  not isinstance(sha, str)
+                  or len(sha) != 40
+                  or any(
+                      c not in "0123456789abcdef"
+                      for c in sha.lower()
+                  )
+              ):
+                  raise ValueError("SHA_COMMIT_INVALIDE")
+
+              return branche, sha
+
+          def lire_source(depot, fichier, revision):
+              chemin = urllib.parse.quote(
+                  fichier, safe="/"
+              )
+
+              url = url_api(
+                  depot,
+                  f"/contents/{chemin}?ref={revision}",
+              )
+
+              data = api_json(url)
+
+              if data.get("type") != "file":
+                  raise ValueError("SOURCE_NON_FICHIER")
+
+              if data.get("encoding") != "base64":
+                  raise ValueError("ENCODAGE_INATTENDU")
+
+              contenu = data.get("content")
+
+              if not isinstance(contenu, str):
+                  raise ValueError("CONTENU_ABSENT")
+
+              try:
+                  raw = base64.b64decode(
+                      "".join(contenu.split()),
+                      validate=True,
+                  )
+              except binascii.Error as exc:
+                  raise ValueError(
+                      "BASE64_INVALIDE"
+                  ) from exc
+
+              if len(raw) > MAX_BYTES:
+                  raise ValueError("SOURCE_TROP_VOLUMINEUSE")
+
+              if (
+                  type(data.get("size")) is not int
+                  or data["size"] != len(raw)
+              ):
+                  raise ValueError("TAILLE_INCOHERENTE")
+
+              blob = hashlib.sha1(
+                  f"blob {len(raw)}\0".encode() + raw
+              ).hexdigest()
+
+              if blob != data.get("sha"):
+                  raise ValueError("SHA_BLOB_INCOHERENT")
+
+              return raw, blob
+
+          rapport = {
+              "schema": "x1000-diagnostic-sources-v3",
+              "controle": "LECTURE_SEULE",
+              "controle_a": datetime.now(
+                  timezone.utc
+              ).isoformat(),
+              "branche_diagnostic": os.environ.get(
+                  "GITHUB_REF_NAME"
+              ),
+              "depots": {},
+              "sources": {},
+              "adaptateur": {},
+              "sources_attendues": len(SOURCES),
+              "sources_accessibles": 0,
+              "sources_syntaxe_valide": 0,
+              "sources_sorties_identifiees": False,
+              "moteurs_operationnels_verifies": False,
+              "raccordement_reel_verifie": False,
+              "pronostics_authentifies": False,
+              "figes_authentifies": False,
+              "publication_autorisee": False,
+              "deploiement_autorise": False,
+              "anomalies": [],
+          }
+
+          revisions = {}
+
+          for depot in sorted({
+              valeur[0] for valeur in SOURCES.values()
+          }):
+              try:
+                  branche, sha = revision_depot(depot)
+                  revisions[depot] = sha
+
+                  rapport["depots"][depot] = {
+                      "accessible": True,
+                      "branche_par_defaut": branche,
+                      "commit_sha": sha,
+                  }
+
+              except Exception as exc:
+                  message = (
+                      f"DEPOT {depot}: "
+                      f"{type(exc).__name__}: {exc}"
+                  )
+
+                  rapport["depots"][depot] = {
+                      "accessible": False,
+                      "erreur": message,
+                  }
+                  rapport["anomalies"].append(message)
+
+          for nom, (depot, fichier) in SOURCES.items():
               resultat = {
                   "depot": depot,
                   "fichier": fichier,
+                  "commit_sha": revisions.get(depot),
                   "accessible": False,
                   "syntaxe_valide": False,
+                  "execution_verifiee": False,
               }
 
               try:
-                  req = urllib.request.Request(
-                      url,
-                      headers={
-                          "User-Agent": "X1000-Diagnostic"
-                      }
+                  if depot not in revisions:
+                      raise RuntimeError(
+                          "REVISION_DEPOT_INDISPONIBLE"
+                      )
+
+                  raw, blob = lire_source(
+                      depot,
+                      fichier,
+                      revisions[depot],
                   )
 
-                  with urllib.request.urlopen(
-                      req, timeout=15
-                  ) as reponse:
-                      contenu = reponse.read(
-                          2_000_001
-                      )
+                  resultat["accessible"] = True
+                  resultat["blob_sha"] = blob
+                  resultat["sha256"] = hashlib.sha256(
+                      raw
+                  ).hexdigest()
+                  resultat["taille_octets"] = len(raw)
 
-                  if len(contenu) > 2_000_000:
-                      raise ValueError(
-                          "SOURCE_TROP_VOLUMINEUSE"
-                      )
+                  rapport["sources_accessibles"] += 1
 
-                  code = contenu.decode("utf-8")
-                  arbre = ast.parse(code)
+                  arbre = ast.parse(
+                      raw.decode("utf-8-sig"),
+                      filename=fichier,
+                  )
 
-                  fonctions = sorted({
+                  resultat["syntaxe_valide"] = True
+                  rapport["sources_syntaxe_valide"] += 1
+
+                  resultat["fonctions"] = sorted({
                       node.name
                       for node in arbre.body
                       if isinstance(
                           node,
-                          (ast.FunctionDef,
-                           ast.AsyncFunctionDef)
+                          (ast.FunctionDef, ast.AsyncFunctionDef),
                       )
                   })
 
-                  resultat.update({
-                      "accessible": True,
-                      "syntaxe_valide": True,
-                      "fonctions": fonctions,
+                  resultat["classes"] = sorted({
+                      node.name
+                      for node in arbre.body
+                      if isinstance(node, ast.ClassDef)
+                  })
+
+                  resultat["imports"] = sorted({
+                      alias.name
+                      for node in ast.walk(arbre)
+                      if isinstance(node, ast.Import)
+                      for alias in node.names
+                  } | {
+                      node.module
+                      for node in ast.walk(arbre)
+                      if isinstance(node, ast.ImportFrom)
+                      and node.module is not None
                   })
 
                   if nom == "INTEGRATION":
-                      verrou = None
+                      verrou = "NON_IDENTIFIE"
 
                       for node in arbre.body:
-                          if not isinstance(
-                              node, ast.Assign
-                          ):
-                              continue
+                          if isinstance(node, ast.Assign):
+                              for cible in node.targets:
+                                  if (
+                                      isinstance(cible, ast.Name)
+                                      and cible.id
+                                      == "ANALYSE_REELLE_AUTORISEE"
+                                  ):
+                                      try:
+                                          verrou = ast.literal_eval(
+                                              node.value
+                                          )
+                                      except (
+                                          ValueError,
+                                          TypeError,
+                                          RecursionError,
+                                          MemoryError,
+                                      ):
+                                          verrou = "DYNAMIQUE"
 
-                          for cible in node.targets:
+                          if isinstance(node, ast.AnnAssign):
                               if (
-                                  isinstance(cible, ast.Name)
-                                  and cible.id ==
-                                  "ANALYSE_REELLE_AUTORISEE"
+                                  isinstance(node.target, ast.Name)
+                                  and node.target.id
+                                  == "ANALYSE_REELLE_AUTORISEE"
                               ):
-                                  verrou = ast.literal_eval(
-                                      node.value
-                                  )
+                                  try:
+                                      verrou = ast.literal_eval(
+                                          node.value
+                                      )
+                                  except (
+                                      ValueError,
+                                      TypeError,
+                                      RecursionError,
+                                      MemoryError,
+                                  ):
+                                      verrou = "DYNAMIQUE"
 
                       resultat[
                           "analyse_reelle_autorisee"
                       ] = verrou
 
               except Exception as exc:
-                  resultat["erreur"] = (
-                      type(exc).__name__
-                      + ": "
-                      + str(exc)[:200]
+                  message = (
+                      f"{nom}: "
+                      f"{type(exc).__name__}: {exc}"
                   )
+                  resultat["erreur"] = message
+                  rapport["anomalies"].append(message)
 
               rapport["sources"][nom] = resultat
 
               print(
                   nom,
-                  "OK" if resultat[
-                      "syntaxe_valide"
-                  ] else "ECHEC"
+                  "SYNTAXE_OK"
+                  if resultat["syntaxe_valide"]
+                  else "ECHEC",
               )
 
           adaptateur = Path(
               "raccorder_moteurs_x1000.py"
           )
 
-          rapport["adaptateur_present"] = (
-              adaptateur.is_file()
+          rapport["adaptateur"] = {
+              "fichier": str(adaptateur),
+              "present": adaptateur.is_file(),
+              "syntaxe_valide": False,
+              "execution_verifiee": False,
+          }
+
+          try:
+              if not adaptateur.is_file():
+                  raise FileNotFoundError(
+                      "ADAPTATEUR_ABSENT"
+                  )
+
+              if adaptateur.is_symlink():
+                  raise ValueError(
+                      "ADAPTATEUR_LIEN_SYMBOLIQUE"
+                  )
+
+              raw = adaptateur.read_bytes()
+
+              rapport["adaptateur"]["sha256"] = (
+                  hashlib.sha256(raw).hexdigest()
+              )
+
+              ast.parse(
+                  raw.decode("utf-8-sig"),
+                  filename=str(adaptateur),
+              )
+
+              rapport["adaptateur"][
+                  "syntaxe_valide"
+              ] = True
+
+          except Exception as exc:
+              message = (
+                  f"ADAPTATEUR: "
+                  f"{type(exc).__name__}: {exc}"
+              )
+              rapport["adaptateur"]["erreur"] = message
+              rapport["anomalies"].append(message)
+
+          complet = (
+              rapport["sources_accessibles"]
+              == rapport["sources_attendues"]
+              and rapport["sources_syntaxe_valide"]
+              == rapport["sources_attendues"]
+              and rapport["adaptateur"]["syntaxe_valide"]
+              and not rapport["anomalies"]
           )
 
-          if adaptateur.is_file():
-              try:
-                  ast.parse(
-                      adaptateur.read_text(
-                          encoding="utf-8"
-                      )
-                  )
-                  rapport[
-                      "adaptateur_syntaxe_valide"
-                  ] = True
-              except SyntaxError as exc:
-                  rapport[
-                      "adaptateur_syntaxe_valide"
-                  ] = False
-                  rapport[
-                      "adaptateur_erreur"
-                  ] = str(exc)
+          rapport["statut"] = (
+              "SOURCES_STATIQUES_OK"
+              if complet
+              else "SOURCES_STATIQUES_INCOMPLETES"
+          )
 
-          rapport["sources_sorties_identifiees"] = False
-          rapport["pronostics_authentifies"] = False
-          rapport["figes_authentifies"] = False
-
-          Path("diagnostic-x1000.json").write_text(
+          DEST.write_text(
               json.dumps(
                   rapport,
+                  ensure_ascii=False,
                   indent=2,
-                  ensure_ascii=False
               ) + "\n",
-              encoding="utf-8"
+              encoding="utf-8",
           )
 
           print("=== BILAN X1000 ===")
           print(
-              json.dumps(
-                  rapport,
-                  indent=2,
-                  ensure_ascii=False
-              )
+              "SOURCES_ATTENDUES:",
+              rapport["sources_attendues"],
           )
-
+          print(
+              "SOURCES_ACCESSIBLES:",
+              rapport["sources_accessibles"],
+          )
+          print(
+              "SYNTAXES_VALIDES:",
+              rapport["sources_syntaxe_valide"],
+          )
+          print("STATUT:", rapport["statut"])
+          print("ANOMALIES:", len(rapport["anomalies"]))
+          print("RAPPORT:", DEST)
+          print("EXECUTION_MOTEURS_NON_VERIFIEE")
+          print("RACCORDEMENT_REEL_NON_VERIFIE")
           print("AUCUN_PRONOSTIC_CREE")
           print("AUCUN_FIGE_MODIFIE")
           print("AUCUN_DEPLOIEMENT")
+
+          if not complet:
+              raise SystemExit(
+                  "ECHEC_DIAGNOSTIC_SOURCES"
+              )
           PY
+
+      - name: Verifier integrite du depot
+        if: always()
+        run: |
+          set -euo pipefail
+
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::DEPOT_MODIFIE"
+            git status --short
+            exit 1
+          fi
+
+          echo "DEPOT_INCHANGE"
 
       - name: Archiver le diagnostic
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: diagnostic-sources-x1000
-          path: diagnostic-x1000.json
+          name: diagnostic-sources-x1000-${{ github.run_id }}
+          path: ${{ runner.temp }}/x1000-sources/diagnostic-x1000.json
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Rapport final
+        if: always()
+        env:
+          RESULTAT: ${{ job.status }}
+        run: |
+          {
+            echo "## X1000 - Diagnostic sources M1-M5"
+            echo ""
+            echo "Resultat : $RESULTAT"
+            echo "Branche : $GITHUB_REF_NAME"
+            echo ""
+            echo "Depots sources controles"
+            echo "Revisions Git identifiees"
+            echo "Integrite des fichiers controlee"
+            echo "Syntaxe Python verifiee"
+            echo "Adaptateur local examine"
+            echo ""
+            echo "Execution reelle des moteurs non testee"
+            echo "Raccordement operationnel non certifie"
+            echo ""
+            echo "AUCUN COMMIT AUTOMATIQUE"
+            echo "AUCUN PUSH AUTOMATIQUE"
+            echo "AUCUN DEPLOIEMENT"
+            echo "AUCUN FIGE MODIFIE"
+            echo "AUCUNE ARCHIVE MODIFIEE"
+            echo "AUCUN PRONOSTIC MODIFIE"
+          } >> "$GITHUB_STEP_SUMMARY"
