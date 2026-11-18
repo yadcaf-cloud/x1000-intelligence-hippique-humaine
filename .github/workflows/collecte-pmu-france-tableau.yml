@@ -1,4 +1,4 @@
-name: "X1000 - Collecte PMU France - Tableau"
+name: "X1000 Humaine - Collecte principale PMU France"
 
 on:
   workflow_dispatch:
@@ -9,44 +9,35 @@ permissions:
   contents: read
 
 concurrency:
-  group: x1000-collecte-pmu-${{ github.ref }}
+  group: x1000-collecte-principale-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   collecte-pmu:
-    name: "Controle reunions courses partants France"
-    if: >-
-      github.repository ==
-      'yadcaf-cloud/x1000-intelligence-hippique-humaine'
+    if: github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     steps:
-      - name: Recuperation du depot
+      - name: Recuperer le depot
         uses: actions/checkout@v4
         with:
           persist-credentials: false
 
-      - name: Installation Python 3.11
+      - name: Installer Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Verification du depot et du collecteur
+      - name: Verifier le collecteur
         shell: bash
         run: |
           set -euo pipefail
-
-          test "$GITHUB_REPOSITORY" = \
-            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
-
           test -f collecte_pmu.py
-
           python -m py_compile collecte_pmu.py
+          echo "COLLECTEUR_PRESENT"
 
-          echo "DEPOT_ET_COLLECTEUR_VALIDES"
-
-      - name: Collecte reelle PMU France
+      - name: Collecter les donnees PMU
         shell: bash
         env:
           PYTHONDONTWRITEBYTECODE: "1"
@@ -54,125 +45,79 @@ jobs:
           X1000_SORTIE: "sortie"
         run: |
           set -euo pipefail
+          mkdir -p sortie
           python collecte_pmu.py
 
-      - name: Validation des donnees collectees
+      - name: Valider le JSON
         shell: bash
         run: |
           set -euo pipefail
-
           python - <<'PY'
           import json
           from pathlib import Path
 
-          fichier = Path(
-              "sortie/publication_courses.json"
-          )
+          p = Path("sortie/publication_courses.json")
+          if not p.is_file():
+              raise SystemExit("PUBLICATION_ABSENTE")
 
-          if not fichier.is_file():
-              raise SystemExit(
-                  "ERREUR : publication absente"
-              )
+          d = json.loads(p.read_text(encoding="utf-8"))
+          if d.get("schema") != "x1000-pmu-france-v1":
+              raise SystemExit("SCHEMA_INCORRECT")
 
-          data = json.loads(
-              fichier.read_text(encoding="utf-8")
-          )
-
-          if data.get("schema") != "x1000-pmu-france-v1":
-              raise SystemExit(
-                  "ERREUR : schema incorrect"
-              )
-
-          courses = data.get("courses")
-
+          courses = d.get("courses")
           if not isinstance(courses, list) or not courses:
-              raise SystemExit(
-                  "ERREUR : aucune course valide"
-              )
+              raise SystemExit("AUCUNE_COURSE_VALIDE")
 
-          identifiants = set()
+          ids = set()
+          for c in courses:
+              if not isinstance(c, dict):
+                  raise SystemExit("COURSE_INVALIDE")
+              if c.get("pays_verifie") != "FR":
+                  raise SystemExit("PAYS_NON_VERIFIE")
+              cid = c.get("course_id")
+              if not isinstance(cid, str) or not cid or cid in ids:
+                  raise SystemExit("IDENTIFIANT_INVALIDE")
+              ids.add(cid)
+              if not c.get("depart"):
+                  raise SystemExit("DEPART_ABSENT")
 
-          for course in courses:
-              if course.get("pays_verifie") != "FR":
-                  raise SystemExit(
-                      "ERREUR : pays non confirme"
-                  )
-
-              cid = course.get("course_id")
-
-              if not cid or cid in identifiants:
-                  raise SystemExit(
-                      "ERREUR : identifiant invalide"
-                  )
-
-              identifiants.add(cid)
-
-              if not course.get("depart"):
-                  raise SystemExit(
-                      "ERREUR : depart manquant"
-                  )
-
-              partants = course.get("partants")
-
-              if not isinstance(partants, list) or not partants:
-                  raise SystemExit(
-                      "ERREUR : partants manquants"
-                  )
+              chevaux = c.get("partants")
+              if not isinstance(chevaux, list) or not chevaux:
+                  raise SystemExit("PARTANTS_ABSENTS")
 
               numeros = set()
+              for ch in chevaux:
+                  if not isinstance(ch, dict):
+                      raise SystemExit("CHEVAL_INVALIDE")
+                  n = ch.get("numero")
+                  nom = ch.get("nom")
+                  if type(n) is not int or n <= 0 or n in numeros:
+                      raise SystemExit("NUMERO_INVALIDE")
+                  if not isinstance(nom, str) or not nom.strip():
+                      raise SystemExit("NOM_INVALIDE")
+                  numeros.add(n)
 
-              for cheval in partants:
-                  numero = cheval.get("numero")
-                  nom = cheval.get("nom")
-
-                  if (
-                      not isinstance(numero, int)
-                      or isinstance(numero, bool)
-                      or numero <= 0
-                      or not isinstance(nom, str)
-                      or not nom.strip()
-                      or numero in numeros
-                  ):
-                      raise SystemExit(
-                          "ERREUR : partant invalide"
-                      )
-
-                  numeros.add(numero)
-
-          print(
-              "VALIDATION_OK :",
-              len(courses),
-              "course(s) françaises"
-          )
+          print("VALIDATION_OK", len(courses))
           PY
 
-      - name: Rapport de controle
+      - name: Conserver les donnees
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: x1000-collecte-principale-${{ github.run_id }}
+          path: sortie/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Rapport
         if: always()
         shell: bash
         run: |
           {
-            echo "## X1000 - Collecte PMU France"
-            echo
+            echo "## X1000 Humaine - Collecte principale"
             echo "- Depot : $GITHUB_REPOSITORY"
             echo "- Branche : $GITHUB_REF_NAME"
             echo "- Mode : lecture seule"
-            echo "- Aucun FIGE modifie"
-            echo "- Aucune archive modifiee"
-            echo "- Aucun pronostic modifie"
+            echo "- Aucun FIGE, pronostic ou archive modifie"
             echo "- Aucun commit, push ou deploiement"
-            echo
-            if [ -f sortie/publication_courses.json ]; then
-              echo "Fichier JSON genere."
-            else
-              echo "Aucun fichier JSON exploitable."
-            fi
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Conservation du rapport PMU
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: x1000-pmu-france-${{ github.run_number }}
-          path: sortie/publication_courses.json
-          if-no-files-found: warn
-          retention-days: 7
