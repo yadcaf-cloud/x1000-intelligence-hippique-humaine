@@ -1,4 +1,4 @@
-name: "X1000 Humaine - Diagnostic secondaire PMU"
+name: "X1000 - Diagnostic secondaire PMU et tableau"
 
 on:
   workflow_dispatch:
@@ -12,59 +12,443 @@ concurrency:
 
 jobs:
   diagnostic:
-    if: github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine'
+    name: "Controle independant PMU France et tableau"
+    if: >-
+      github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
+      github.ref == 'refs/heads/fix/audit-general-pmu-20261118' &&
+      github.event_name == 'workflow_dispatch'
+
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
+
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONNOUSERSITE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONUTF8: "1"
+      X1000_SORTIE: "sortie"
 
     steps:
-      - name: Recuperer le depot
+      - name: Recuperer la branche autorisee
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 1
 
-      - name: Installer Python
+      - name: Installer Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Diagnostic collecte et format tableau
-        shell: bash
-        env:
-          X1000_SORTIE: sortie
-          PYTHONDONTWRITEBYTECODE: "1"
+      - name: Verifier depot et branche
         run: |
           set -euo pipefail
-          test -f collecte_pmu.py
-          python -m py_compile collecte_pmu.py
+
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
+
+          test "$GITHUB_REF" = \
+            "refs/heads/fix/audit-general-pmu-20261118"
+
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+
+          echo "BRANCHE_AUTORISEE"
+
+      - name: Creer environnement isole
+        run: |
+          set -euo pipefail
+
+          dossier="$(mktemp -d \
+            "$RUNNER_TEMP/x1000-diagnostic-XXXXXXXX")"
+
+          echo "X1000_TEST_DIR=$dossier" >> "$GITHUB_ENV"
+
+          for fichier in \
+            collecte_pmu.py \
+            adapter_collecte_tableau.py
+          do
+            if [ ! -s "$fichier" ] || [ -L "$fichier" ]; then
+              echo "::error::SOURCE_ABSENTE_OU_INVALIDE: $fichier"
+              exit 1
+            fi
+
+            cp -- "$fichier" "$dossier/$fichier"
+          done
+
+          python - "$dossier" <<'PY'
+          import ast
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+
+          for nom in (
+              "collecte_pmu.py",
+              "adapter_collecte_tableau.py",
+          ):
+              path = root / nom
+              ast.parse(
+                  path.read_text(encoding="utf-8"),
+                  filename=nom,
+              )
+              print("SYNTAXE_OK:", nom)
+          PY
+
+          echo "ENVIRONNEMENT_ISOLE_PRET"
+
+      - name: Executer collecte PMU
+        run: |
+          set -euo pipefail
+          cd "$X1000_TEST_DIR"
+
+          test ! -e sortie/publication_courses.json
+
           python collecte_pmu.py
+
+          test -s sortie/publication_courses.json || {
+            echo "::error::COLLECTE_PMU_ABSENTE"
+            exit 1
+          }
+
+          echo "COLLECTE_PMU_TERMINEE"
+
+      - name: Adapter les courses au tableau
+        run: |
+          set -euo pipefail
+          cd "$X1000_TEST_DIR"
+
+          test ! -e sortie/recherche_courses_du_jour.json
+
+          python adapter_collecte_tableau.py
+
+          test -s sortie/recherche_courses_du_jour.json || {
+            echo "::error::ADAPTATION_ABSENTE"
+            exit 1
+          }
+
+          echo "ADAPTATION_TERMINEE"
+
+      - name: Verifier donnees PMU et tableau
+        run: |
+          set -euo pipefail
+          cd "$X1000_TEST_DIR"
 
           python - <<'PY'
           import json
+          import re
+          from datetime import datetime, timedelta
           from pathlib import Path
+          from zoneinfo import ZoneInfo
 
-          p = Path("sortie/publication_courses.json")
-          if not p.is_file():
-              raise SystemExit("JSON de publication absent")
+          PARIS = ZoneInfo("Europe/Paris")
+          MAINTENANT = datetime.now(PARIS)
 
-          d = json.loads(p.read_text(encoding="utf-8"))
-          if d.get("schema") != "x1000-pmu-france-v1":
-              raise SystemExit("Schema inattendu")
+          PATTERN = re.compile(
+              r"^\d{4}-\d{2}-\d{2}-R[1-9]\d*-C[1-9]\d*$"
+          )
 
-          courses = d.get("courses")
-          if not isinstance(courses, list):
-              raise SystemExit("Courses non listees")
+          def erreur(message):
+              raise ValueError(message)
 
-          print("Branche diagnostic - courses:", len(courses))
+          def lire(chemin):
+              path = Path(chemin)
 
-          if not courses:
-              raise SystemExit("Aucune course valide")
+              if not path.is_file() or not path.stat().st_size:
+                  erreur(f"JSON_ABSENT: {chemin}")
+
+              with path.open(encoding="utf-8") as fichier:
+                  data = json.load(fichier)
+
+              if not isinstance(data, dict):
+                  erreur(f"JSON_NON_OBJET: {chemin}")
+
+              return data
+
+          def date_iso(value, description):
+              if not isinstance(value, str):
+                  erreur(f"DATE_ABSENTE: {description}")
+
+              try:
+                  return datetime.fromisoformat(
+                      value.replace("Z", "+00:00")
+                  )
+              except ValueError:
+                  erreur(f"DATE_INVALIDE: {description}")
+
+          pmu = lire("sortie/publication_courses.json")
+          tableau = lire(
+              "sortie/recherche_courses_du_jour.json"
+          )
+
+          if pmu.get("schema") != "x1000-pmu-france-v1":
+              erreur("SCHEMA_PMU_INVALIDE")
+
+          if tableau.get("schema") != "x1000-candidates-v1":
+              erreur("SCHEMA_TABLEAU_INVALIDE")
+
+          if pmu.get("source") != "PMU TurfInfo":
+              erreur("SOURCE_PMU_INVALIDE")
+
+          if tableau.get("source") != "PMU TurfInfo":
+              erreur("SOURCE_TABLEAU_INVALIDE")
+
+          date_pmu = pmu.get("date_pmu")
+          date_tableau = tableau.get("date")
+
+          if date_pmu != date_tableau:
+              erreur("DATES_PUBLICATIONS_DIFFERENTES")
+
+          if not isinstance(date_pmu, str):
+              erreur("DATE_PMU_ABSENTE")
+
+          try:
+              date_reference = datetime.strptime(
+                  date_pmu, "%Y-%m-%d"
+              ).date()
+          except ValueError:
+              erreur("DATE_PMU_INVALIDE")
+
+          # Tolere uniquement un passage de minuit
+          # pendant cette execution.
+          dates_admises = {
+              MAINTENANT.date(),
+              (MAINTENANT - timedelta(days=1)).date(),
+          }
+
+          if date_reference not in dates_admises:
+              erreur("DATE_PMU_OBSOLETE")
+
+          publication = date_iso(
+              pmu.get("date_publication"),
+              "date_publication",
+          )
+
+          if publication.tzinfo is None:
+              erreur("PUBLICATION_SANS_FUSEAU")
+
+          age = MAINTENANT - publication.astimezone(PARIS)
+
+          if age < timedelta(minutes=-5):
+              erreur("PUBLICATION_DANS_LE_FUTUR")
+
+          if age > timedelta(minutes=30):
+              erreur("PUBLICATION_TROP_ANCIENNE")
+
+          recherche = date_iso(
+              tableau.get("recherche_a"),
+              "recherche_a",
+          )
+
+          if recherche.tzinfo is None:
+              erreur("RECHERCHE_SANS_FUSEAU")
+
+          if abs(MAINTENANT - recherche.astimezone(PARIS)) > timedelta(minutes=30):
+              erreur("ADAPTATION_TROP_ANCIENNE")
+
+          def analyser(collection, origine):
+              if not isinstance(collection, list) or not collection:
+                  erreur(f"AUCUNE_COURSE: {origine}")
+
+              resultat = {}
+
+              for course in collection:
+                  if not isinstance(course, dict):
+                      erreur(f"COURSE_INVALIDE: {origine}")
+
+                  cid = course.get("course_id")
+
+                  if (
+                      not isinstance(cid, str)
+                      or not PATTERN.fullmatch(cid)
+                      or not cid.startswith(date_pmu + "-")
+                  ):
+                      erreur(f"COURSE_ID_INVALIDE: {cid}")
+
+                  if cid in resultat:
+                      erreur(f"COURSE_DUPLIQUEE: {cid}")
+
+                  if course.get("pays_verifie") != "FR":
+                      erreur(f"COURSE_HORS_FRANCE: {cid}")
+
+                  hippodrome = course.get("hippodrome")
+
+                  if (
+                      not isinstance(hippodrome, str)
+                      or not hippodrome.strip()
+                  ):
+                      erreur(f"HIPPODROME_ABSENT: {cid}")
+
+                  depart = date_iso(
+                      course.get("depart"),
+                      f"depart {cid}",
+                  )
+
+                  if depart.tzinfo is None:
+                      erreur(f"DEPART_SANS_FUSEAU: {cid}")
+
+                  depart = depart.astimezone(PARIS)
+
+                  if depart.date() != date_reference:
+                      erreur(f"DEPART_HORS_DATE: {cid}")
+
+                  chevaux = course.get("partants")
+
+                  if not isinstance(chevaux, list) or not chevaux:
+                      erreur(f"PARTANTS_ABSENTS: {cid}")
+
+                  partants = {}
+                  actifs = 0
+
+                  for cheval in chevaux:
+                      if not isinstance(cheval, dict):
+                          erreur(f"PARTANT_INVALIDE: {cid}")
+
+                      numero = cheval.get("numero")
+                      nom = cheval.get("nom")
+                      np = cheval.get("non_partant")
+
+                      if type(numero) is not int or numero <= 0:
+                          erreur(f"NUMERO_INVALIDE: {cid}")
+
+                      if numero in partants:
+                          erreur(f"NUMERO_DUPLIQUE: {cid}")
+
+                      if (
+                          not isinstance(nom, str)
+                          or not nom.strip()
+                          or type(np) is not bool
+                      ):
+                          erreur(f"PARTANT_MAL_FORME: {cid}")
+
+                      partants[numero] = (nom.strip(), np)
+
+                      if not np:
+                          actifs += 1
+
+                  if actifs == 0:
+                      erreur(f"AUCUN_PARTANT_ACTIF: {cid}")
+
+                  if origine == "TABLEAU":
+                      if course.get("id") != cid:
+                          erreur(f"ID_TABLEAU_INVALIDE: {cid}")
+
+                      if type(course.get("nombre_partants")) is not int:
+                          erreur(f"COMPTE_ACTIFS_INVALIDE: {cid}")
+
+                      if course["nombre_partants"] != actifs:
+                          erreur(f"COMPTE_ACTIFS_DIFFERENT: {cid}")
+
+                      if course.get("depart_verifie") is not True:
+                          erreur(f"DEPART_NON_VERIFIE: {cid}")
+
+                      if course.get("localisation_france_verifiee") is not True:
+                          erreur(f"LOCALISATION_NON_VERIFIEE: {cid}")
+
+                      np_publies = course.get("non_partants")
+
+                      if not isinstance(np_publies, list):
+                          erreur(f"LISTE_NP_INVALIDE: {cid}")
+
+                      if any(
+                          type(n) is not int or n <= 0
+                          for n in np_publies
+                      ):
+                          erreur(f"NUMERO_NP_INVALIDE: {cid}")
+
+                      if len(np_publies) != len(set(np_publies)):
+                          erreur(f"DOUBLON_NP: {cid}")
+
+                      np_attendus = {
+                          n for n, (_, np) in partants.items()
+                          if np
+                      }
+
+                      if set(np_publies) != np_attendus:
+                          erreur(f"NON_PARTANTS_DIFFERENTS: {cid}")
+
+                  resultat[cid] = (
+                      hippodrome.strip(),
+                      depart,
+                      partants,
+                  )
+
+              return resultat
+
+          origine = analyser(pmu.get("courses"), "PMU")
+          destination = analyser(
+              tableau.get("courses_candidates"),
+              "TABLEAU",
+          )
+
+          if set(origine) != set(destination):
+              erreur("COURSES_NON_ALIGNEES")
+
+          for cid in origine:
+              if origine[cid] != destination[cid]:
+                  erreur(f"CONTENU_DIFFERENT: {cid}")
+
+          print("DATE_PMU:", date_pmu)
+          print("COURSES_FRANCE:", len(origine))
+          print("PARTANTS_ET_NON_PARTANTS_ALIGNES")
+          print("HORAIRES_ET_HIPPODROMES_ALIGNES")
+          print("DIAGNOSTIC_SECONDAIRE_OK")
+          print("PROVENANCE_EXTERNE_NON_CERTIFIEE")
           PY
 
-      - name: Conserver le diagnostic
+      - name: Verifier integrite du depot
+        if: always()
+        run: |
+          set -euo pipefail
+
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::DEPOT_MODIFIE"
+            git status --short
+            exit 1
+          fi
+
+          echo "DEPOT_INCHANGE"
+
+      - name: Conserver les diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: x1000-diagnostic-secondaire-${{ github.run_id }}
-          path: sortie/
+          path: |
+            ${{ env.X1000_TEST_DIR }}/sortie/publication_courses.json
+            ${{ env.X1000_TEST_DIR }}/sortie/recherche_courses_du_jour.json
           if-no-files-found: warn
           retention-days: 7
+
+      - name: Rapport final
+        if: always()
+        env:
+          RESULTAT: ${{ job.status }}
+        run: |
+          {
+            echo "## X1000 - Diagnostic secondaire PMU"
+            echo ""
+            echo "Resultat : $RESULTAT"
+            echo "Branche : $GITHUB_REF_NAME"
+            echo ""
+            echo "Collecte et adaptation isolees"
+            echo "Controle des dates de publication"
+            echo "Controle des courses PMU France"
+            echo "Verification des horaires"
+            echo "Verification des partants actifs"
+            echo "Verification des non-partants"
+            echo "Comparaison des publications"
+            echo "Verification integrite du depot"
+            echo ""
+            echo "AUCUN COMMIT AUTOMATIQUE"
+            echo "AUCUN PUSH AUTOMATIQUE"
+            echo "AUCUN DEPLOIEMENT"
+            echo "AUCUN FIGE MODIFIE"
+            echo "AUCUNE ARCHIVE MODIFIEE"
+            echo "AUCUN PRONOSTIC MODIFIE"
+            echo ""
+            echo "Execution manuelle uniquement."
+          } >> "$GITHUB_STEP_SUMMARY"
