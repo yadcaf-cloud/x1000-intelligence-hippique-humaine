@@ -1,4 +1,4 @@
-name: "X1000 PHOENIX - Controle donnees PMU"
+name: "X1000 Humaine - Diagnostic source PMU"
 
 on:
   workflow_dispatch:
@@ -7,33 +7,32 @@ permissions:
   contents: read
 
 concurrency:
-  group: x1000-controle-pmu
+  group: x1000-controle-source-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  controle-pmu:
-    name: "Diagnostic source PMU"
-    runs-on: ubuntu-latest
+  source:
+    if: github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine'
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:
-      - name: "Installation Python 3.11"
+      - name: Installer Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: "Controle des donnees PMU"
+      - name: Tester acces et schema PMU
         shell: bash
         run: |
+          set -euo pipefail
           python - <<'PY'
-          import datetime
           import json
-          import sys
-          import urllib.error
           import urllib.request
+          from datetime import datetime
           from zoneinfo import ZoneInfo
 
-          date = datetime.datetime.now(
+          date = datetime.now(
               ZoneInfo("Europe/Paris")
           ).strftime("%d%m%Y")
 
@@ -42,111 +41,49 @@ jobs:
               "/rest/client/1/programme/" + date
           )
 
-          print("=== X1000 CONTROLE PMU ===")
-          print("Date :", date)
-          print("Source :", url)
+          req = urllib.request.Request(
+              url,
+              headers={
+                  "Accept": "application/json",
+                  "User-Agent": "X1000-Humaine-Source/1.0"
+              }
+          )
 
-          try:
-              request = urllib.request.Request(
-                  url,
-                  headers={
-                      "Accept": "application/json",
-                      "User-Agent": "X1000-Diagnostic/1.0"
-                  }
+          with urllib.request.urlopen(
+              req, timeout=25
+          ) as response:
+              if (
+                  response.status != 200
+                  or response.geturl() != url
+              ):
+                  raise RuntimeError(
+                      "HTTP ou redirection inattendue"
+                  )
+              raw = response.read(5000001)
+
+          if len(raw) > 5000000:
+              raise RuntimeError(
+                  "Reponse trop volumineuse"
               )
 
-              with urllib.request.urlopen(
-                  request, timeout=25
-              ) as response:
-                  raw = response.read(5_000_001)
-                  print("HTTP :", response.status)
+          data = json.loads(raw.decode("utf-8-sig"))
 
-              if len(raw) > 5_000_000:
-                  raise ValueError(
-                      "Reponse trop volumineuse"
-                  )
+          if not isinstance(data, dict):
+              raise RuntimeError("Objet JSON attendu")
 
-              data = json.loads(raw)
+          programme = (
+              data.get("programme")
+              if isinstance(data.get("programme"), dict)
+              else data
+          )
 
-              if not isinstance(data, dict):
-                  raise ValueError(
-                      "Structure JSON invalide"
-                  )
+          reunions = programme.get("reunions")
+          if not isinstance(reunions, list):
+              raise RuntimeError("Reunions absentes")
 
-              programme = data.get("programme")
-
-              if isinstance(programme, dict):
-                  reunions = programme.get("reunions")
-              else:
-                  reunions = data.get("reunions")
-
-              if not isinstance(reunions, list):
-                  raise ValueError(
-                      "Liste des reunions absente"
-                  )
-
-              print("Reunions :", len(reunions))
-
-              courses_total = 0
-
-              for reunion in reunions:
-                  if not isinstance(reunion, dict):
-                      continue
-
-                  hippodrome = reunion.get(
-                      "hippodrome", {}
-                  )
-
-                  if isinstance(hippodrome, dict):
-                      nom = (
-                          hippodrome.get("libelleCourt")
-                          or hippodrome.get("libelleLong")
-                          or "Inconnu"
-                      )
-                      pays = (
-                          hippodrome.get("codePays")
-                          or hippodrome.get("pays")
-                          or "Non precise"
-                      )
-                  else:
-                      nom = "Inconnu"
-                      pays = "Non precise"
-
-                  courses = reunion.get("courses", [])
-
-                  nombre = (
-                      len(courses)
-                      if isinstance(courses, list)
-                      else 0
-                  )
-
-                  courses_total += nombre
-
-                  print(
-                      "Reunion :",
-                      reunion.get("numOfficiel", "?"),
-                      "| Hippodrome :", nom,
-                      "| Pays :", pays,
-                      "| Courses :", nombre
-                  )
-
-              print("Total courses :", courses_total)
-              print("Source JSON accessible.")
-              print(
-                  "Attention : origine France,"
-                  " partants et horaires restent"
-                  " a verifier avant publication."
-              )
-              print("Aucun FIGE modifie.")
-              print("Aucune archive modifiee.")
-              print("Aucun pronostic invente.")
-
-          except Exception as erreur:
-              print(
-                  "ECHEC CONTROLE PMU :",
-                  type(erreur).__name__,
-                  str(erreur),
-                  file=sys.stderr
-              )
-              sys.exit(1)
+          print("HTTP 200 - Reunions:", len(reunions))
+          print(
+              "Source accessible; pays, horaires "
+              "et partants non certifies par ce diagnostic"
+          )
           PY
