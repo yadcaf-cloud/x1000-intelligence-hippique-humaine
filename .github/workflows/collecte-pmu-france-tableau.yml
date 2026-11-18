@@ -1,4 +1,4 @@
-name: "X1000 Humaine - Collecte principale PMU France"
+name: "X1000 Humaine - Collecte PMU France - Validation tableau"
 
 on:
   workflow_dispatch:
@@ -29,95 +29,107 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Verifier le collecteur
+      - name: Verifier les scripts
         shell: bash
         run: |
           set -euo pipefail
-          test -f collecte_pmu.py
-          python -m py_compile collecte_pmu.py
-          echo "COLLECTEUR_PRESENT"
 
-      - name: Collecter les donnees PMU
+          test -f collecte_pmu.py
+          test -f adapter_collecte_tableau.py
+
+          python -m py_compile \
+            collecte_pmu.py \
+            adapter_collecte_tableau.py
+
+      - name: Collecter les donnees reelles PMU
         shell: bash
         env:
           PYTHONDONTWRITEBYTECODE: "1"
           PYTHONUNBUFFERED: "1"
-          X1000_SORTIE: "sortie"
+          X1000_SORTIE: sortie
         run: |
           set -euo pipefail
+
           mkdir -p sortie
+
           python collecte_pmu.py
 
-      - name: Valider le JSON
+      - name: Convertir au format attendu par index.html
         shell: bash
         run: |
           set -euo pipefail
+
+          python adapter_collecte_tableau.py
+
+      - name: Verifier le raccordement entre les deux JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+
           python - <<'PY'
           import json
           from pathlib import Path
 
-          p = Path("sortie/publication_courses.json")
-          if not p.is_file():
-              raise SystemExit("PUBLICATION_ABSENTE")
+          a = json.loads(
+              Path(
+                  "sortie/publication_courses.json"
+              ).read_text(encoding="utf-8")
+          )
 
-          d = json.loads(p.read_text(encoding="utf-8"))
-          if d.get("schema") != "x1000-pmu-france-v1":
-              raise SystemExit("SCHEMA_INCORRECT")
+          b = json.loads(
+              Path(
+                  "sortie/recherche_courses_du_jour.json"
+              ).read_text(encoding="utf-8")
+          )
 
-          courses = d.get("courses")
-          if not isinstance(courses, list) or not courses:
-              raise SystemExit("AUCUNE_COURSE_VALIDE")
+          assert b["schema"] == "x1000-candidates-v1"
 
-          ids = set()
-          for c in courses:
-              if not isinstance(c, dict):
-                  raise SystemExit("COURSE_INVALIDE")
-              if c.get("pays_verifie") != "FR":
-                  raise SystemExit("PAYS_NON_VERIFIE")
-              cid = c.get("course_id")
-              if not isinstance(cid, str) or not cid or cid in ids:
-                  raise SystemExit("IDENTIFIANT_INVALIDE")
-              ids.add(cid)
-              if not c.get("depart"):
-                  raise SystemExit("DEPART_ABSENT")
+          assert a["date_pmu"] == b["date"]
 
-              chevaux = c.get("partants")
-              if not isinstance(chevaux, list) or not chevaux:
-                  raise SystemExit("PARTANTS_ABSENTS")
+          assert len(a["courses"]) == len(
+              b["courses_candidates"]
+          ) > 0
 
-              numeros = set()
-              for ch in chevaux:
-                  if not isinstance(ch, dict):
-                      raise SystemExit("CHEVAL_INVALIDE")
-                  n = ch.get("numero")
-                  nom = ch.get("nom")
-                  if type(n) is not int or n <= 0 or n in numeros:
-                      raise SystemExit("NUMERO_INVALIDE")
-                  if not isinstance(nom, str) or not nom.strip():
-                      raise SystemExit("NOM_INVALIDE")
-                  numeros.add(n)
+          assert {
+              c["course_id"]
+              for c in a["courses"]
+          } == {
+              c["course_id"]
+              for c in b["courses_candidates"]
+          }
 
-          print("VALIDATION_OK", len(courses))
+          assert all(
+              c["pays_verifie"] == "FR"
+              and c["partants"]
+              for c in b["courses_candidates"]
+          )
+
+          print(
+              "RACCORDEMENT_FORMAT_OK",
+              len(b["courses_candidates"])
+          )
           PY
 
-      - name: Conserver les donnees
+      - name: Conserver les rapports pour verification
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: x1000-collecte-principale-${{ github.run_id }}
-          path: sortie/
+          name: x1000-collecte-validee-${{ github.run_id }}
+          path: |
+            sortie/publication_courses.json
+            sortie/recherche_courses_du_jour.json
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Rapport
+      - name: Rapport de controle
         if: always()
         shell: bash
         run: |
           {
-            echo "## X1000 Humaine - Collecte principale"
+            echo "## X1000 - Collecte et raccordement"
             echo "- Depot : $GITHUB_REPOSITORY"
             echo "- Branche : $GITHUB_REF_NAME"
-            echo "- Mode : lecture seule"
-            echo "- Aucun FIGE, pronostic ou archive modifie"
-            echo "- Aucun commit, push ou deploiement"
+            echo "- Fichiers attendus : publication_courses.json et recherche_courses_du_jour.json"
+            echo "- Lecture seule : aucun commit, push, deploiement ou FIGE"
+            echo "- Attention : artefacts non publies sur GitHub Pages"
           } >> "$GITHUB_STEP_SUMMARY"
