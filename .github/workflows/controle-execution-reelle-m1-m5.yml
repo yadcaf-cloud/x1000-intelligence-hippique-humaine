@@ -1,10 +1,10 @@
-name: "X1000 - Controle execution reelle M1-M5"
+name: "X1000 - Controle PMU et execution M1-M5"
 
 on:
   workflow_dispatch:
     inputs:
       fichier_course:
-        description: "Chemin relatif du JSON enrichi dans le depot"
+        description: "Chemin relatif du JSON enrichi"
         required: true
         type: string
 
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   verification:
-    name: "Execution independante M1-M5"
+    name: "Validation PMU puis execution M1-M5"
 
     if: >-
       github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
@@ -33,6 +33,7 @@ jobs:
       PYTHONUNBUFFERED: "1"
       PYTHONUTF8: "1"
       FICHIER_COURSE: ${{ inputs.fichier_course }}
+      TZ: Europe/Paris
 
     steps:
       - name: Recuperer la branche autorisee
@@ -46,33 +47,15 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Verifier la branche et Python
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          test "$GITHUB_REPOSITORY" = \
-            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
-
-          test "$GITHUB_REF" = \
-            "refs/heads/fix/audit-general-pmu-20261118"
-
-          python -B - <<'PY'
-          import sys
-
-          if sys.version_info[:2] != (3, 11):
-              raise SystemExit("PYTHON_3_11_REQUIS")
-
-          print("PYTHON 3.11 OK")
-          PY
-
-      - name: Verifier les scripts
+      - name: Verifier les fichiers requis
         shell: bash
         run: |
           set -euo pipefail
 
           fichiers=(
+            verifier_source_pmu_moteurs.py
             tester_execution_moteurs_x1000.py
+            sortie/publication_courses.json
             moteurs/m1.py
             moteurs/m2.py
             moteurs/m3.py
@@ -85,11 +68,10 @@ jobs:
               echo "::error::Fichier absent ou vide: $fichier"
               exit 1
             fi
-
-            echo "FICHIER OK: $fichier"
+            echo "PRESENT: $fichier"
           done
 
-      - name: Verifier le chemin JSON
+      - name: Controler le chemin du JSON
         id: entree
         shell: bash
         run: |
@@ -100,23 +82,15 @@ jobs:
           from pathlib import Path
 
           racine = Path.cwd().resolve()
-          nom = os.environ["FICHIER_COURSE"].strip()
+          valeur = os.environ["FICHIER_COURSE"].strip()
 
-          if not nom:
-              raise SystemExit("CHEMIN_COURSE_ABSENT")
+          if not valeur or valeur == ".":
+              raise SystemExit("CHEMIN_ABSENT")
 
-          relatif = Path(nom)
+          relatif = Path(valeur)
 
-          if relatif.is_absolute():
-              raise SystemExit("CHEMIN_ABSOLU_INTERDIT")
-
-          if ".." in relatif.parts:
-              raise SystemExit("TRAVERSEE_DOSSIERS_INTERDITE")
-
-          chemin = racine / relatif
-
-          if not chemin.resolve().is_relative_to(racine):
-              raise SystemExit("CHEMIN_HORS_DEPOT")
+          if relatif.is_absolute() or ".." in relatif.parts:
+              raise SystemExit("CHEMIN_INTERDIT")
 
           courant = racine
           for partie in relatif.parts:
@@ -124,23 +98,22 @@ jobs:
               if courant.is_symlink():
                   raise SystemExit("LIEN_SYMBOLIQUE_INTERDIT")
 
+          chemin = courant.resolve()
+
+          if not chemin.is_relative_to(racine):
+              raise SystemExit("CHEMIN_HORS_DEPOT")
+
           if not chemin.is_file():
-              raise SystemExit("FICHIER_COURSE_ABSENT")
+              raise SystemExit("JSON_ENRICHI_ABSENT")
 
           if chemin.suffix.lower() != ".json":
               raise SystemExit("FORMAT_JSON_REQUIS")
 
           taille = chemin.stat().st_size
+          if not 0 < taille <= 5 * 1024 * 1024:
+              raise SystemExit("TAILLE_JSON_INVALIDE")
 
-          if taille == 0:
-              raise SystemExit("FICHIER_COURSE_VIDE")
-
-          if taille > 5 * 1024 * 1024:
-              raise SystemExit("FICHIER_COURSE_TROP_VOLUMINEUX")
-
-          print("FICHIER JSON CONTROLE")
-          print("CHEMIN:", relatif)
-          print("TAILLE:", taille)
+          print("JSON ENRICHI CONTROLE:", relatif)
           PY
 
       - name: Verifier la syntaxe Python
@@ -153,13 +126,14 @@ jobs:
           from pathlib import Path
 
           fichiers = [
-              Path("tester_execution_moteurs_x1000.py")
+              Path("verifier_source_pmu_moteurs.py"),
+              Path("tester_execution_moteurs_x1000.py"),
           ]
 
-          fichiers += [
+          fichiers.extend(
               Path("moteurs") / f"m{i}.py"
               for i in range(1, 6)
-          ]
+          )
 
           for fichier in fichiers:
               ast.parse(
@@ -167,12 +141,65 @@ jobs:
                   filename=str(fichier),
               )
               print("SYNTAXE OK:", fichier)
-
-          print("SYNTAXE M1-M5 VALIDEE")
           PY
 
-      - name: Executer les cinq moteurs
-        id: execution
+      - name: Verifier la date de collecte PMU
+        id: fraicheur
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -B - <<'PY'
+          import json
+          from datetime import datetime
+          from pathlib import Path
+          from zoneinfo import ZoneInfo
+
+          chemin = Path("sortie/publication_courses.json")
+
+          def refuser_constante(valeur):
+              raise ValueError(
+                  f"CONSTANTE_JSON_INTERDITE: {valeur}"
+              )
+
+          source = json.loads(
+              chemin.read_text(encoding="utf-8"),
+              parse_constant=refuser_constante,
+          )
+
+          if not isinstance(source, dict):
+              raise SystemExit("SOURCE_JSON_INVALIDE")
+
+          aujourd_hui = datetime.now(
+              ZoneInfo("Europe/Paris")
+          ).date().isoformat()
+
+          date_source = source.get("date_pmu")
+
+          if date_source != aujourd_hui:
+              raise SystemExit(
+                  "COLLECTE_NON_ACTUELLE: "
+                  f"{date_source} != {aujourd_hui}"
+              )
+
+          print("DATE PMU DU JOUR VALIDEE:", date_source)
+          PY
+
+      - name: Verifier la coherence locale PMU
+        id: pmu
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -B verifier_source_pmu_moteurs.py \
+            --source sortie/publication_courses.json \
+            --input "$FICHIER_COURSE"
+
+          echo "COHERENCE LOCALE PMU VALIDEE"
+
+      - name: Executer independamment M1-M5
+        id: moteurs
+        if: steps.pmu.outcome == 'success'
         shell: bash
         run: |
           set -euo pipefail
@@ -180,35 +207,36 @@ jobs:
           python -B tester_execution_moteurs_x1000.py \
             --input "$FICHIER_COURSE"
 
+          echo "EXECUTION TECHNIQUE M1-M5 REUSSIE"
+
       - name: Bilan final X1000
         if: always()
         shell: bash
         env:
-          EXECUTION_RESULT: ${{ steps.execution.outcome }}
-          JOB_STATUS: ${{ job.status }}
           ENTREE_RESULT: ${{ steps.entree.outcome }}
+          FRAICHEUR_RESULT: ${{ steps.fraicheur.outcome }}
+          PMU_RESULT: ${{ steps.pmu.outcome }}
+          MOTEURS_RESULT: ${{ steps.moteurs.outcome }}
+          JOB_STATUS: ${{ job.status }}
         run: |
           set -euo pipefail
 
-          echo "=================================="
-          echo "X1000 - BILAN EXECUTION M1-M5"
-          echo "=================================="
-
-          echo "Entree JSON: $ENTREE_RESULT"
-          echo "Execution moteurs: $EXECUTION_RESULT"
-          echo "Statut global: $JOB_STATUS"
-
           {
-            echo "## X1000 - Controle M1-M5"
+            echo "## X1000 - Controle PMU et M1-M5"
             echo ""
-            echo "- Entree JSON: $ENTREE_RESULT"
-            echo "- Execution M1-M5: $EXECUTION_RESULT"
+            echo "- Fichier entree: $ENTREE_RESULT"
+            echo "- Date collecte: $FRAICHEUR_RESULT"
+            echo "- Coherence locale PMU: $PMU_RESULT"
+            echo "- Execution M1-M5: $MOTEURS_RESULT"
             echo "- Statut global: $JOB_STATUS"
-            echo "- Authenticite PMU: non certifiee"
-            echo "- Arbitrage officiel: non execute"
-            echo "- FIGE: aucun prevu"
+            echo ""
+            echo "### Limites"
+            echo "- Authenticite PMU externe: non certifiee"
+            echo "- Notes sportives: non authentifiees"
+            echo "- Arbitrage officiel X1000: non execute"
             echo "- Publication: aucune"
+            echo "- FIGE: aucun prevu"
             echo "- Deploiement: aucun"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "AUCUN COMMIT PUSH OU DEPLOIEMENT"
+          echo "BILAN X1000: $JOB_STATUS"
