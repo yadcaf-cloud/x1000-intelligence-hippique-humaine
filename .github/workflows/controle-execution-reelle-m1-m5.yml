@@ -1,0 +1,214 @@
+name: "X1000 - Controle execution reelle M1-M5"
+
+on:
+  workflow_dispatch:
+    inputs:
+      fichier_course:
+        description: "Chemin relatif du JSON enrichi dans le depot"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: x1000-execution-moteurs-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verification:
+    name: "Execution independante M1-M5"
+
+    if: >-
+      github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
+      github.ref == 'refs/heads/fix/audit-general-pmu-20261118' &&
+      github.event_name == 'workflow_dispatch'
+
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONNOUSERSITE: "1"
+      PYTHONUNBUFFERED: "1"
+      PYTHONUTF8: "1"
+      FICHIER_COURSE: ${{ inputs.fichier_course }}
+
+    steps:
+      - name: Recuperer la branche autorisee
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Installer Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verifier la branche et Python
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test "$GITHUB_REPOSITORY" = \
+            "yadcaf-cloud/x1000-intelligence-hippique-humaine"
+
+          test "$GITHUB_REF" = \
+            "refs/heads/fix/audit-general-pmu-20261118"
+
+          python -B - <<'PY'
+          import sys
+
+          if sys.version_info[:2] != (3, 11):
+              raise SystemExit("PYTHON_3_11_REQUIS")
+
+          print("PYTHON 3.11 OK")
+          PY
+
+      - name: Verifier les scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          fichiers=(
+            tester_execution_moteurs_x1000.py
+            moteurs/m1.py
+            moteurs/m2.py
+            moteurs/m3.py
+            moteurs/m4.py
+            moteurs/m5.py
+          )
+
+          for fichier in "${fichiers[@]}"; do
+            if [[ ! -s "$fichier" ]]; then
+              echo "::error::Fichier absent ou vide: $fichier"
+              exit 1
+            fi
+
+            echo "FICHIER OK: $fichier"
+          done
+
+      - name: Verifier le chemin JSON
+        id: entree
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -B - <<'PY'
+          import os
+          from pathlib import Path
+
+          racine = Path.cwd().resolve()
+          nom = os.environ["FICHIER_COURSE"].strip()
+
+          if not nom:
+              raise SystemExit("CHEMIN_COURSE_ABSENT")
+
+          relatif = Path(nom)
+
+          if relatif.is_absolute():
+              raise SystemExit("CHEMIN_ABSOLU_INTERDIT")
+
+          if ".." in relatif.parts:
+              raise SystemExit("TRAVERSEE_DOSSIERS_INTERDITE")
+
+          chemin = racine / relatif
+
+          if not chemin.resolve().is_relative_to(racine):
+              raise SystemExit("CHEMIN_HORS_DEPOT")
+
+          courant = racine
+          for partie in relatif.parts:
+              courant = courant / partie
+              if courant.is_symlink():
+                  raise SystemExit("LIEN_SYMBOLIQUE_INTERDIT")
+
+          if not chemin.is_file():
+              raise SystemExit("FICHIER_COURSE_ABSENT")
+
+          if chemin.suffix.lower() != ".json":
+              raise SystemExit("FORMAT_JSON_REQUIS")
+
+          taille = chemin.stat().st_size
+
+          if taille == 0:
+              raise SystemExit("FICHIER_COURSE_VIDE")
+
+          if taille > 5 * 1024 * 1024:
+              raise SystemExit("FICHIER_COURSE_TROP_VOLUMINEUX")
+
+          print("FICHIER JSON CONTROLE")
+          print("CHEMIN:", relatif)
+          print("TAILLE:", taille)
+          PY
+
+      - name: Verifier la syntaxe Python
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -B - <<'PY'
+          import ast
+          from pathlib import Path
+
+          fichiers = [
+              Path("tester_execution_moteurs_x1000.py")
+          ]
+
+          fichiers += [
+              Path("moteurs") / f"m{i}.py"
+              for i in range(1, 6)
+          ]
+
+          for fichier in fichiers:
+              ast.parse(
+                  fichier.read_text(encoding="utf-8"),
+                  filename=str(fichier),
+              )
+              print("SYNTAXE OK:", fichier)
+
+          print("SYNTAXE M1-M5 VALIDEE")
+          PY
+
+      - name: Executer les cinq moteurs
+        id: execution
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python -B tester_execution_moteurs_x1000.py \
+            --input "$FICHIER_COURSE"
+
+      - name: Bilan final X1000
+        if: always()
+        shell: bash
+        env:
+          EXECUTION_RESULT: ${{ steps.execution.outcome }}
+          JOB_STATUS: ${{ job.status }}
+          ENTREE_RESULT: ${{ steps.entree.outcome }}
+        run: |
+          set -euo pipefail
+
+          echo "=================================="
+          echo "X1000 - BILAN EXECUTION M1-M5"
+          echo "=================================="
+
+          echo "Entree JSON: $ENTREE_RESULT"
+          echo "Execution moteurs: $EXECUTION_RESULT"
+          echo "Statut global: $JOB_STATUS"
+
+          {
+            echo "## X1000 - Controle M1-M5"
+            echo ""
+            echo "- Entree JSON: $ENTREE_RESULT"
+            echo "- Execution M1-M5: $EXECUTION_RESULT"
+            echo "- Statut global: $JOB_STATUS"
+            echo "- Authenticite PMU: non certifiee"
+            echo "- Arbitrage officiel: non execute"
+            echo "- FIGE: aucun prevu"
+            echo "- Publication: aucune"
+            echo "- Deploiement: aucun"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "AUCUN COMMIT PUSH OU DEPLOIEMENT"
