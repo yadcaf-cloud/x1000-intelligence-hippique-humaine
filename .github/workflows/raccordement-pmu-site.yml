@@ -1,40 +1,34 @@
-name: "X1000 - Audit general raccordement PMU site"
+name: "X1000 - Raccordement reel PMU - Validation securisee"
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - "fix/audit-general-pmu-20261118"
-    paths:
-      - ".github/workflows/raccordement-pmu-site.yml"
-      - "collecte_pmu.py"
-      - "adapter_collecte_tableau.py"
-      - "preparer_site_pmu.py"
-      - "index.html"
-      - "tableau-pmu.html"
-      - "data/publication_moteurs.json"
 
 permissions:
   contents: read
 
 concurrency:
-  group: x1000-audit-raccordement-${{ github.ref }}
+  group: x1000-validation-pmu-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  audit-raccordement:
-    name: "X1000 - Controle complet PMU et site"
+  validation:
+    name: "Collecte PMU - Controle complet sans deploiement"
 
     if: >-
       github.repository == 'yadcaf-cloud/x1000-intelligence-hippique-humaine' &&
       github.ref_name == 'fix/audit-general-pmu-20261118'
 
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 35
+
+    defaults:
+      run:
+        shell: bash
 
     env:
-      X1000_SORTIE: sortie
       PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      X1000_SORTIE: "sortie"
 
     steps:
       - name: Recuperer la branche de reparation
@@ -47,8 +41,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Verifier le depot et la branche
-        shell: bash
+      - name: Controle du depot et de la branche
         run: |
           set -euo pipefail
 
@@ -58,10 +51,9 @@ jobs:
           test "$GITHUB_REF_NAME" = \
             "fix/audit-general-pmu-20261118"
 
-          echo "DEPOT_ET_BRANCHE_OK"
+          echo "DEPOT_ET_BRANCHE_AUTORISES"
 
-      - name: Verifier les fichiers du raccordement
-        shell: bash
+      - name: Verifier les fichiers necessaires
         run: |
           set -euo pipefail
 
@@ -73,15 +65,13 @@ jobs:
             tableau-pmu.html
           do
             if [ ! -s "$fichier" ]; then
-              echo "::error::Fichier absent ou vide: $fichier"
+              echo "::error::FICHIER_ABSENT_OU_VIDE: $fichier"
               exit 1
             fi
+            echo "FICHIER_OK: $fichier"
           done
 
-          echo "FICHIERS_PRESENTS"
-
       - name: Verifier la syntaxe Python
-        shell: bash
         run: |
           set -euo pipefail
 
@@ -103,8 +93,7 @@ jobs:
               print("SYNTAXE_OK:", nom)
           PY
 
-      - name: Collecter les donnees reelles PMU
-        shell: bash
+      - name: Collecter les donnees PMU reelles
         run: |
           set -euo pipefail
 
@@ -114,10 +103,9 @@ jobs:
 
           test -s sortie/publication_courses.json
 
-          echo "COLLECTE_PMU_OK"
+          echo "COLLECTE_TERMINEE"
 
-      - name: Adapter les donnees du tableau
-        shell: bash
+      - name: Adapter les donnees au tableau
         run: |
           set -euo pipefail
 
@@ -125,10 +113,9 @@ jobs:
 
           test -s sortie/recherche_courses_du_jour.json
 
-          echo "ADAPTATION_OK"
+          echo "ADAPTATION_TERMINEE"
 
-      - name: Preparer le site
-        shell: bash
+      - name: Preparer le site sans le publier
         run: |
           set -euo pipefail
 
@@ -141,217 +128,345 @@ jobs:
             site_pmu/data/etat_publication.json \
             site_pmu/sortie/recherche_courses_du_jour.json
           do
-            test -s "$fichier" || {
-              echo "::error::Publication absente: $fichier"
+            if [ ! -s "$fichier" ]; then
+              echo "::error::PUBLICATION_INCOMPLETE: $fichier"
               exit 1
-            }
+            fi
           done
 
-          echo "PREPARATION_SITE_OK"
+          echo "SITE_PREPARE_SANS_DEPLOIEMENT"
 
-      - name: Auditer les donnees et les moteurs
-        id: audit
-        shell: bash
+      - name: Validation complete des donnees
         run: |
           set -euo pipefail
 
           python - <<'PY'
           import json
+          import re
           from datetime import datetime
           from pathlib import Path
           from zoneinfo import ZoneInfo
 
-          base = Path("site_pmu")
-          dossier = Path("sortie")
-          dossier.mkdir(exist_ok=True)
+          PARIS = ZoneInfo("Europe/Paris")
+          TODAY = datetime.now(PARIS).date().isoformat()
 
-          today = datetime.now(
-              ZoneInfo("Europe/Paris")
-          ).date().isoformat()
-
-          def lire(chemin):
-              with chemin.open(encoding="utf-8") as f:
-                  return json.load(f)
-
-          courses = lire(
-              base / "data/publication_courses.json"
-          )
-          candidats = lire(
-              base / "sortie/recherche_courses_du_jour.json"
-          )
-          etat = lire(
-              base / "data/etat_publication.json"
+          ROOT = Path("site_pmu")
+          ID_RE = re.compile(
+              r"^\d{4}-\d{2}-\d{2}-R[1-9]\d*-C[1-9]\d*$"
           )
 
-          erreurs = []
-          alertes = []
+          def fail(message):
+              raise SystemExit(message)
 
-          if courses.get("date_pmu") != today:
-              erreurs.append("DATE_PMU_INVALIDE")
+          def load(path):
+              if not path.is_file():
+                  fail(f"FICHIER_ABSENT: {path}")
+              try:
+                  return json.loads(
+                      path.read_text(encoding="utf-8")
+                  )
+              except (ValueError, UnicodeError) as exc:
+                  fail(f"JSON_INVALIDE: {path}: {exc}")
+
+          courses = load(
+              ROOT / "data/publication_courses.json"
+          )
+          candidats = load(
+              ROOT / "sortie/recherche_courses_du_jour.json"
+          )
+          etat = load(
+              ROOT / "data/etat_publication.json"
+          )
+
+          if not isinstance(courses, dict):
+              fail("FORMAT_COURSES_INVALIDE")
+
+          if not isinstance(candidats, dict):
+              fail("FORMAT_CANDIDATS_INVALIDE")
+
+          if not isinstance(etat, dict):
+              fail("FORMAT_ETAT_INVALIDE")
 
           if courses.get("schema") != "x1000-pmu-france-v1":
-              erreurs.append("SCHEMA_COURSES_INVALIDE")
+              fail("SCHEMA_COURSES_INVALIDE")
 
-          if courses.get("source") != "PMU TurfInfo":
-              erreurs.append("SOURCE_PMU_INVALIDE")
+          if candidats.get("schema") != "x1000-candidates-v1":
+              fail("SCHEMA_CANDIDATS_INVALIDE")
 
-          liste = courses.get("courses", [])
+          if courses.get("date_pmu") != TODAY:
+              fail("COURSES_PERIMEES")
+
+          if candidats.get("date") != TODAY:
+              fail("CANDIDATS_PERIMES")
+
+          if etat.get("date_pmu") != TODAY:
+              fail("ETAT_PERIME")
+
+          for document in (courses, candidats):
+              if document.get("source") != "PMU TurfInfo":
+                  fail("SOURCE_PMU_NON_CONFORME")
+
+          liste = courses.get("courses")
+          selection = candidats.get("courses_candidates")
+
           if not isinstance(liste, list) or not liste:
-              erreurs.append("AUCUNE_COURSE_VERIFIEE")
-              liste = []
+              fail("AUCUNE_COURSE_VERIFIEE")
+
+          if not isinstance(selection, list):
+              fail("CANDIDATS_INVALIDES")
 
           ids = set()
 
           for course in liste:
               if not isinstance(course, dict):
-                  erreurs.append("COURSE_MAL_FORMEE")
-                  continue
+                  fail("COURSE_MAL_FORMEE")
 
               cid = course.get("course_id")
-              if not isinstance(cid, str) or cid in ids:
-                  erreurs.append("ID_COURSE_INVALIDE")
-              else:
-                  ids.add(cid)
+
+              if not isinstance(cid, str):
+                  fail("IDENTIFIANT_ABSENT")
+
+              if not ID_RE.fullmatch(cid):
+                  fail(f"IDENTIFIANT_INVALIDE: {cid}")
+
+              if cid in ids:
+                  fail(f"DOUBLON_COURSE: {cid}")
+
+              ids.add(cid)
+
+              if course.get("date") != TODAY:
+                  fail(f"DATE_INVALIDE: {cid}")
 
               if course.get("pays_verifie") != "FR":
-                  erreurs.append("COURSE_HORS_FRANCE")
+                  fail(f"COURSE_HORS_FRANCE: {cid}")
 
-              if course.get("date") != today:
-                  erreurs.append("DATE_COURSE_INVALIDE")
+              if not course.get("hippodrome"):
+                  fail(f"HIPPODROME_ABSENT: {cid}")
 
-              if not course.get("partants"):
-                  erreurs.append("PARTANTS_ABSENTS")
+              depart = course.get("depart")
 
-          candidats_liste = candidats.get(
-              "courses_candidates", []
-          )
+              if not isinstance(depart, str):
+                  fail(f"DEPART_ABSENT: {cid}")
 
-          if not isinstance(candidats_liste, list):
-              erreurs.append("CANDIDATS_INVALIDES")
-              candidats_liste = []
+              try:
+                  dt = datetime.fromisoformat(
+                      depart.replace("Z", "+00:00")
+                  )
+              except ValueError:
+                  fail(f"DEPART_INVALIDE: {cid}")
 
-          ids_candidats = [
-              c.get("course_id")
-              for c in candidats_liste
-              if isinstance(c, dict)
+              if dt.tzinfo is None:
+                  fail(f"FUSEAU_ABSENT: {cid}")
+
+              if dt.astimezone(PARIS).date().isoformat() != TODAY:
+                  fail(f"DEPART_HORS_DATE: {cid}")
+
+              partants = course.get("partants")
+
+              if not isinstance(partants, list) or not partants:
+                  fail(f"PARTANTS_ABSENTS: {cid}")
+
+              numeros = set()
+              actifs = 0
+
+              for cheval in partants:
+                  if not isinstance(cheval, dict):
+                      fail(f"PARTANT_INVALIDE: {cid}")
+
+                  numero = cheval.get("numero")
+                  nom = cheval.get("nom")
+                  np = cheval.get("non_partant")
+
+                  if type(numero) is not int or numero <= 0:
+                      fail(f"NUMERO_INVALIDE: {cid}")
+
+                  if numero in numeros:
+                      fail(f"DOUBLON_PARTANT: {cid}")
+
+                  numeros.add(numero)
+
+                  if not isinstance(nom, str) or not nom.strip():
+                      fail(f"NOM_PARTANT_ABSENT: {cid}")
+
+                  if type(np) is not bool:
+                      fail(f"STATUT_PARTANT_INVALIDE: {cid}")
+
+                  if not np:
+                      actifs += 1
+
+              if actifs == 0:
+                  fail(f"AUCUN_PARTANT_ACTIF: {cid}")
+
+          ids_candidats = []
+
+          for candidat in selection:
+              if not isinstance(candidat, dict):
+                  fail("CANDIDAT_MAL_FORME")
+
+              cid = candidat.get("course_id")
+
+              if not isinstance(cid, str):
+                  fail("ID_CANDIDAT_ABSENT")
+
+              if candidat.get("pays_verifie") != "FR":
+                  fail(f"CANDIDAT_HORS_FRANCE: {cid}")
+
+              ids_candidats.append(cid)
+
+          if len(ids_candidats) != len(set(ids_candidats)):
+              fail("DOUBLONS_CANDIDATS")
+
+          if set(ids_candidats) != ids:
+              fail("RACCORDEMENT_COURSES_INCOHERENT")
+
+          if etat.get("nombre_courses") != len(ids):
+              fail("COMPTEUR_COURSES_INCOHERENT")
+
+          if etat.get("deploiement_effectue") is not False:
+              fail("ETAT_DEPLOIEMENT_INATTENDU")
+
+          print("DATE_PMU:", TODAY)
+          print("COURSES_FRANCE:", len(ids))
+          print("PARTANTS_ET_HORAIRES_VALIDES")
+          print("RACCORDEMENT_JSON_VALIDE")
+          print("AUCUN_DEPLOIEMENT")
+          PY
+
+      - name: Verifier le raccordement HTML et JSON
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          from pathlib import Path
+
+          base = Path("site_pmu")
+
+          pages = [
+              base / "index.html",
+              base / "tableau-pmu.html",
           ]
 
-          if (
-              len(ids_candidats) != len(ids)
-              or set(ids_candidats) != ids
-          ):
-              erreurs.append("CANDIDATS_NON_RACCORDES")
+          chemins = [
+              "data/publication_courses.json",
+              "sortie/recherche_courses_du_jour.json",
+          ]
 
-          moteurs_path = (
-              base / "data/publication_moteurs.json"
-          )
-
-          moteurs_presents = moteurs_path.is_file()
-          moteurs_json_valide = False
-
-          if moteurs_presents:
-              try:
-                  moteurs = lire(moteurs_path)
-                  moteurs_json_valide = isinstance(
-                      moteurs, dict
+          for chemin in chemins:
+              if not (base / chemin).is_file():
+                  raise SystemExit(
+                      f"RESSOURCE_ABSENTE: {chemin}"
                   )
-                  if not moteurs_json_valide:
-                      alertes.append(
-                          "PUBLICATION_MOTEURS_STRUCTURE_INCONNUE"
-                      )
-              except (ValueError, UnicodeError):
-                  alertes.append(
-                      "PUBLICATION_MOTEURS_JSON_INVALIDE"
+
+          contenus = {}
+
+          for page in pages:
+              contenu = page.read_text(
+                  encoding="utf-8"
+              )
+              contenus[page.name] = contenu
+
+              if "<html" not in contenu.lower():
+                  raise SystemExit(
+                      f"HTML_INVALIDE: {page}"
                   )
-          else:
-              alertes.append(
-                  "PUBLICATION_MOTEURS_ABSENTE_HTTP_404_POSSIBLE"
+
+              print("PAGE_PRESENTE:", page.name)
+
+          accueil = contenus["index.html"]
+
+          for chemin in chemins:
+              if chemin not in accueil:
+                  raise SystemExit(
+                      f"RACCORDEMENT_HTML_ABSENT: {chemin}"
+                  )
+
+              print("REFERENCE_JSON_OK:", chemin)
+
+          if "fetch(" not in accueil:
+              raise SystemExit(
+                  "CHARGEMENT_JAVASCRIPT_ABSENT"
               )
 
-          if etat.get("date_pmu") != today:
-              erreurs.append("ETAT_PUBLICATION_PERIME")
+          print("RACCORDEMENT_STATIQUE_OK")
+          print(
+              "NOTE: chargement navigateur "
+              "non encore teste"
+          )
+          PY
 
-          rapport = {
-              "date_audit": datetime.now(
-                  ZoneInfo("Europe/Paris")
-              ).isoformat(),
-              "date_pmu": today,
-              "courses_verifiees": len(liste),
-              "candidats": len(candidats_liste),
-              "moteurs_fichier_present": moteurs_presents,
-              "moteurs_json_valide": moteurs_json_valide,
-              "figes_authentifies": False,
-              "erreurs": erreurs,
-              "alertes": alertes,
-              "deploiement_effectue": False,
-              "modification_archives": False,
-          }
+      - name: Controler la publication M1 a M5
+        run: |
+          set -euo pipefail
 
-          destination = dossier / "audit_raccordement.json"
-          destination.write_text(
-              json.dumps(
-                  rapport,
-                  ensure_ascii=False,
-                  indent=2
-              ) + "\n",
-              encoding="utf-8"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          chemin = Path(
+              "site_pmu/data/publication_moteurs.json"
           )
 
-          print(json.dumps(
-              rapport,
-              ensure_ascii=False,
-              indent=2
-          ))
+          if not chemin.is_file():
+              print(
+                  "::warning::Publication M1-M5 absente. "
+                  "Aucun pronostic ne sera invente."
+              )
+          else:
+              with chemin.open(encoding="utf-8") as f:
+                  data = json.load(f)
 
-          if erreurs:
-              raise SystemExit(
-                  "ECHEC_AUDIT_RACCORDEMENT"
+              if not isinstance(data, dict):
+                  raise SystemExit(
+                      "PUBLICATION_MOTEURS_INVALIDE"
+                  )
+
+              print("PUBLICATION_MOTEURS_PRESENTE")
+              print(
+                  "AUTHENTICITE_FIGES_NON_CERTIFIEE"
               )
           PY
 
-      - name: Conserver le site prepare
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: x1000-site-controle-${{ github.run_id }}
-          path: site_pmu/
-          if-no-files-found: error
-          retention-days: 7
-          include-hidden-files: true
-
-      - name: Conserver le rapport de diagnostic
+      - name: Conserver les diagnostics sans publication
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: x1000-audit-${{ github.run_id }}
+          name: x1000-diagnostic-pmu-${{ github.run_id }}
           path: |
-            sortie/audit_raccordement.json
             sortie/publication_courses.json
             sortie/recherche_courses_du_jour.json
+            site_pmu/data/etat_publication.json
+            site_pmu/data/publication_courses.json
+            site_pmu/sortie/recherche_courses_du_jour.json
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 7
 
-      - name: Rapport final GitHub Actions
+      - name: Rapport final de validation
         if: always()
-        shell: bash
+        env:
+          RESULTAT_JOB: ${{ job.status }}
         run: |
           {
-            echo "## X1000 - Audit general raccordement"
+            echo "## X1000 - Audit raccordement PMU"
             echo ""
             echo "Depot : $GITHUB_REPOSITORY"
             echo "Branche : $GITHUB_REF_NAME"
-            echo "Execution : $GITHUB_RUN_ID"
+            echo "Resultat : $RESULTAT_JOB"
             echo ""
-            echo "### Securite"
-            echo "- Aucun commit automatique"
-            echo "- Aucun push automatique"
-            echo "- Aucun deploiement automatique"
-            echo "- Aucun FIGE cree ou modifie"
-            echo "- Aucune archive historique modifiee"
-            echo "- Aucun pronostic cree"
+            echo "Collecte PMU reelle"
+            echo "Validation des courses France"
+            echo "Validation des partants"
+            echo "Validation des horaires"
+            echo "Adaptation JSON"
+            echo "Preparation du site"
+            echo "Controle des references HTML"
             echo ""
-            echo "### Diagnostic"
-            echo "Consulter l'artefact x1000-audit."
-            echo "Verifier la presence du JSON des moteurs."
-            echo "Le succes ne certifie pas GitHub Pages."
+            echo "DEPLOIEMENT PUBLIC DESACTIVE"
+            echo "Aucun commit automatique"
+            echo "Aucun push automatique"
+            echo "Aucun FIGE modifie"
+            echo "Aucune archive modifiee"
+            echo "Aucun pronostic invente"
+            echo ""
+            echo "La validation ne constitue pas"
+            echo "une preuve de chargement navigateur."
           } >> "$GITHUB_STEP_SUMMARY"
